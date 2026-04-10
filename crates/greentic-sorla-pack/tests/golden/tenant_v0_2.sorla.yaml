@@ -1,0 +1,44 @@
+package:
+  name: tenancy
+  version: 0.2.0
+records:
+  - name: Tenant
+    source: hybrid
+    external_ref:
+      system: crm
+      key: tenant_id
+      authoritative: true
+    fields:
+      - name: approval_state
+        type: string
+        authority: local
+      - name: tenant_id
+        type: string
+        authority: external
+events:
+  - name: TenantApprovalRequested
+    record: Tenant
+    kind: domain
+    emits:
+      - name: approval_state
+        type: string
+      - name: tenant_id
+        type: string
+projections:
+  - name: TenantCurrentState
+    record: Tenant
+    source_event: TenantApprovalRequested
+    mode: current-state
+provider_requirements:
+  - category: storage
+    capabilities:
+      - projections
+      - event-log
+  - category: external-ref
+    capabilities:
+      - lookup
+migrations:
+  - name: tenant-projection-v2
+    compatibility: additive
+    projection_updates:
+      - TenantCurrentState

@@ -1,0 +1,17 @@
+[package]
+name = "greentic-sorla-lang"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Language-facing types for Greentic SoRLa."
+readme = "README.md"
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_yaml.workspace = true

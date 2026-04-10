@@ -1,0 +1,38 @@
+[package]
+name = "greentic-sorla"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Wizard-first CLI for Greentic SoRLa."
+readme = "README.md"
+include = ["src/**", "benches/**", "tests/**", "examples/**", "Cargo.toml", "README.md"]
+
+[lib]
+name = "greentic_sorla_cli"
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }-v{ version }.tar.gz"
+bin-dir = "{ name }-{ target }-v{ version }/{ bin }{ binary-ext }"
+
+[[bin]]
+name = "greentic-sorla"
+path = "src/main.rs"
+
+[[bench]]
+name = "perf"
+harness = false
+
+[dependencies]
+ciborium.workspace = true
+clap.workspace = true
+greentic-qa-lib.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true

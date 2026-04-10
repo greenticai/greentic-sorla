@@ -1,0 +1,195 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (must match v<version>)
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt clippy
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+
+      - name: Read version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish == null or (.publish | length) > 0) | .version' | head -n 1)"
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          if [[ -z "${TAG:-}" ]]; then
+            echo "No tag supplied for publish workflow" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "release_tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "selected_tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          if [[ "${TAG}" != "v${VERSION}" ]]; then
+            echo "Ref mismatch: tag is ${TAG}, expected v${VERSION}" >&2
+            exit 1
+          fi
+
+      - name: Run local checks
+        run: CI=true bash ci/local_check.sh
+
+      - name: Check changelog
+        run: |
+          if [[ ! -f CHANGELOG.md ]]; then
+            echo "No CHANGELOG.md found. Add release notes before release if required by repo policy." >&2
+          fi
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [verify]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure GitHub release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.release_tag }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --title "${VERSION}"
+          else
+            gh release create "${TAG}" --title "${VERSION}" --generate-notes
+          fi
+
+  release-binaries:
+    needs: [verify, create-release]
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release -p greentic-sorla --bin greentic-sorla --target ${{ matrix.target }}
+
+      - name: Package release archive
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          BIN="greentic-sorla"
+          if [[ "${TARGET}" == *windows* ]]; then
+            BIN="${BIN}.exe"
+          fi
+
+          ARCHIVE_ROOT="greentic-sorla-${TARGET}-v${VERSION}"
+          mkdir -p "dist/${ARCHIVE_ROOT}"
+          cp "target/${TARGET}/release/${BIN}" "dist/${ARCHIVE_ROOT}/${BIN}"
+          cp README.md LICENSE "dist/${ARCHIVE_ROOT}/"
+          tar -czf "${ARCHIVE_ROOT}.tar.gz" -C dist "${ARCHIVE_ROOT}"
+
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${ARCHIVE_ROOT}.tar.gz" > "${ARCHIVE_ROOT}.tar.gz.sha256"
+          else
+            shasum -a 256 "${ARCHIVE_ROOT}.tar.gz" > "${ARCHIVE_ROOT}.tar.gz.sha256"
+          fi
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.release_tag }}
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          ARCHIVE_ROOT="greentic-sorla-${TARGET}-v${VERSION}"
+          gh release upload "${TAG}" \
+            "${ARCHIVE_ROOT}.tar.gz" \
+            "${ARCHIVE_ROOT}.tar.gz.sha256" \
+            --clobber
+
+  publish-crates:
+    runs-on: ubuntu-latest
+    needs: [verify, release-binaries]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Publish packages to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+            echo "Missing CARGO_REGISTRY_TOKEN secret." >&2
+            exit 1
+          fi
+
+          crates="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish == null or (.publish | length) > 0) | .name')"
+          for crate in ${crates}; do
+            echo "Publishing crate: ${crate}"
+            cargo publish --dry-run -p "${crate}"
+            for attempt in 1 2 3; do
+              if cargo publish -p "${crate}"; then
+                break
+              fi
+              echo "Publish attempt ${attempt} failed for ${crate}. Retrying..."
+              if [[ "${attempt}" == "3" ]]; then
+                exit 1
+              fi
+              sleep $((attempt * 10))
+            done
+          done

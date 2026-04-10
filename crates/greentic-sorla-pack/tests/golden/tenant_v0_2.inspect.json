@@ -1,0 +1,93 @@
+{
+  "ir_version": {
+    "major": 0,
+    "minor": 1
+  },
+  "package": {
+    "name": "tenancy",
+    "version": "0.2.0"
+  },
+  "records": [
+    {
+      "name": "Tenant",
+      "source": "hybrid",
+      "fields": [
+        {
+          "name": "approval_state",
+          "type_name": "string",
+          "authority": "local"
+        },
+        {
+          "name": "tenant_id",
+          "type_name": "string",
+          "authority": "external"
+        }
+      ],
+      "external_source": "crm"
+    }
+  ],
+  "events": [
+    {
+      "name": "TenantApprovalRequested",
+      "record": "Tenant",
+      "kind": "domain",
+      "emits": [
+        {
+          "name": "approval_state",
+          "type_name": "string"
+        },
+        {
+          "name": "tenant_id",
+          "type_name": "string"
+        }
+      ]
+    }
+  ],
+  "actions": [],
+  "policies": [],
+  "approvals": [],
+  "views": [],
+  "flows": [],
+  "projections": [
+    {
+      "name": "TenantCurrentState",
+      "record": "Tenant",
+      "source_event": "TenantApprovalRequested",
+      "mode": "current-state"
+    }
+  ],
+  "external_sources": [
+    {
+      "record": "Tenant",
+      "system": "crm",
+      "key": "tenant_id",
+      "authoritative": true
+    }
+  ],
+  "compatibility": [
+    {
+      "name": "tenant-projection-v2",
+      "compatibility": "additive",
+      "projection_updates": [
+        "TenantCurrentState"
+      ]
+    }
+  ],
+  "provider_contract": {
+    "categories": [
+      {
+        "category": "external-ref",
+        "capabilities": [
+          "lookup"
+        ]
+      },
+      {
+        "category": "storage",
+        "capabilities": [
+          "event-log",
+          "projections"
+        ]
+      }
+    ]
+  }
+}

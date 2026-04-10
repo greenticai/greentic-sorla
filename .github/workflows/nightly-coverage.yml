@@ -1,0 +1,44 @@
+name: Nightly Coverage
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    name: setup-rust
+    uses: ./.github/workflows/_reusable_rust.yml
+    with:
+      run-doc: false
+
+  coverage:
+    name: run-coverage
+    needs: [nightly]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-binstall
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-binstall
+
+      - name: Install required binaries
+        run: |
+          cargo binstall -y cargo-llvm-cov
+          cargo binstall -y greentic-dev
+
+      - name: Run coverage and enforce policy
+        run: |
+          set -euo pipefail
+          if ! command -v greentic-dev >/dev/null 2>&1; then
+            echo "greentic-dev not found in PATH." >&2
+            exit 1
+          fi
+          greentic-dev coverage --policy-file coverage-policy.json

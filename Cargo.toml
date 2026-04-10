@@ -1,0 +1,30 @@
+[workspace]
+members = [
+  "crates/greentic-sorla-cli",
+  "crates/greentic-sorla-ir",
+  "crates/greentic-sorla-lang",
+  "crates/greentic-sorla-pack",
+  "crates/greentic-sorla-wizard",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/greenticai/greentic-sorla"
+homepage = "https://github.com/greenticai/greentic-sorla"
+documentation = "https://docs.rs/greentic-sorla"
+readme = "README.md"
+keywords = ["greentic", "sorla", "wizard", "compiler"]
+categories = ["development-tools", "command-line-utilities"]
+
+[workspace.dependencies]
+ciborium = "0.2"
+clap = { version = "4.5", features = ["derive"] }
+criterion = "0.8"
+greentic-qa-lib = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.11"
