@@ -2037,10 +2037,16 @@ mod tests {
 
     #[test]
     fn embedded_i18n_catalogs_are_available_without_filesystem_lookups() {
-        let resolved = load_interactive_i18n("es").expect("embedded locale should load");
+        let english = load_interactive_i18n("en").expect("embedded en locale should load");
         assert_eq!(
-            resolved.get("wizard.title").map(String::as_str),
+            english.get("wizard.title").map(String::as_str),
             Some("SoRLa wizard")
+        );
+
+        let spanish = load_interactive_i18n("es").expect("embedded es locale should load");
+        assert_eq!(
+            spanish.get("wizard.title").map(String::as_str),
+            Some("Asistente de SoRLa")
         );
     }
 
