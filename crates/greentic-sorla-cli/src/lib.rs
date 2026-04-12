@@ -1280,7 +1280,7 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
 
 fn load_interactive_i18n(locale: &str) -> Option<ResolvedI18nMap> {
     let raw = embedded_i18n::locale_json(locale).or_else(|| embedded_i18n::locale_json("en"))?;
-    let map = serde_json::from_str::<BTreeMap<String, String>>(&raw).ok()?;
+    let map = serde_json::from_str::<BTreeMap<String, String>>(raw).ok()?;
     let mut resolved = ResolvedI18nMap::new();
     for (key, value) in map {
         resolved.insert(key, value);
