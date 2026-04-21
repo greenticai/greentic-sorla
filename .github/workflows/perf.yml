@@ -1,9 +1,12 @@
 name: Perf (lightweight)
 
 on:
-  pull_request:
+  schedule:
+    # 04:51 UTC — staggered to avoid hot-spots. See plans/binary-bifurcation.md Phase A.4.
+    - cron: "51 4 * * *"
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   perf:
