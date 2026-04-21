@@ -2040,7 +2040,7 @@ mod tests {
         let resolved = load_interactive_i18n("es").expect("embedded locale should load");
         assert_eq!(
             resolved.get("wizard.title").map(String::as_str),
-            Some("SoRLa wizard")
+            Some("Asistente de SoRLa")
         );
     }
 
