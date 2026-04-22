@@ -17,7 +17,7 @@ run_cmd() {
 missing_metadata() {
   local manifest_path="$1"
   local field="$2"
-  if ! rg -q "^[[:space:]]*${field}([[:space:]]*=[[:space:]]*|\\.workspace[[:space:]]*=[[:space:]]*true)" "$manifest_path"; then
+  if ! grep -qE "^[[:space:]]*${field}([[:space:]]*=[[:space:]]*|\\.workspace[[:space:]]*=[[:space:]]*true)" "$manifest_path"; then
     echo "Missing required field ${field} in ${manifest_path}" >&2
     return 1
   fi
