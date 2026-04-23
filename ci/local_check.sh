@@ -34,7 +34,10 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-mapfile -t PUBLISHABLE_ENTRIES < <(
+PUBLISHABLE_ENTRIES=()
+while IFS= read -r entry; do
+  PUBLISHABLE_ENTRIES+=("$entry")
+done < <(
   cargo metadata --no-deps --format-version 1 \
     | jq -r '.packages[] | select(.publish == null or (.publish | length) > 0) | [.name, .manifest_path] | @tsv'
 )

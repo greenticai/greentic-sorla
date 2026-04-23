@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ciborium",
  "clap",
@@ -671,7 +671,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-ir"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ciborium",
  "greentic-sorla-lang",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lang"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_yaml",
@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-pack"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ciborium",
  "greentic-sorla-ir",
@@ -701,7 +701,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-wizard"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "greentic-sorla",
  "greentic-sorla-lang",

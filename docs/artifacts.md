@@ -5,7 +5,7 @@ PR-03 introduces a deterministic IR and the first provider-facing artifact set.
 ## Goals
 
 - keep downstream consumers off the raw author-authored YAML
-- provide a stable contract for runtime packs and provider packs
+- provide a stable contract for downstream `gtc` assembly and extension handoff
 - make serialization deterministic from day one
 
 ## Canonical Rules
@@ -18,7 +18,7 @@ PR-03 introduces a deterministic IR and the first provider-facing artifact set.
 
 ## Current Artifact Set
 
-The current pack emitter produces:
+The current artifact emitter produces:
 
 - `model.cbor`
 - `actions.cbor`
@@ -30,12 +30,19 @@ The current pack emitter produces:
 - `external-sources.cbor`
 - `compatibility.cbor`
 - `provider-contract.cbor`
+- `launcher-handoff.cbor`
 - `package-manifest.cbor`
 - `agent-tools.json`
 
-`model.cbor` contains the full canonical IR. The split artifacts are intended to
-give downstream consumers narrower machine-readable contracts without requiring
-them to parse user-authored YAML.
+`model.cbor` contains the full canonical IR. The split artifacts are intended
+to give downstream consumers narrower machine-readable contracts without
+requiring them to parse user-authored YAML.
+
+`launcher-handoff.cbor` is the canonical handoff name. `package-manifest.cbor`
+remains as a compatibility alias during migration.
+
+These artifacts are not final packs or bundles. They are source artifacts and
+assembly inputs that can be handed off to `gtc`.
 
 ## Current Scope
 
