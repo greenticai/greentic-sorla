@@ -1,0 +1,8 @@
+{
+  "locale": "en",
+  "package": "tenancy",
+  "provider_categories": [
+    "storage",
+    "external-ref"
+  ]
+}

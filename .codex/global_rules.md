@@ -8,6 +8,12 @@ For THIS REPOSITORY, you must ALWAYS:
 
 Treat these as built-in prerequisites and finalisation steps for ALL work in this repo.
 
+### Architecture Rules
+
+Follow `.codex/architecture_rules.md` for the extension-first ownership
+boundary. In particular, do not grow local final pack/bundle generation in
+`greentic-sorla`; delegate final assembly to `gtc`.
+
 ---
 
 ### Workflow for EVERY PR

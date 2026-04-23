@@ -1,7 +1,13 @@
 # greentic-sorla
 
-`greentic-sorla` is the wizard-first home for the SoRLa language, IR, packaging,
-and guided authoring workflow.
+`greentic-sorla` is the wizard-first home for the SoRLa language, IR, and
+extension-facing authoring workflow on top of `gtc`.
+
+`gtc` owns final pack generation, bundle generation, extension launching,
+extension handoff, setup handoff, and start handoff. `greentic-sorla` does not
+own final runtime assembly. This repo produces SoRLa source outputs, canonical
+IR, and abstract metadata that `gtc` can consume through the shared extension
+mechanism.
 
 The supported product surface is:
 
@@ -10,30 +16,44 @@ greentic-sorla wizard --schema
 greentic-sorla wizard --answers answers.json
 ```
 
+For production composition, treat `gtc wizard --extensions ...` as the canonical
+entrypoint. The direct `greentic-sorla wizard` flow remains useful for local
+development, schema work, fixtures, and extension iteration.
+
 Provider implementations do not live here. This repo produces provider-agnostic
-artifacts and package metadata that can later bind to provider packs from
-`greentic-sorla-providers`.
+SoRLa artifacts and handoff-ready metadata that can later be assembled by `gtc`
+rather than by local pack or bundle builders.
 
 ## Workspace Layout
 
 - `crates/greentic-sorla-cli`: public CLI entrypoint
 - `crates/greentic-sorla-lang`: authoring-language-facing types
 - `crates/greentic-sorla-ir`: canonical IR scaffolding
-- `crates/greentic-sorla-pack`: package and manifest scaffolding
+- `crates/greentic-sorla-pack`: abstract artifact and manifest scaffolding
+  using legacy pack-oriented naming
 - `crates/greentic-sorla-wizard`: deterministic wizard schema generation
 - `docs/architecture.md`: repo responsibilities and boundaries
 - `docs/product-shape.md`: wizard-first product contract
 - `docs/wizard.md`: wizard schema and answer-model notes
+- `docs/extensions-with-gtc.md`: how SoRLa participates in the `gtc`
+  extension flow
+- `docs/naming-migration.md`: current naming rules and the compatibility mapping
+  from legacy package-manifest names to handoff names
 
 ## CLI
 
 The current scaffold keeps internal helper commands hidden and reserves the
-public surface for the wizard flow.
+public surface for the wizard flow. This standalone CLI is a local authoring
+and extension-development surface, not a competing pack/bundle toolchain.
 
 ```bash
 cargo run -p greentic-sorla -- wizard --schema
 cargo run -p greentic-sorla -- wizard --answers crates/greentic-sorla-cli/examples/answers/create_minimal.json
 ```
+
+For the intended production path, `gtc` should discover and launch
+`greentic-sorla` through its extension mechanism and then own the follow-on
+assembly flow.
 
 ## CI And Releases
 

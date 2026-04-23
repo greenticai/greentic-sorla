@@ -1,0 +1,31 @@
+{
+  "binding_mode": "abstract-category-resolution",
+  "handoff_kind": "provider-requirements",
+  "handoff_owner": "gtc",
+  "handoff_stage": "launcher",
+  "optional_capability_categories": [
+    "external-ref",
+    "evidence-store"
+  ],
+  "provider_repo": "greentic-sorla-providers",
+  "provider_requirement_declarations": [
+    {
+      "category": "storage",
+      "name": "storage",
+      "required": true
+    },
+    {
+      "category": "external-ref",
+      "name": "external_ref",
+      "required": true
+    },
+    {
+      "category": "evidence-store",
+      "name": "evidence",
+      "required": false
+    }
+  ],
+  "required_capability_categories": [
+    "storage"
+  ]
+}
