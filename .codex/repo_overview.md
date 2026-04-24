@@ -13,6 +13,8 @@
 | PR-07 | Extension-first architecture docs | implemented | Repo docs and Codex guidance now describe `greentic-sorla` as a `gtc` extension-layer product and delegate final assembly ownership to `gtc`. |
 | PR-08 | Extension handoff refactor | implemented | CLI-generated manifests now declare themselves as `gtc` launcher-handoff metadata, and `greentic-sorla-pack` now exposes handoff-first APIs while keeping legacy compatibility aliases. |
 | PR-09 | Naming migration | implemented | `handoff` is now the canonical integration term, source-authoring `package` language remains stable, and canonical launcher-handoff aliases are written alongside legacy package-manifest names. |
+| PR-10 | Shared binstall alignment | implemented | `greentic-sorla` now matches the shared `greenticai/.github` release-binaries archive pattern so `cargo binstall greentic-sorla` can consume the generic release assets, including Windows zip overrides. |
+| PR-11 | Rust 1.95 upgrade | implemented | All crate manifests, the checked-in toolchain file, and remaining workflow pins now target Rust 1.95 consistently. |
 
 ## 1. High-Level Purpose
 
@@ -30,6 +32,10 @@ PR-08 now carries that boundary into implementation: generated manifest JSON exp
 
 PR-09 standardizes naming around that boundary: SoRLa source authoring still uses `package`, but extension-integration outputs now use `handoff` as the canonical term, with migration aliases and documentation kept in place for compatibility.
 
+PR-10 aligns the publishable CLI crate with the shared org binstall/release pattern by switching binstall metadata to archive-format placeholders, adding Windows zip overrides, and matching the release wrapper to the reusable `release-binaries.yml` inputs.
+
+PR-11 finishes the toolchain bump to Rust 1.95 by updating the repo-local toolchain file, crate `rust-version` declarations, and the remaining workflow pins that were still on 1.94.
+
 ## 2. Main Components and Functionality
 
 - Component: workspace root
@@ -38,6 +44,7 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Key functionality:**
     - Defines the five-crate SoRLa workspace layout.
     - Shares package metadata and common dependencies across crates.
+    - Works with a repo-wide Rust 1.95 baseline enforced through per-crate manifests and the checked-in toolchain file.
   - **Key dependencies / integration points:** consumed by cargo metadata, CI, packaging, and publish workflows.
 
 - Component: `crates/greentic-sorla-cli`
@@ -50,6 +57,7 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
     - Runs an interactive `greentic-qa-lib` frontend when `wizard` is invoked without `--answers`, then converts those answers into the existing `AnswersDocument` flow.
     - Validates answers documents, resolves create/update defaults including locale fallback, writes `sorla.yaml` with generated-region ownership boundaries, and syncs wizard-owned generated artifacts under `.greentic-sorla/generated/`.
     - Generates canonical `launcher-handoff.json` plus legacy-compatible `package-manifest.json`, alongside provider and locale handoff metadata, so extension naming can migrate without breaking existing consumers.
+    - Publishes release metadata that matches the shared `greenticai/.github` binary archive layout so `cargo binstall greentic-sorla` can resolve GitHub release assets consistently across platforms.
     - Includes placeholder perf/concurrency harness files.
   - **Key dependencies / integration points:** intentionally stays self-contained for schema emission so the publishable CLI package can still pass crates.io dry-run checks; production composition is documented in terms of `gtc` extension launch and handoff.
 
@@ -99,21 +107,21 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
     - Optionally runs i18n `status`/`validate` checks when translator tool is available.
   - **Key dependencies / integration points:** used by CI/release jobs and local development.
 
+- Component: `rust-toolchain.toml`
+  - **Path:** `rust-toolchain.toml`
+  - **Role:** Checked-in canonical Rust toolchain pin.
+  - **Key functionality:** pins the repo to Rust 1.95.0 with `clippy` and `rustfmt` for local and CI consistency.
+
 - Component: `.github/workflows/ci.yml`
   - **Path:** `.github/workflows/ci.yml`
   - **Role:** Main CI pipeline.
   - **Key functionality:** lint/test/package jobs for PRs and pushes with concurrency cancellation.
   - **Key dependencies / integration points:** wraps local checks and reusable rust workflow.
 
-- Component: `.github/workflows/_reusable_rust.yml`
-  - **Path:** `.github/workflows/_reusable_rust.yml`
-  - **Role:** Shared GitHub Actions step definitions for Rust checks.
-  - **Key functionality:** installs toolchain, runs formatting, clippy, tests, build, and docs.
-
-- Component: `.github/workflows/publish.yml`
-  - **Path:** `.github/workflows/publish.yml`
-  - **Role:** Release workflow.
-  - **Key functionality:** verifies `v<version>` tag alignment, runs verification checks, runs publish dry-run then real publish with retries, uses `CARGO_REGISTRY_TOKEN`.
+- Component: `.github/workflows/release-binaries.yml`
+  - **Path:** `.github/workflows/release-binaries.yml`
+  - **Role:** Release wrapper for the shared org publish pipeline.
+  - **Key functionality:** delegates binary archive creation to `greenticai/.github/.github/workflows/release-binaries.yml@main` and crate publication to `greenticai/.github/.github/workflows/crates-publish.yml@main`, with Windows archives configured as zip so release assets match the crate’s `cargo-binstall` metadata.
 
 - Component: `.github/workflows/perf.yml`
   - **Path:** `.github/workflows/perf.yml`
