@@ -10,16 +10,25 @@
 | PR-04 | Wizard schema generation | verified | `wizard --schema` now emits a deterministic create/update schema with i18n keys, tests, and docs. |
 | PR-05 | Answers-driven wizard execution | verified | `wizard --answers` now validates, creates, updates, preserves user content outside generated blocks, and writes deterministic artifacts. |
 | PR-06 | i18n-ready wizard and gtpack-ready packaging | verified | Wizard schema/answers now carry locale fallback semantics and generate gtpack-ready package, provider, and locale metadata manifests. |
+| PR-07 | Extension-first architecture docs | implemented | Repo docs and Codex guidance now describe `greentic-sorla` as a `gtc` extension-layer product and delegate final assembly ownership to `gtc`. |
+| PR-08 | Extension handoff refactor | implemented | CLI-generated manifests now declare themselves as `gtc` launcher-handoff metadata, and `greentic-sorla-pack` now exposes handoff-first APIs while keeping legacy compatibility aliases. |
+| PR-09 | Naming migration | implemented | `handoff` is now the canonical integration term, source-authoring `package` language remains stable, and canonical launcher-handoff aliases are written alongside legacy package-manifest names. |
 
 ## 1. High-Level Purpose
 
-`greentic-sorla` is the wizard-first home for the SoRLa language, compiler-facing IR, packaging model, and guided authoring workflow. The repository is intended to produce provider-agnostic package metadata and runtime-facing artifacts rather than provider implementations themselves.
+`greentic-sorla` is the wizard-first home for the SoRLa language, compiler-facing IR, and extension-facing authoring workflow on top of `gtc`. The repository is intended to produce provider-agnostic source artifacts and abstract metadata rather than owning final runtime assembly itself.
 
 The current implementation now includes the verified PR-01 scaffold, PR-02 language semantics, the PR-03 canonical IR/artifact slice, the PR-04 wizard schema contract, and a working PR-05 answers execution path. The CLI can now create or update a minimal SoRLa package layout deterministically and refresh wizard-owned artifacts while preserving user-authored content outside generated regions.
 
-PR-06 is now implemented in the active CLI path: locale selection/fallback and generated package metadata are part of the wizard-owned output under `.greentic-sorla/generated/`.
+PR-06 is now implemented in the active CLI path: locale selection/fallback and generated metadata are part of the wizard-owned output under `.greentic-sorla/generated/`.
 
 The wizard entrypoint now also supports an interactive local mode backed by `greentic-qa-lib` when `--answers` is not provided, while still routing the collected answers through the same deterministic answers application pipeline.
+
+PR-07 updates the repo-level documentation and Codex guidance so `gtc` is documented as the owner of extension registry resolution, launcher/setup/start handoff, and final pack/bundle assembly. The standalone `greentic-sorla wizard` flow remains documented as a local authoring and extension-development surface.
+
+PR-08 now carries that boundary into implementation: generated manifest JSON explicitly marks itself as `gtc` launcher-handoff metadata, and the artifact crate now presents handoff-first APIs instead of package-assembly semantics as its primary surface.
+
+PR-09 standardizes naming around that boundary: SoRLa source authoring still uses `package`, but extension-integration outputs now use `handoff` as the canonical term, with migration aliases and documentation kept in place for compatibility.
 
 ## 2. Main Components and Functionality
 
@@ -40,9 +49,9 @@ The wizard entrypoint now also supports an interactive local mode backed by `gre
     - Emits a deterministic create/update wizard schema with stable section/question IDs, defaults, visibility rules, and artifact preferences.
     - Runs an interactive `greentic-qa-lib` frontend when `wizard` is invoked without `--answers`, then converts those answers into the existing `AnswersDocument` flow.
     - Validates answers documents, resolves create/update defaults including locale fallback, writes `sorla.yaml` with generated-region ownership boundaries, and syncs wizard-owned generated artifacts under `.greentic-sorla/generated/`.
-    - Generates `package-manifest.json`, `provider-requirements.json`, and `locale-manifest.json` with abstract provider category declarations and locale metadata intended for future gtpack/provider-pack binding.
+    - Generates canonical `launcher-handoff.json` plus legacy-compatible `package-manifest.json`, alongside provider and locale handoff metadata, so extension naming can migrate without breaking existing consumers.
     - Includes placeholder perf/concurrency harness files.
-  - **Key dependencies / integration points:** intentionally stays self-contained for schema emission so the publishable CLI package can still pass crates.io dry-run checks.
+  - **Key dependencies / integration points:** intentionally stays self-contained for schema emission so the publishable CLI package can still pass crates.io dry-run checks; production composition is documented in terms of `gtc` extension launch and handoff.
 
 - Component: `crates/greentic-sorla-lang`
   - **Path:** `crates/greentic-sorla-lang`
@@ -63,11 +72,13 @@ The wizard entrypoint now also supports an interactive local mode backed by `gre
 
 - Component: `crates/greentic-sorla-pack`
   - **Path:** `crates/greentic-sorla-pack`
-  - **Role:** Package and artifact emission crate.
+  - **Role:** Abstract artifact emission crate with handoff-first APIs and legacy pack-oriented compatibility aliases.
   - **Key functionality:**
     - Builds deterministic artifact sets from YAML package input.
-    - Emits a provider-agnostic package manifest plus split CBOR artifacts such as `model.cbor`, `events.cbor`, `projections.cbor`, `external-sources.cbor`, and `provider-contract.cbor`.
+    - Exposes `HandoffManifest`, `scaffold_handoff_manifest`, and `build_handoff_artifacts_from_yaml` as the primary API while preserving `PackageManifest`, `scaffold_manifest`, and `build_artifacts_from_yaml` aliases.
+    - Emits canonical `launcher-handoff.cbor` plus legacy-compatible `package-manifest.cbor`, along with split CBOR artifacts such as `model.cbor`, `events.cbor`, `projections.cbor`, `external-sources.cbor`, and `provider-contract.cbor`.
     - Produces inspectable JSON and `agent-tools.json` views for tests and downstream tooling.
+  - **Key dependencies / integration points:** documented as producing source artifacts and handoff-oriented metadata rather than final packs or bundles.
 
 - Component: `crates/greentic-sorla-wizard`
   - **Path:** `crates/greentic-sorla-wizard`
@@ -129,10 +140,10 @@ The wizard entrypoint now also supports an interactive local mode backed by `gre
   - **Role:** timing guardrail test.
   - **Key functionality:** placeholder timeout workload targets wizard schema generation.
 
-- Component: `docs/architecture.md`, `docs/product-shape.md`
+- Component: `docs/architecture.md`, `docs/product-shape.md`, `docs/extensions-with-gtc.md`
   - **Path:** `docs/`
   - **Role:** Architectural and product-shape documentation.
-  - **Key functionality:** documents wizard-first UX, crate boundaries, and the rule that providers live in `greentic-sorla-providers`.
+  - **Key functionality:** documents wizard-first UX, crate boundaries, the `gtc` extension ownership boundary, and the rule that providers live in `greentic-sorla-providers`.
 
 - Component: `docs/spec/v0.2.md`
   - **Path:** `docs/spec/v0.2.md`
@@ -142,7 +153,7 @@ The wizard entrypoint now also supports an interactive local mode backed by `gre
 - Component: `docs/artifacts.md`
   - **Path:** `docs/artifacts.md`
   - **Role:** Artifact contract documentation.
-  - **Key functionality:** documents canonical ordering/hash rules and the current emitted artifact set.
+  - **Key functionality:** documents canonical ordering/hash rules and frames the current emitted artifact set as extension-friendly source artifacts rather than final packs/bundles.
 
 - Component: `docs/wizard.md`
   - **Path:** `docs/wizard.md`
@@ -151,8 +162,13 @@ The wizard entrypoint now also supports an interactive local mode backed by `gre
 
 - Component: `docs/packaging.md`
   - **Path:** `docs/packaging.md`
-  - **Role:** Generated package metadata documentation.
-  - **Key functionality:** documents the new generated package manifest, provider requirements manifest, locale manifest, and the rule that provider bindings stay abstract in `greentic-sorla`.
+  - **Role:** Generated abstract metadata documentation.
+  - **Key functionality:** documents the canonical launcher handoff document, the legacy package-manifest alias, provider requirements metadata, locale metadata, and the rule that these remain abstract handoff metadata inside `greentic-sorla`.
+
+- Component: `docs/naming-migration.md`
+  - **Path:** `docs/naming-migration.md`
+  - **Role:** Compatibility and terminology guide.
+  - **Key functionality:** documents the canonical `handoff` terminology, the retained `package` source-authoring terminology, and the old-to-new filename/API mapping used during migration.
 
 - Component: `crates/greentic-sorla-cli/examples/answers`
   - **Path:** `crates/greentic-sorla-cli/examples/answers`
@@ -183,7 +199,12 @@ The wizard entrypoint now also supports an interactive local mode backed by `gre
 - Component: `.codex/global_rules.md`
   - **Path:** `.codex/global_rules.md`
   - **Role:** repository operating instructions.
-  - **Key functionality:** enforces pre/post PR summary and required local check behavior.
+  - **Key functionality:** enforces pre/post PR summary and required local check behavior, and now points contributors to extension-first architecture rules.
+
+- Component: `.codex/architecture_rules.md`
+  - **Path:** `.codex/architecture_rules.md`
+  - **Role:** Codex-facing architectural guardrails.
+  - **Key functionality:** explicitly forbids growing local final pack/bundle generation and directs future work toward the `gtc` extension boundary.
 
 - Component: `LICENSE`
   - **Path:** `LICENSE`

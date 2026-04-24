@@ -14,12 +14,14 @@ mod embedded_i18n;
 const GENERATED_BEGIN: &str = "# --- BEGIN GREENTIC-SORLA GENERATED ---";
 const GENERATED_END: &str = "# --- END GREENTIC-SORLA GENERATED ---";
 const LOCK_FILENAME: &str = "answers.lock.json";
+const LEGACY_PACKAGE_MANIFEST_FILENAME: &str = "package-manifest.json";
+const LAUNCHER_HANDOFF_FILENAME: &str = "launcher-handoff.json";
 
 #[derive(Debug, Parser)]
 #[command(
     name = "greentic-sorla",
-    about = "Wizard-first tooling for Greentic SoRLa packages.",
-    long_about = "greentic-sorla is a wizard-first tool for authoring SoRLa packages.\n\nSupported product surface:\n  greentic-sorla wizard --schema\n  greentic-sorla wizard --answers <file>\n",
+    about = "Wizard-first tooling for Greentic SoRLa source layouts and handoff artifacts.",
+    long_about = "greentic-sorla is a wizard-first tool for authoring SoRLa source layouts and extension handoff artifacts.\n\nSupported product surface:\n  greentic-sorla wizard --schema\n  greentic-sorla wizard --answers <file>\n",
     after_help = "Internal helper commands may exist, but the supported UX is the wizard flow."
 )]
 pub struct Cli {
@@ -374,20 +376,22 @@ fn apply_answers(answers: AnswersDocument) -> Result<ExecutionSummary, String> {
     write_lock_file(&lock_path, &resolved)?;
     written_files.push(relative_to_output(&output_dir, &lock_path));
 
-    let manifest_path = generated_dir.join("package-manifest.json");
-    let manifest_json = serde_json::to_vec_pretty(&build_manifest_payload(&resolved))
+    let manifest_json = serde_json::to_vec_pretty(&build_launcher_handoff_manifest(&resolved))
         .map_err(|err| err.to_string())?;
-    fs::write(&manifest_path, manifest_json).map_err(|err| {
-        format!(
-            "failed to write generated file {}: {err}",
-            manifest_path.display()
-        )
-    })?;
-    written_files.push(relative_to_output(&output_dir, &manifest_path));
+    let manifest_paths = write_generated_json_aliases(
+        &generated_dir,
+        &[LAUNCHER_HANDOFF_FILENAME, LEGACY_PACKAGE_MANIFEST_FILENAME],
+        &manifest_json,
+    )?;
+    written_files.extend(
+        manifest_paths
+            .iter()
+            .map(|path| relative_to_output(&output_dir, path)),
+    );
 
     let provider_requirements_path = generated_dir.join("provider-requirements.json");
     let provider_requirements_json =
-        serde_json::to_vec_pretty(&build_provider_requirement_manifest(&resolved))
+        serde_json::to_vec_pretty(&build_provider_handoff_manifest(&resolved))
             .map_err(|err| err.to_string())?;
     fs::write(&provider_requirements_path, provider_requirements_json).map_err(|err| {
         format!(
@@ -398,7 +402,7 @@ fn apply_answers(answers: AnswersDocument) -> Result<ExecutionSummary, String> {
     written_files.push(relative_to_output(&output_dir, &provider_requirements_path));
 
     let locale_manifest_path = generated_dir.join("locale-manifest.json");
-    let locale_manifest_json = serde_json::to_vec_pretty(&build_locale_manifest(&resolved))
+    let locale_manifest_json = serde_json::to_vec_pretty(&build_locale_handoff_manifest(&resolved))
         .map_err(|err| err.to_string())?;
     fs::write(&locale_manifest_path, locale_manifest_json).map_err(|err| {
         format!(
@@ -808,6 +812,21 @@ fn write_lock_file(path: &Path, resolved: &ResolvedAnswers) -> Result<(), String
         .map_err(|err| format!("failed to write generated file {}: {err}", path.display()))
 }
 
+fn write_generated_json_aliases(
+    generated_dir: &Path,
+    file_names: &[&str],
+    bytes: &[u8],
+) -> Result<Vec<PathBuf>, String> {
+    let mut written = Vec::new();
+    for file_name in file_names {
+        let path = generated_dir.join(file_name);
+        fs::write(&path, bytes)
+            .map_err(|err| format!("failed to write generated file {}: {err}", path.display()))?;
+        written.push(path);
+    }
+    Ok(written)
+}
+
 fn write_generated_block(path: &Path, generated_yaml: &str) -> Result<bool, String> {
     let block = format!("{GENERATED_BEGIN}\n{generated_yaml}{GENERATED_END}\n");
     let existing = if path.exists() {
@@ -953,8 +972,22 @@ fn render_package_yaml(resolved: &ResolvedAnswers) -> String {
     lines.join("\n") + "\n"
 }
 
-fn build_manifest_payload(resolved: &ResolvedAnswers) -> BTreeMap<&'static str, serde_json::Value> {
+fn build_launcher_handoff_manifest(
+    resolved: &ResolvedAnswers,
+) -> BTreeMap<&'static str, serde_json::Value> {
     let mut map = BTreeMap::new();
+    map.insert(
+        "handoff_kind",
+        serde_json::Value::String("launcher".to_string()),
+    );
+    map.insert(
+        "handoff_owner",
+        serde_json::Value::String("gtc".to_string()),
+    );
+    map.insert(
+        "handoff_role",
+        serde_json::Value::String("extension-metadata".to_string()),
+    );
     map.insert(
         "package_name",
         serde_json::Value::String(resolved.package_name.clone()),
@@ -1001,8 +1034,16 @@ fn build_manifest_payload(resolved: &ResolvedAnswers) -> BTreeMap<&'static str, 
     );
     map.insert(
         "provider_requirement_declarations",
-        serde_json::to_value(build_provider_requirement_manifest(resolved))
+        serde_json::to_value(build_provider_handoff_manifest(resolved))
             .expect("provider requirement manifest is serializable"),
+    );
+    map.insert(
+        "gtc_handoff",
+        serde_json::json!({
+            "stage": "launcher",
+            "owner": "gtc",
+            "final_assembly_owner": "gtc",
+        }),
     );
     map.insert(
         "artifacts",
@@ -1018,10 +1059,22 @@ fn build_manifest_payload(resolved: &ResolvedAnswers) -> BTreeMap<&'static str, 
     map
 }
 
-fn build_provider_requirement_manifest(
+fn build_provider_handoff_manifest(
     resolved: &ResolvedAnswers,
 ) -> BTreeMap<&'static str, serde_json::Value> {
     let mut map = BTreeMap::new();
+    map.insert(
+        "handoff_kind",
+        serde_json::Value::String("provider-requirements".to_string()),
+    );
+    map.insert(
+        "handoff_owner",
+        serde_json::Value::String("gtc".to_string()),
+    );
+    map.insert(
+        "handoff_stage",
+        serde_json::Value::String("launcher".to_string()),
+    );
     map.insert(
         "provider_repo",
         serde_json::Value::String("greentic-sorla-providers".to_string()),
@@ -1067,8 +1120,22 @@ fn build_provider_requirement_manifest(
     map
 }
 
-fn build_locale_manifest(resolved: &ResolvedAnswers) -> BTreeMap<&'static str, serde_json::Value> {
+fn build_locale_handoff_manifest(
+    resolved: &ResolvedAnswers,
+) -> BTreeMap<&'static str, serde_json::Value> {
     let mut map = BTreeMap::new();
+    map.insert(
+        "handoff_kind",
+        serde_json::Value::String("locale".to_string()),
+    );
+    map.insert(
+        "handoff_owner",
+        serde_json::Value::String("gtc".to_string()),
+    );
+    map.insert(
+        "handoff_stage",
+        serde_json::Value::String("launcher".to_string()),
+    );
     map.insert(
         "default_locale",
         serde_json::Value::String(resolved.locale.clone()),
@@ -1128,7 +1195,7 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
                 "type": "string",
                 "title": "Output directory",
                 "title_i18n": { "key": "wizard.output_dir.label" },
-                "description": "Directory where sorla.yaml and generated metadata will be written.",
+                "description": "Directory where sorla.yaml and generated handoff metadata will be written.",
                 "required": true,
                 "default_value": "."
             },
@@ -1146,7 +1213,7 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
                 "type": "string",
                 "title": "Package name",
                 "title_i18n": { "key": "wizard.questions.package_name.label" },
-                "description": "Stable package identifier written into sorla.yaml.",
+                "description": "Stable source layout identifier written into sorla.yaml.",
                 "required": true,
                 "visible_if": {
                     "op": "eq",
@@ -1159,7 +1226,7 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
                 "type": "string",
                 "title": "Package version",
                 "title_i18n": { "key": "wizard.questions.package_version.label" },
-                "description": "Version for the new package.",
+                "description": "Version for the new source layout.",
                 "required": true,
                 "default_value": "0.1.0",
                 "visible_if": {
@@ -1173,7 +1240,7 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
                 "type": "enum",
                 "title": "Storage provider category",
                 "title_i18n": { "key": "wizard.questions.storage_provider.label" },
-                "description": "Provider category required for package storage and generated metadata.",
+                "description": "Provider category required for source storage and generated handoff metadata.",
                 "required": true,
                 "default_value": "storage",
                 "choices": ["storage"]
@@ -1193,7 +1260,7 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
                 "type": "string",
                 "title": "External reference system",
                 "title_i18n": { "key": "wizard.questions.external_system.label" },
-                "description": "External system identifier used when the package references authoritative external records.",
+                "description": "External system identifier used when the source layout references authoritative external records.",
                 "required": true,
                 "visible_if": {
                     "op": "or",
@@ -1241,7 +1308,7 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
                 "type": "boolean",
                 "title": "Enable events",
                 "title_i18n": { "key": "wizard.questions.events_enabled.label" },
-                "description": "Generate event and projection placeholders for this package.",
+                "description": "Generate event and projection placeholders for this source layout.",
                 "required": true,
                 "default_value": "true"
             },
@@ -1250,7 +1317,7 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
                 "type": "enum",
                 "title": "Projection mode",
                 "title_i18n": { "key": "wizard.questions.projection_mode.label" },
-                "description": "Projection strategy for generated package output.",
+                "description": "Projection strategy for generated source and handoff output.",
                 "required": true,
                 "default_value": "current-state",
                 "choices": ["current-state", "audit-trail"]
@@ -1590,7 +1657,7 @@ fn write_artifact_file(
     }
 
     if artifact == "provider-requirements.json" {
-        let bytes = serde_json::to_vec_pretty(&build_provider_requirement_manifest(resolved))
+        let bytes = serde_json::to_vec_pretty(&build_provider_handoff_manifest(resolved))
             .map_err(|err| err.to_string())?;
         fs::write(path, bytes)
             .map_err(|err| format!("failed to write generated file {}: {err}", path.display()))?;
@@ -1598,7 +1665,7 @@ fn write_artifact_file(
     }
 
     if artifact == "locale-manifest.json" {
-        let bytes = serde_json::to_vec_pretty(&build_locale_manifest(resolved))
+        let bytes = serde_json::to_vec_pretty(&build_locale_handoff_manifest(resolved))
             .map_err(|err| err.to_string())?;
         fs::write(path, bytes)
             .map_err(|err| format!("failed to write generated file {}: {err}", path.display()))?;
@@ -2114,11 +2181,22 @@ mod tests {
             output_dir
                 .join(".greentic-sorla")
                 .join("generated")
-                .join("package-manifest.json"),
+                .join("launcher-handoff.json"),
         )
         .unwrap();
         assert!(manifest.contains("\"package_kind\": \"greentic-sorla-package\""));
         assert!(manifest.contains("\"fallback_locale\": \"en\""));
+        assert!(manifest.contains("\"handoff_owner\": \"gtc\""));
+        assert!(manifest.contains("\"stage\": \"launcher\""));
+
+        let legacy_manifest = fs::read_to_string(
+            output_dir
+                .join(".greentic-sorla")
+                .join("generated")
+                .join("package-manifest.json"),
+        )
+        .unwrap();
+        assert_eq!(manifest, legacy_manifest);
 
         let locale_manifest = fs::read_to_string(
             output_dir
@@ -2128,6 +2206,7 @@ mod tests {
         )
         .unwrap();
         assert!(locale_manifest.contains("\"default_locale\": \"en\""));
+        assert!(locale_manifest.contains("\"handoff_kind\": \"locale\""));
 
         let provider_manifest = fs::read_to_string(
             output_dir
@@ -2137,6 +2216,7 @@ mod tests {
         )
         .unwrap();
         assert!(provider_manifest.contains("\"name\": \"storage\""));
+        assert!(provider_manifest.contains("\"handoff_kind\": \"provider-requirements\""));
     }
 
     #[test]
