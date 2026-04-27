@@ -13,9 +13,19 @@ description = "Package and artifact scaffolding for Greentic SoRLa."
 readme = "README.md"
 publish = false
 
-[dependencies]
-ciborium.workspace = true
-greentic-sorla-lang = { version = "0.6.0", path = "../greentic-sorla-lang" }
-greentic-sorla-ir = { version = "0.6.0", path = "../greentic-sorla-ir" }
-serde.workspace = true
-serde_json.workspace = true
+[dependencies.ciborium]
+workspace = true
+
+[dependencies.greentic-sorla-lang]
+version = ">=0.6.0-dev, <0.7.0-0"
+path = "../greentic-sorla-lang"
+
+[dependencies.greentic-sorla-ir]
+version = ">=0.6.0-dev, <0.7.0-0"
+path = "../greentic-sorla-ir"
+
+[dependencies.serde]
+workspace = true
+
+[dependencies.serde_json]
+workspace = true
