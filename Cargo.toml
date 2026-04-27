@@ -30,7 +30,7 @@ categories = [
 [workspace.dependencies]
 ciborium = "0.2"
 criterion = "0.8"
-greentic-qa-lib = ">=0.6.0-dev, <0.7.0-0"
+greentic-qa-lib = "0.4"
 serde_json = "1"
 serde_yaml = "0.9"
 sha2 = "0.11"
