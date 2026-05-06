@@ -17,7 +17,7 @@ publish = false
 workspace = true
 
 [dependencies.greentic-sorla-lang]
-version = ">=0.6.0-dev, <0.7.0-0"
+version = ">=1.1.0-dev, <1.2.0-0"
 path = "../greentic-sorla-lang"
 
 [dependencies.serde]
