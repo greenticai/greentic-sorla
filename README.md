@@ -14,6 +14,7 @@ The supported product surface is:
 ```bash
 greentic-sorla wizard --schema
 greentic-sorla wizard --answers answers.json
+greentic-sorla wizard --answers landlord-tenant-pack.json --pack-out landlord-tenant-sor.gtpack
 ```
 
 For production composition, treat `gtc wizard --extensions ...` as the canonical
@@ -24,6 +25,46 @@ Provider implementations do not live here. This repo produces provider-agnostic
 SoRLa artifacts and handoff-ready metadata that can later be assembled by `gtc`
 rather than by local pack or bundle builders.
 
+## Agent Endpoints
+
+SoRLa can describe agent-facing business actions such as
+`create_customer_contact`. These are lowered into canonical IR and exported as
+handoff metadata for downstream `gtc` assembly into OpenAPI overlays, Arazzo
+workflows, MCP tool descriptors, and `llms.txt` documentation.
+
+See `docs/agent-endpoints.md` for the authoring model, safety fields, and
+`greentic-sorla`/`gtc` ownership boundary.
+
+See `docs/agent-endpoint-handoff-contract.md` for the downstream `gtc` handoff
+contract.
+
+## gtpack Handoff
+
+SoRLa packages can be emitted as deterministic `.gtpack` handoff archives for
+future `greentic-sorx` consumption. The first supported pack scenario is the
+landlord/tenant system of record.
+
+```bash
+cargo run -p greentic-sorla -- wizard --answers crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json --pack-out landlord-tenant-sor.gtpack
+cargo run -p greentic-sorla -- pack doctor landlord-tenant-sor.gtpack
+cargo run -p greentic-sorla -- pack inspect landlord-tenant-sor.gtpack
+```
+
+See `docs/sorla-gtpack.md` for pack contents, determinism rules, and the
+`greentic-sorla` / `greentic-sorx` boundary.
+
+## End-To-End Scenarios
+
+The landlord/tenant FoundationDB scenario validates SoRLa authoring, migration,
+agent endpoint mapping, and provider event/projection behavior through the
+sibling `greentic-sorla-providers` workspace.
+
+```bash
+cargo xtask e2e landlord-tenant --provider foundationdb
+```
+
+See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
+
 ## Workspace Layout
 
 - `crates/greentic-sorla-cli`: public CLI entrypoint
@@ -33,7 +74,11 @@ rather than by local pack or bundle builders.
   using legacy pack-oriented naming
 - `crates/greentic-sorla-wizard`: deterministic wizard schema generation
 - `docs/architecture.md`: repo responsibilities and boundaries
+- `docs/agent-endpoints.md`: agent endpoint authoring and handoff contract
+- `docs/agent-endpoint-handoff-contract.md`: downstream `gtc` handoff contract
+- `docs/landlord-tenant-e2e.md`: FoundationDB-backed landlord/tenant e2e scenario
 - `docs/product-shape.md`: wizard-first product contract
+- `docs/sorla-gtpack.md`: deterministic SoRLa `.gtpack` handoff contract
 - `docs/wizard.md`: wizard schema and answer-model notes
 - `docs/extensions-with-gtc.md`: how SoRLa participates in the `gtc`
   extension flow
@@ -44,11 +89,13 @@ rather than by local pack or bundle builders.
 
 The current scaffold keeps internal helper commands hidden and reserves the
 public surface for the wizard flow. This standalone CLI is a local authoring
-and extension-development surface, not a competing pack/bundle toolchain.
+and extension-development surface, not a competing pack/bundle toolchain. It
+also supports deterministic `.gtpack` handoff output for SoRLa artifacts.
 
 ```bash
 cargo run -p greentic-sorla -- wizard --schema
 cargo run -p greentic-sorla -- wizard --answers crates/greentic-sorla-cli/examples/answers/create_minimal.json
+cargo run -p greentic-sorla -- wizard --answers crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json --pack-out landlord-tenant-sor.gtpack
 ```
 
 For the intended production path, `gtc` should discover and launch

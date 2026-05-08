@@ -1,0 +1,25 @@
+{
+  "schema_version": "0.4",
+  "flow": "create",
+  "output_dir": "target/greentic-sorla-agent-endpoints-example",
+  "package": {
+    "name": "website-lead-capture",
+    "version": "0.2.0"
+  },
+  "agent_endpoints": {
+    "enabled": true,
+    "ids": [
+      "create_customer_contact",
+      "request_partner_followup"
+    ],
+    "default_risk": "medium",
+    "default_approval": "policy-driven",
+    "exports": [
+      "openapi",
+      "arazzo",
+      "mcp",
+      "llms_txt"
+    ],
+    "provider_category": "api-gateway"
+  }
+}

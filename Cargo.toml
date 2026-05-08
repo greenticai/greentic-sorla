@@ -1,15 +1,25 @@
 [workspace]
 members = [
   "crates/greentic-sorla-cli",
+  "crates/greentic-sorla-e2e",
   "crates/greentic-sorla-ir",
   "crates/greentic-sorla-lang",
   "crates/greentic-sorla-pack",
   "crates/greentic-sorla-wizard",
+  "xtask",
+]
+default-members = [
+  "crates/greentic-sorla-cli",
+  "crates/greentic-sorla-ir",
+  "crates/greentic-sorla-lang",
+  "crates/greentic-sorla-pack",
+  "crates/greentic-sorla-wizard",
+  "xtask",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/greenticai/greentic-sorla"
@@ -23,7 +33,7 @@ categories = ["development-tools", "command-line-utilities"]
 ciborium = "0.2"
 clap = { version = "4.5", features = ["derive"] }
 criterion = "0.8"
-greentic-qa-lib = "0.4"
+greentic-qa-lib = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"

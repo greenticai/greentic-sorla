@@ -7,6 +7,10 @@ Publicly supported UX:
 
 - `greentic-sorla wizard --schema`
 - `greentic-sorla wizard --answers <file>`
+- `greentic-sorla wizard --answers <file> --pack-out <file.gtpack>`
+- `greentic-sorla pack <file> --name <name> --version <version> --out <file.gtpack>`
+- `greentic-sorla pack doctor <file.gtpack>`
+- `greentic-sorla pack inspect <file.gtpack>`
 
 Production composition should still be described in terms of `gtc`, not in
 terms of `greentic-sorla` owning pack or bundle assembly. The intended product
@@ -31,3 +35,8 @@ The initial crate layout for the MVP is:
 
 Compatibility notes will live in a later `docs/compatibility.md` once the
 language and wizard flows settle.
+
+Agent endpoint authoring follows the same shape. Users can describe agent-facing
+business actions through the wizard schema or SoRLa YAML, then package the
+deterministic handoff contract as a `.gtpack`. Runtime gateway assembly remains
+outside this repository.

@@ -81,6 +81,11 @@ Interactive mode is intentionally just a frontend over that same model:
 - collected answers are converted into an `AnswersDocument`
 - the normal `apply_answers` path performs validation and file generation
 
+Add `--pack-out <file.gtpack>` to either `wizard --answers <file>` or the
+interactive wizard to build a deterministic `.gtpack` from the generated
+`sorla.yaml` in the same run. The pack uses the resolved package name and
+version from the wizard answers.
+
 ## Generated Ownership
 
 `wizard --answers` currently writes:
@@ -92,6 +97,7 @@ Interactive mode is intentionally just a frontend over that same model:
 - `.greentic-sorla/generated/provider-requirements.json`
 - `.greentic-sorla/generated/locale-manifest.json`
 - selected generated artifacts under `.greentic-sorla/generated/`
+- the requested `.gtpack` when `--pack-out` is supplied
 
 The package source file uses explicit generated block markers. Updates replace
 only the generated block and preserve user-authored content outside it.
@@ -124,3 +130,4 @@ Sample answer documents live in:
 
 - `crates/greentic-sorla-cli/examples/answers/create_minimal.json`
 - `crates/greentic-sorla-cli/examples/answers/update_minimal.json`
+- `crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json`

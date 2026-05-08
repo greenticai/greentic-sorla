@@ -36,6 +36,8 @@ pub struct Package {
     pub migrations: Vec<MigrationDecl>,
     #[serde(default)]
     pub provider_requirements: Vec<ProviderRequirement>,
+    #[serde(default)]
+    pub agent_endpoints: Vec<AgentEndpointDecl>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,6 +84,8 @@ pub struct Field {
     pub type_name: String,
     #[serde(default)]
     pub authority: Option<FieldAuthority>,
+    #[serde(default)]
+    pub references: Option<FieldReference>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,6 +93,13 @@ pub struct Field {
 pub enum FieldAuthority {
     Local,
     External,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldReference {
+    pub record: String,
+    pub field: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +157,140 @@ pub struct ProviderRequirement {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct AgentEndpointDecl {
+    pub id: String,
+    pub title: String,
+    pub intent: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub inputs: Vec<AgentEndpointInputDecl>,
+    #[serde(default)]
+    pub outputs: Vec<AgentEndpointOutputDecl>,
+    #[serde(default)]
+    pub side_effects: Vec<String>,
+    #[serde(default)]
+    pub risk: AgentEndpointRisk,
+    #[serde(default)]
+    pub approval: AgentEndpointApprovalMode,
+    #[serde(default)]
+    pub provider_requirements: Vec<ProviderRequirement>,
+    #[serde(default)]
+    pub backing: AgentEndpointBackingDecl,
+    #[serde(default)]
+    pub agent_visibility: AgentEndpointVisibility,
+    #[serde(default)]
+    pub examples: Vec<AgentEndpointExampleDecl>,
+    #[serde(default)]
+    pub emits: Option<AgentEndpointEmitDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEndpointInputDecl {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub enum_values: Vec<String>,
+    #[serde(default)]
+    pub sensitive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEndpointOutputDecl {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentEndpointRisk {
+    #[default]
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentEndpointApprovalMode {
+    #[default]
+    None,
+    Optional,
+    Required,
+    PolicyDriven,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEndpointBackingDecl {
+    #[serde(default)]
+    pub actions: Vec<String>,
+    #[serde(default)]
+    pub events: Vec<String>,
+    #[serde(default)]
+    pub flows: Vec<String>,
+    #[serde(default)]
+    pub policies: Vec<String>,
+    #[serde(default)]
+    pub approvals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEndpointVisibility {
+    #[serde(default = "default_true")]
+    pub openapi: bool,
+    #[serde(default = "default_true")]
+    pub arazzo: bool,
+    #[serde(default = "default_true")]
+    pub mcp: bool,
+    #[serde(default = "default_true")]
+    pub llms_txt: bool,
+}
+
+impl Default for AgentEndpointVisibility {
+    fn default() -> Self {
+        Self {
+            openapi: true,
+            arazzo: true,
+            mcp: true,
+            llms_txt: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEndpointExampleDecl {
+    pub name: String,
+    pub summary: String,
+    #[serde(default)]
+    pub input: serde_json::Value,
+    #[serde(default)]
+    pub expected_output: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEndpointEmitDecl {
+    pub event: String,
+    pub stream: String,
+    #[serde(default)]
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MigrationDecl {
     pub name: String,
     #[serde(default)]
@@ -153,7 +298,20 @@ pub struct MigrationDecl {
     #[serde(default)]
     pub projection_updates: Vec<String>,
     #[serde(default)]
+    pub backfills: Vec<MigrationBackfillDecl>,
+    #[serde(default)]
+    pub idempotence_key: Option<String>,
+    #[serde(default)]
     pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MigrationBackfillDecl {
+    pub record: String,
+    pub field: String,
+    #[serde(default)]
+    pub default: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -175,4 +333,8 @@ pub struct ActionDecl {
 #[serde(deny_unknown_fields)]
 pub struct NamedBlock {
     pub name: String,
+}
+
+fn default_true() -> bool {
+    true
 }
