@@ -54,6 +54,17 @@ require_tool() {
   command -v "$tool" >/dev/null 2>&1 || fail "required command not found: ${tool}"
 }
 
+read_lines_into_array() {
+  local array_name="$1"
+  shift
+
+  eval "${array_name}=()"
+  local line
+  while IFS= read -r line; do
+    eval "${array_name}+=(\"\$line\")"
+  done < <("$@")
+}
+
 ensure_translator() {
   if command -v "$TRANSLATOR_BIN" >/dev/null 2>&1; then
     return
@@ -246,8 +257,8 @@ run_translate_batch() {
 run_translate() {
   require_tool jq
 
-  mapfile -t LOCALE_LIST < <(load_locales)
-  mapfile -t EN_FILES < <(load_en_files)
+  read_lines_into_array LOCALE_LIST load_locales
+  read_lines_into_array EN_FILES load_en_files
   if [[ ${#LOCALE_LIST[@]} -eq 0 ]]; then
     fail "no locales found in ${LOCALES_PATH}"
   fi
@@ -302,8 +313,8 @@ run_translate() {
 run_validate() {
   require_tool jq
 
-  mapfile -t LOCALE_LIST < <(load_locales)
-  mapfile -t EN_FILES < <(load_en_files)
+  read_lines_into_array LOCALE_LIST load_locales
+  read_lines_into_array EN_FILES load_en_files
   if [[ ${#LOCALE_LIST[@]} -eq 0 ]]; then
     fail "no locales found in ${LOCALES_PATH}"
   fi
@@ -325,8 +336,8 @@ run_validate() {
 run_status() {
   require_tool jq
 
-  mapfile -t LOCALE_LIST < <(load_locales)
-  mapfile -t EN_FILES < <(load_en_files)
+  read_lines_into_array LOCALE_LIST load_locales
+  read_lines_into_array EN_FILES load_en_files
   if [[ ${#LOCALE_LIST[@]} -eq 0 ]]; then
     fail "no locales found in ${LOCALES_PATH}"
   fi

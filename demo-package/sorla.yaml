@@ -1,0 +1,44 @@
+# --- BEGIN GREENTIC-SORLA GENERATED ---
+package:
+  name: tenancy
+  version: 0.2.0
+records:
+  - name: TenancyRecord
+    source: hybrid
+    external_ref:
+      system: crm
+      key: record_id
+      authoritative: true
+    fields:
+      - name: record_id
+        type: string
+        authority: external
+      - name: workflow_state
+        type: string
+        authority: local
+events:
+  - name: TenancyRecordChanged
+    record: TenancyRecord
+    kind: domain
+    emits:
+      - name: record_id
+        type: string
+projections:
+  - name: TenancyRecordProjection
+    record: TenancyRecord
+    source_event: TenancyRecordChanged
+    mode: current-state
+provider_requirements:
+  - category: storage
+    capabilities:
+      - event-log
+      - projections
+  - category: external-ref
+    capabilities:
+      - lookup
+migrations:
+  - name: tenancy-compatibility
+    compatibility: additive
+    projection_updates:
+      - TenancyRecordProjection
+# --- END GREENTIC-SORLA GENERATED ---

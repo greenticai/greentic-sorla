@@ -1,0 +1,35 @@
+{
+  "schema_version": "0.4",
+  "flow": "create",
+  "output_dir": "./demo-package",
+  "locale": "en",
+  "package_name": "tenancy",
+  "package_version": "0.2.0",
+  "storage_category": "storage",
+  "external_ref_category": "external-ref",
+  "provider_hints": [
+    "crm"
+  ],
+  "default_source": "hybrid",
+  "external_ref_system": "crm",
+  "events_enabled": true,
+  "projection_mode": "current-state",
+  "compatibility_mode": "additive",
+  "include_agent_tools": true,
+  "artifacts": [
+    "actions.cbor",
+    "agent-tools.json",
+    "approvals.cbor",
+    "compatibility.cbor",
+    "events.cbor",
+    "external-sources.cbor",
+    "locale-manifest.json",
+    "model.cbor",
+    "package-manifest.cbor",
+    "policies.cbor",
+    "projections.cbor",
+    "provider-contract.cbor",
+    "provider-requirements.json",
+    "views.cbor"
+  ]
+}

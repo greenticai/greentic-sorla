@@ -32,13 +32,15 @@ pub const PROVIDER_BINDINGS_TEMPLATE_FILENAME: &str = "provider-bindings.templat
 const STABLE_PACK_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct PackageManifest {
+pub struct HandoffManifest {
     pub package_kind: &'static str,
     pub ir_version: IrVersionView,
     pub provider_repo: &'static str,
     pub required_provider_categories: Vec<ProviderRequirementView>,
     pub artifact_references: Vec<String>,
 }
+
+pub type PackageManifest = HandoffManifest;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct IrVersionView {
@@ -62,6 +64,12 @@ pub struct ArtifactSet {
     pub agent_exports: AgentExportSet,
     pub executable_contract_json: String,
     pub canonical_hash: String,
+}
+
+impl ArtifactSet {
+    pub fn handoff_manifest(&self) -> &HandoffManifest {
+        &self.package_manifest
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,9 +208,9 @@ struct SorlaPackLockEntry {
     sha256: String,
 }
 
-pub fn scaffold_manifest() -> PackageManifest {
+pub fn scaffold_handoff_manifest() -> HandoffManifest {
     let version = IrVersion::scaffold();
-    PackageManifest {
+    HandoffManifest {
         package_kind: "sorla-package",
         ir_version: IrVersionView {
             major: version.major,
@@ -222,16 +230,21 @@ pub fn scaffold_manifest() -> PackageManifest {
             "compatibility.cbor".to_string(),
             "provider-contract.cbor".to_string(),
             "package-manifest.cbor".to_string(),
+            "launcher-handoff.cbor".to_string(),
             "agent-tools.json".to_string(),
             EXECUTABLE_CONTRACT_FILENAME.to_string(),
         ],
     }
 }
 
-pub fn build_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, String> {
+pub fn scaffold_manifest() -> PackageManifest {
+    scaffold_handoff_manifest()
+}
+
+pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, String> {
     let parsed = parse_package(input)?;
     let ir = lower_package(&parsed.package);
-    let mut package_manifest = scaffold_manifest();
+    let mut package_manifest = scaffold_handoff_manifest();
     package_manifest.required_provider_categories = ir
         .provider_contract
         .categories
@@ -298,6 +311,10 @@ pub fn build_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, String> {
     );
     cbor_artifacts.insert(
         "package-manifest.cbor".to_string(),
+        canonical_cbor(&package_manifest),
+    );
+    cbor_artifacts.insert(
+        "launcher-handoff.cbor".to_string(),
         canonical_cbor(&package_manifest),
     );
     cbor_artifacts.insert("views.cbor".to_string(), canonical_cbor(&ir.views));
@@ -1093,6 +1110,10 @@ pub fn export_agent_artifacts(ir: &CanonicalIr) -> AgentExportSet {
     }
 }
 
+pub fn build_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, String> {
+    build_handoff_artifacts_from_yaml(input)
+}
+
 fn provider_view(requirement: &ProviderRequirementIr) -> ProviderRequirementView {
     ProviderRequirementView {
         category: requirement.category.clone(),
@@ -1381,8 +1402,8 @@ mod tests {
     use zip::ZipArchive;
 
     #[test]
-    fn scaffold_manifest_stays_provider_agnostic() {
-        let manifest = scaffold_manifest();
+    fn scaffold_handoff_manifest_stays_provider_agnostic() {
+        let manifest = scaffold_handoff_manifest();
         assert_eq!(manifest.package_kind, "sorla-package");
         assert_eq!(manifest.provider_repo, "greentic-sorla-providers");
         assert!(
@@ -1393,14 +1414,30 @@ mod tests {
     }
 
     #[test]
-    fn builds_deterministic_artifacts_for_golden_fixture() {
+    fn legacy_manifest_api_maps_to_handoff_manifest() {
+        let manifest = scaffold_manifest();
+        assert_eq!(manifest.package_kind, "sorla-package");
+        assert!(
+            manifest
+                .artifact_references
+                .contains(&"package-manifest.cbor".to_string())
+        );
+        assert!(
+            manifest
+                .artifact_references
+                .contains(&"launcher-handoff.cbor".to_string())
+        );
+    }
+
+    #[test]
+    fn builds_deterministic_handoff_artifacts_for_golden_fixture() {
         let fixture = fs::read_to_string("tests/golden/tenant_v0_2.sorla.yaml")
             .expect("fixture should be readable");
         let expected_inspect = fs::read_to_string("tests/golden/tenant_v0_2.inspect.json")
             .expect("golden should be readable");
 
-        let first = build_artifacts_from_yaml(&fixture).expect("fixture should build");
-        let second = build_artifacts_from_yaml(&fixture).expect("fixture should build");
+        let first = build_handoff_artifacts_from_yaml(&fixture).expect("fixture should build");
+        let second = build_handoff_artifacts_from_yaml(&fixture).expect("fixture should build");
 
         assert_eq!(first.inspect_json.trim_end(), expected_inspect.trim_end());
         assert_eq!(first.inspect_json, second.inspect_json);
@@ -1414,10 +1451,32 @@ mod tests {
                 .cbor_artifacts
                 .contains_key(AGENT_ENDPOINTS_IR_CBOR_FILENAME)
         );
+        assert!(first.cbor_artifacts.contains_key("launcher-handoff.cbor"));
         assert!(first.agent_exports.agent_gateway_json.contains(
             "This is handoff metadata for downstream assembly, not final runtime gateway behavior."
         ));
         assert!(first.agent_tools_json.contains("storage"));
+        assert_eq!(
+            first.handoff_manifest().provider_repo,
+            "greentic-sorla-providers"
+        );
+    }
+
+    #[test]
+    fn legacy_artifact_builder_maps_to_handoff_builder() {
+        let fixture = fs::read_to_string("tests/golden/tenant_v0_2.sorla.yaml")
+            .expect("fixture should be readable");
+        let artifacts = build_artifacts_from_yaml(&fixture).expect("fixture should build");
+        assert!(
+            artifacts
+                .cbor_artifacts
+                .contains_key("package-manifest.cbor")
+        );
+        assert!(
+            artifacts
+                .cbor_artifacts
+                .contains_key("launcher-handoff.cbor")
+        );
     }
 
     #[test]

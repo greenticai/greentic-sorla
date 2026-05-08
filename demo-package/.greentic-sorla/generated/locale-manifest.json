@@ -1,0 +1,18 @@
+{
+  "default_locale": "en",
+  "fallback_locale": "en",
+  "handoff_kind": "locale",
+  "handoff_owner": "gtc",
+  "handoff_stage": "launcher",
+  "reserved_core_keys": [
+    "wizard.title",
+    "wizard.description",
+    "wizard.section.title",
+    "wizard.question.label",
+    "wizard.question.help",
+    "wizard.validation.message",
+    "wizard.action.create.label",
+    "wizard.action.update.label"
+  ],
+  "schema_version": "0.4"
+}

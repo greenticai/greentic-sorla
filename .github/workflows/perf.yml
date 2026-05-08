@@ -1,9 +1,11 @@
 name: Perf (lightweight)
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  # Nightly-only per plans/binary-bifurcation.md Phase A.8: push-trigger removed
+  # because post-merge perf runs were burning 15+ min without actionable signal.
+  schedule:
+    - cron: "36 3 * * *"
+  workflow_dispatch:
 
 jobs:
   perf:
@@ -11,8 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.94.0
       - name: Run tests (including perf guards)
         run: cargo test --all --all-features
       - name: Run benchmarks (smoke)
-        run: cargo bench -p greentic-sorla-cli --bench perf -- --sample-size 10
+        run: cargo bench -p greentic-sorla --bench perf -- --sample-size 10

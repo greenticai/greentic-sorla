@@ -12,6 +12,14 @@ Publicly supported UX:
 - `greentic-sorla pack doctor <file.gtpack>`
 - `greentic-sorla pack inspect <file.gtpack>`
 
+Production composition should still be described in terms of `gtc`, not in
+terms of `greentic-sorla` owning pack or bundle assembly. The intended product
+shape is:
+
+- `gtc wizard --extensions ...` for production extension orchestration
+- `greentic-sorla wizard ...` for local authoring, schema work, fixtures, and
+  extension development
+
 Internal helper commands are allowed when they unblock development or testing,
 but they must stay hidden or clearly unstable so the public surface remains
 focused.
@@ -21,7 +29,8 @@ The initial crate layout for the MVP is:
 - `crates/greentic-sorla-cli`
 - `crates/greentic-sorla-lang`
 - `crates/greentic-sorla-ir`
-- `crates/greentic-sorla-pack`
+- `crates/greentic-sorla-pack` (legacy name; currently owns abstract artifact
+  scaffolding, not final pack generation)
 - `crates/greentic-sorla-wizard`
 
 Compatibility notes will live in a later `docs/compatibility.md` once the

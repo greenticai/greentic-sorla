@@ -1,0 +1,35 @@
+name: Release Binaries
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: greenticai/.github/.github/workflows/release-binaries.yml@main
+    with:
+      package: greentic-sorla
+      binary: greentic-sorla
+      extra-files: |
+        README.md
+        LICENSE
+    secrets: inherit
+
+  publish_crates:
+    name: Publish to crates.io
+    needs: [release]
+    permissions:
+      contents: read
+    uses: greenticai/.github/.github/workflows/crates-publish.yml@main
+    with:
+      crates: "greentic-sorla"
+    secrets: inherit

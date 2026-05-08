@@ -3,6 +3,10 @@
 PR-04 makes `greentic-sorla wizard --schema` a real deterministic contract
 rather than a placeholder.
 
+This standalone wizard remains useful for local development, schema work, and
+extension iteration. For production composition, `gtc` should be treated as the
+owner of extension orchestration and final assembly.
+
 ## Supported Flows
 
 The schema now explicitly covers both:
@@ -24,13 +28,18 @@ Update metadata is part of the schema so clients can understand that:
 
 The schema currently includes sections for:
 
-- package bootstrap
-- package update
+- package bootstrap terminology for the SoRLa source layout
+- package update terminology for the SoRLa source layout
+- handoff terminology for generated extension metadata
 - provider requirements
 - external source declarations
 - events and projections
 - compatibility choices
 - output preferences
+
+Some of this naming is still legacy pack-oriented wording. In the target
+architecture, these answers are inputs to `gtc` extension handoff rather than a
+claim that `greentic-sorla` owns final pack or bundle generation.
 
 ## i18n Contract
 
@@ -84,6 +93,7 @@ version from the wizard answers.
 - `sorla.yaml`
 - `.greentic-sorla/generated/answers.lock.json`
 - `.greentic-sorla/generated/package-manifest.json`
+- `.greentic-sorla/generated/launcher-handoff.json`
 - `.greentic-sorla/generated/provider-requirements.json`
 - `.greentic-sorla/generated/locale-manifest.json`
 - selected generated artifacts under `.greentic-sorla/generated/`
@@ -92,10 +102,14 @@ version from the wizard answers.
 The package source file uses explicit generated block markers. Updates replace
 only the generated block and preserve user-authored content outside it.
 
-## gtpack-ready Metadata
+These generated files should be understood as abstract source artifacts and
+handoff-ready metadata. They are not final Greentic packs or bundles, and they
+do not replace `gtc` as the assembly owner.
 
-The generated package metadata is now intentionally abstract and provider-pack
-ready. It records:
+## Extension-Friendly Metadata
+
+The generated metadata is intentionally abstract and extension-friendly. It
+records:
 
 - package identity and version
 - IR version
@@ -107,6 +121,8 @@ ready. It records:
 - artifact references
 
 Concrete provider bindings are intentionally not required at this stage.
+
+Concrete runtime assembly remains downstream work for `gtc`.
 
 ## Examples
 

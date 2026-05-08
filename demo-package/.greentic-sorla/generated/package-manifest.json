@@ -1,0 +1,77 @@
+{
+  "artifacts": [
+    "actions.cbor",
+    "agent-tools.json",
+    "approvals.cbor",
+    "compatibility.cbor",
+    "events.cbor",
+    "external-sources.cbor",
+    "locale-manifest.json",
+    "model.cbor",
+    "package-manifest.cbor",
+    "policies.cbor",
+    "projections.cbor",
+    "provider-contract.cbor",
+    "provider-requirements.json",
+    "views.cbor"
+  ],
+  "binding_mode": "abstract-category-resolution",
+  "compatibility_metadata": {
+    "generated_content_strategy": "rewrite-generated-blocks-only",
+    "schema_version": "0.4",
+    "supports_partial_answers": true,
+    "user_content_strategy": "preserve-outside-generated-blocks",
+    "wizard_version": "0.1.0"
+  },
+  "flow": "create",
+  "gtc_handoff": {
+    "final_assembly_owner": "gtc",
+    "owner": "gtc",
+    "stage": "launcher"
+  },
+  "handoff_kind": "launcher",
+  "handoff_owner": "gtc",
+  "handoff_role": "extension-metadata",
+  "ir_version": "sorla-ir/v1",
+  "locale": "en",
+  "locale_metadata": {
+    "default_locale": "en",
+    "fallback_locale": "en",
+    "schema_localized": true
+  },
+  "package_kind": "greentic-sorla-package",
+  "package_name": "tenancy",
+  "package_version": "0.2.0",
+  "provider_repo": "greentic-sorla-providers",
+  "provider_requirement_declarations": {
+    "binding_mode": "abstract-category-resolution",
+    "handoff_kind": "provider-requirements",
+    "handoff_owner": "gtc",
+    "handoff_stage": "launcher",
+    "optional_capability_categories": [
+      "external-ref",
+      "evidence-store"
+    ],
+    "provider_repo": "greentic-sorla-providers",
+    "provider_requirement_declarations": [
+      {
+        "category": "storage",
+        "name": "storage",
+        "required": true
+      },
+      {
+        "category": "external-ref",
+        "name": "external_ref",
+        "required": true
+      },
+      {
+        "category": "evidence-store",
+        "name": "evidence",
+        "required": false
+      }
+    ],
+    "required_capability_categories": [
+      "storage"
+    ]
+  }
+}
