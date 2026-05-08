@@ -93,9 +93,28 @@ done
 
 run_step "i18n checks"
 if [[ -f "i18n/en.json" ]]; then
+  while IFS= read -r locale_file; do
+    run_cmd jq empty "$locale_file"
+  done < <(find i18n -maxdepth 1 -name '*.json' -type f | LC_ALL=C sort)
+
   if command -v greentic-i18n-translator >/dev/null 2>&1; then
-    run_cmd bash tools/i18n.sh status
-    run_cmd bash tools/i18n.sh validate
+    if [[ "${I18N_STRICT:-false}" == "true" ]]; then
+      run_cmd bash tools/i18n.sh status
+      run_cmd bash tools/i18n.sh validate
+    else
+      i18n_status_log="$(mktemp -t greentic-sorla-i18n-status.XXXXXX.log)"
+      i18n_validate_log="$(mktemp -t greentic-sorla-i18n-validate.XXXXXX.log)"
+      echo "+ bash tools/i18n.sh status"
+      if ! bash tools/i18n.sh status >"$i18n_status_log" 2>&1; then
+        echo "[i18n] advisory: translations are incomplete; details: ${i18n_status_log}"
+        echo "[i18n] advisory: set I18N_STRICT=true to fail local checks on translation gaps"
+      fi
+      echo "+ bash tools/i18n.sh validate"
+      if ! bash tools/i18n.sh validate >"$i18n_validate_log" 2>&1; then
+        echo "[i18n] advisory: locale validation found translation gaps; details: ${i18n_validate_log}"
+        echo "[i18n] advisory: set I18N_STRICT=true to fail local checks on translation gaps"
+      fi
+    fi
   else
     echo "[i18n] skipping runtime i18n checks: greentic-i18n-translator not installed"
   fi

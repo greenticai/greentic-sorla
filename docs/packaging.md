@@ -1,7 +1,39 @@
 # Packaging Metadata
 
-PR-06 makes the generated wizard output more gtpack-ready without introducing
-concrete provider bindings into `greentic-sorla`.
+PR-06 made the generated wizard output more gtpack-ready without introducing
+concrete provider bindings into `greentic-sorla`. PR-11 adds the deterministic
+`.gtpack` handoff command.
+
+## gtpack Handoff
+
+Create a handoff pack from wizard answers with:
+
+```bash
+greentic-sorla wizard --answers landlord-tenant-pack.json \
+  --pack-out landlord-tenant-sor.gtpack
+```
+
+For a concrete starting point, see
+`crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json`.
+
+Or package an existing generated SoRLa file:
+
+```bash
+greentic-sorla pack ./sorla.yaml \
+  --name landlord-tenant-sor \
+  --version 0.1.0 \
+  --out landlord-tenant-sor.gtpack
+```
+
+Validate and inspect it with:
+
+```bash
+greentic-sorla pack doctor landlord-tenant-sor.gtpack
+greentic-sorla pack inspect landlord-tenant-sor.gtpack
+```
+
+See `docs/sorla-gtpack.md` for the pack contents, Sorx extension metadata,
+determinism rules, and ownership boundary.
 
 ## Generated Metadata Files
 

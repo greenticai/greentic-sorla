@@ -16,5 +16,12 @@ publish = false
 ciborium.workspace = true
 greentic-sorla-lang = { version = "0.1.0", path = "../greentic-sorla-lang" }
 greentic-sorla-ir = { version = "0.1.0", path = "../greentic-sorla-ir" }
+semver = "1"
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+zip = "8.6"
+
+[dev-dependencies]
+tempfile = "3"
