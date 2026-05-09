@@ -108,7 +108,8 @@ This repo uses:
 
 - `ci/local_check.sh` for local pre-submit verification
 - `.github/workflows/ci.yml` for PR/push checks
-- `.github/workflows/publish.yml` for versioned GitHub release artifacts plus crates.io publishing from tags
+- `.github/workflows/tag-on-version-bump.yml` to tag version bumps merged to `main`
+- `.github/workflows/release-binaries.yml` for versioned GitHub release artifacts plus crates.io publishing from tags
 - `tools/i18n.sh` for i18n translation lifecycle checks (status/validate/translate)
 
 ### Local checks
@@ -120,9 +121,9 @@ bash ci/local_check.sh
 ### Release process
 
 1. Update crate version in `Cargo.toml`.
-2. Tag the matching release commit with `vX.Y.Z`.
-3. Push the tag and trigger `publish.yml`.
-4. The publish workflow verifies:
+2. Merge the version bump to `main`.
+3. `tag-on-version-bump.yml` creates the matching `vX.Y.Z` tag.
+4. `release-binaries.yml` runs on the tag and verifies:
    - local checks
    - version and tag match
    - packaging and dry-run publish
@@ -133,7 +134,7 @@ bash ci/local_check.sh
    - Windows arm64
    - macOS 15 Intel
    - macOS 15 arm64
-6. After those release artifacts succeed, the workflow publishes to crates.io using `CARGO_REGISTRY_TOKEN`.
+6. After those release artifacts succeed, the workflow publishes the internal crates and CLI to crates.io using `CARGO_REGISTRY_TOKEN`.
 7. `cargo binstall greentic-sorla` resolves against those GitHub release archives.
 
 ### Notes
