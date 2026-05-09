@@ -14,6 +14,28 @@ run_cmd() {
   "$@"
 }
 
+run_publish_check() {
+  local log_file
+  log_file="$(mktemp -t greentic-sorla-publish-check.XXXXXX.log)"
+  echo "+ $*"
+  if "$@" >"$log_file" 2>&1; then
+    cat "$log_file"
+    rm -f "$log_file"
+    return 0
+  fi
+
+  cat "$log_file"
+  if grep -qE "no matching package named \`greentic-sorla-(lang|ir|pack)\` found" "$log_file"; then
+    echo "[publish] advisory: skipping first-publish dry-run blocked by unpublished internal crate dependency."
+    echo "[publish] advisory: the release workflow publishes greentic-sorla-lang, greentic-sorla-ir, greentic-sorla-pack, then greentic-sorla."
+    rm -f "$log_file"
+    return 0
+  fi
+
+  rm -f "$log_file"
+  return 1
+}
+
 missing_metadata() {
   local manifest_path="$1"
   local field="$2"
@@ -47,6 +69,28 @@ if [[ ${#PUBLISHABLE_ENTRIES[@]} -eq 0 ]]; then
   exit 1
 fi
 
+declare -A PUBLISHABLE_BY_NAME=()
+for entry in "${PUBLISHABLE_ENTRIES[@]}"; do
+  crate="${entry%%$'\t'*}"
+  PUBLISHABLE_BY_NAME["$crate"]="$entry"
+done
+
+ORDERED_PUBLISHABLE_ENTRIES=()
+for crate in greentic-sorla-lang greentic-sorla-ir greentic-sorla-pack greentic-sorla; do
+  if [[ -n "${PUBLISHABLE_BY_NAME[$crate]:-}" ]]; then
+    ORDERED_PUBLISHABLE_ENTRIES+=("${PUBLISHABLE_BY_NAME[$crate]}")
+    unset "PUBLISHABLE_BY_NAME[$crate]"
+  fi
+done
+for entry in "${PUBLISHABLE_ENTRIES[@]}"; do
+  crate="${entry%%$'\t'*}"
+  if [[ -n "${PUBLISHABLE_BY_NAME[$crate]:-}" ]]; then
+    ORDERED_PUBLISHABLE_ENTRIES+=("${PUBLISHABLE_BY_NAME[$crate]}")
+    unset "PUBLISHABLE_BY_NAME[$crate]"
+  fi
+done
+PUBLISHABLE_ENTRIES=("${ORDERED_PUBLISHABLE_ENTRIES[@]}")
+
 for entry in "${PUBLISHABLE_ENTRIES[@]}"; do
   crate="${entry%%$'\t'*}"
   manifest_path="${entry#*$'\t'}"
@@ -78,19 +122,19 @@ for entry in "${PUBLISHABLE_ENTRIES[@]}"; do
   crate="${entry%%$'\t'*}"
   run_step "Package checks: ${crate}"
   if [[ "${CI:-}" == "true" ]]; then
-    run_cmd cargo package --no-verify -p "$crate"
+    run_publish_check cargo package --no-verify -p "$crate"
   else
-    run_cmd cargo package --no-verify -p "$crate" --allow-dirty
+    run_publish_check cargo package --no-verify -p "$crate" --allow-dirty
   fi
   if [[ "${CI:-}" == "true" ]]; then
-    run_cmd cargo package -p "$crate"
+    run_publish_check cargo package -p "$crate"
   else
-    run_cmd cargo package -p "$crate" --allow-dirty
+    run_publish_check cargo package -p "$crate" --allow-dirty
   fi
   if [[ "${CI:-}" == "true" ]]; then
-    run_cmd cargo publish -p "$crate" --dry-run
+    run_publish_check cargo publish -p "$crate" --dry-run
   else
-    run_cmd cargo publish -p "$crate" --dry-run --allow-dirty
+    run_publish_check cargo publish -p "$crate" --dry-run --allow-dirty
   fi
 done
 

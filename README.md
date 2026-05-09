@@ -134,7 +134,7 @@ bash ci/local_check.sh
    - Windows arm64
    - macOS 15 Intel
    - macOS 15 arm64
-6. After those release artifacts succeed, the workflow publishes to crates.io using `CARGO_REGISTRY_TOKEN`.
+6. After those release artifacts succeed, the workflow publishes the internal crates and CLI to crates.io using `CARGO_REGISTRY_TOKEN`.
 7. `cargo binstall greentic-sorla` resolves against those GitHub release archives.
 
 ### Notes
