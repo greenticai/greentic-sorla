@@ -3,18 +3,81 @@ name: Release Binaries
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional vX.Y.Z tag to release when dispatching from a branch."
+        required: false
+        type: string
+  workflow_run:
+    workflows: ["Tag on Version Bump"]
+    types: [completed]
 
 permissions:
   contents: write
   packages: write
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  dispatch_tag_release:
+    name: Dispatch release on version tag
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref_type != 'tag')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Dispatch release workflow on tag ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          requested_tag="${{ github.event.inputs.tag || '' }}"
+          if [[ -n "${requested_tag}" ]]; then
+            if [[ "${requested_tag}" == v* ]]; then
+              tag="${requested_tag}"
+            else
+              tag="v${requested_tag}"
+            fi
+          else
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+            if [[ -z "${version}" ]]; then
+              echo "Could not read workspace package version from Cargo.toml." >&2
+              exit 1
+            fi
+            tag="v${version}"
+          fi
+
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            echo "Expected release tag ${tag} was not found on origin." >&2
+            echo "Push the tag or rerun Tag on Version Bump before dispatching this workflow from a branch." >&2
+            exit 1
+          fi
+
+          git fetch --force --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}"
+          tag_sha="$(git rev-list -n1 "${tag}")"
+          expected_sha="${{ github.event.workflow_run.head_sha || github.sha }}"
+          if [[ -z "${requested_tag}" && "${tag_sha}" != "${expected_sha}" ]]; then
+            echo "Tag ${tag} points at ${tag_sha}, but this run is for ${expected_sha}." >&2
+            echo "Pass an explicit tag when manually dispatching an older release, or update Cargo.toml before releasing." >&2
+            exit 1
+          fi
+
+          gh workflow run release-binaries.yml --ref "${tag}"
+
   release:
+    if: github.ref_type == 'tag'
     uses: greenticai/.github/.github/workflows/release-binaries.yml@main
     with:
       package: greentic-sorla
@@ -25,6 +88,7 @@ jobs:
     secrets: inherit
 
   publish_crates:
+    if: github.ref_type == 'tag'
     name: Publish to crates.io
     needs: [release]
     permissions:
