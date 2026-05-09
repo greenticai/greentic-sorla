@@ -1,12 +1,14 @@
 [workspace]
 members = [
   "crates/greentic-sorla-cli",
-  "crates/greentic-sorla-e2e",
   "crates/greentic-sorla-ir",
   "crates/greentic-sorla-lang",
   "crates/greentic-sorla-pack",
   "crates/greentic-sorla-wizard",
   "xtask",
+]
+exclude = [
+  "crates/greentic-sorla-e2e",
 ]
 default-members = [
   "crates/greentic-sorla-cli",
