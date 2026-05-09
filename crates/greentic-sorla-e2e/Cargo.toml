@@ -1,13 +1,13 @@
 [package]
 name = "greentic-sorla-e2e"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
-documentation.workspace = true
-keywords.workspace = true
-categories.workspace = true
+version = "0.1.3"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/greenticai/greentic-sorla"
+homepage = "https://github.com/greenticai/greentic-sorla"
+documentation = "https://docs.rs/greentic-sorla"
+keywords = ["greentic", "sorla", "wizard", "compiler"]
+categories = ["development-tools", "command-line-utilities"]
 description = "End-to-end scenarios for Greentic SoRLa."
 readme = "README.md"
 publish = false
@@ -18,5 +18,5 @@ greentic-sorla-lang = { version = "0.1.0", path = "../greentic-sorla-lang" }
 greentic-sorla-pack = { version = "0.1.0", path = "../greentic-sorla-pack" }
 provider-foundationdb = { path = "../../../greentic-sorla-providers/providers/provider-foundationdb" }
 sorla-provider-core = { path = "../../../greentic-sorla-providers/crates/sorla-provider-core" }
-serde.workspace = true
-serde_json.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
