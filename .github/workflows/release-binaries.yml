@@ -68,9 +68,9 @@ jobs:
           git fetch --force --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}"
           tag_sha="$(git rev-list -n1 "${tag}")"
           expected_sha="${{ github.event.workflow_run.head_sha || github.sha }}"
-          if [[ -z "${requested_tag}" && "${tag_sha}" != "${expected_sha}" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_run" && "${tag_sha}" != "${expected_sha}" ]]; then
             echo "Tag ${tag} points at ${tag_sha}, but this run is for ${expected_sha}." >&2
-            echo "Pass an explicit tag when manually dispatching an older release, or update Cargo.toml before releasing." >&2
+            echo "Update Cargo.toml before releasing, or manually dispatch this workflow with an explicit tag." >&2
             exit 1
           fi
 
