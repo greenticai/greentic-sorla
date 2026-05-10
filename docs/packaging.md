@@ -9,12 +9,14 @@ concrete provider bindings into `greentic-sorla`. PR-11 adds the deterministic
 Create a handoff pack from wizard answers with:
 
 ```bash
-greentic-sorla wizard --answers landlord-tenant-pack.json \
+greentic-sorla wizard --answers examples/landlord-tenant/answers.json \
   --pack-out landlord-tenant-sor.gtpack
 ```
 
 For a concrete starting point, see
-`crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json`.
+`examples/landlord-tenant/answers.json`. It declares the real landlord/tenant
+domain in the answer document and generates the visible `sorla.yaml` plus
+`examples/landlord-tenant/landlord-tenant-sor.gtpack`.
 
 Or package an existing generated SoRLa file:
 
@@ -28,8 +30,8 @@ greentic-sorla pack ./sorla.yaml \
 Validate and inspect it with:
 
 ```bash
-greentic-sorla pack doctor landlord-tenant-sor.gtpack
-greentic-sorla pack inspect landlord-tenant-sor.gtpack
+greentic-sorla pack doctor examples/landlord-tenant/landlord-tenant-sor.gtpack
+greentic-sorla pack inspect examples/landlord-tenant/landlord-tenant-sor.gtpack
 ```
 
 See `docs/sorla-gtpack.md` for the pack contents, Sorx extension metadata,

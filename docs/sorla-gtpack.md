@@ -7,7 +7,7 @@ The normal installed workflow is to let the wizard write `sorla.yaml` and the
 pack in one pass:
 
 ```bash
-greentic-sorla wizard --answers landlord-tenant-pack.json \
+greentic-sorla wizard --answers examples/landlord-tenant/answers.json \
   --pack-out landlord-tenant-sor.gtpack
 ```
 
@@ -15,8 +15,11 @@ The wizard uses the generated package name and version as the pack identity. It
 does not depend on repository test fixtures.
 
 This repository includes a starter answer document at
-`crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json`. When
-installed, use the same schema shape in your own answers file and set
+`examples/landlord-tenant/answers.json`. It is a schema `0.5` rich answer
+document with concrete landlord/tenant records, events, projections, actions,
+policies, approvals, and agent endpoint contracts. From the repository root,
+the command above writes `examples/landlord-tenant/landlord-tenant-sor.gtpack`.
+When installed, use the same schema shape in your own answers file and set
 `output_dir` to the workspace you want the wizard to write.
 
 If you already have a SoRLa YAML file, package that file directly:
@@ -31,9 +34,9 @@ greentic-sorla pack ./sorla.yaml \
 Validate and inspect the pack with:
 
 ```bash
-greentic-sorla pack doctor landlord-tenant-sor.gtpack
-greentic-sorla pack inspect landlord-tenant-sor.gtpack
-greentic-sorla pack validation-inspect landlord-tenant-sor.gtpack
+greentic-sorla pack doctor examples/landlord-tenant/landlord-tenant-sor.gtpack
+greentic-sorla pack inspect examples/landlord-tenant/landlord-tenant-sor.gtpack
+greentic-sorla pack validation-inspect examples/landlord-tenant/landlord-tenant-sor.gtpack
 greentic-sorla pack schema validation
 ```
 

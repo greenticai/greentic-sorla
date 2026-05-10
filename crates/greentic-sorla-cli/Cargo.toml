@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 description = "Wizard-first CLI for Greentic SoRLa."
 readme = "README.md"
-include = ["src/**", "benches/**", "tests/**", "examples/**", "Cargo.toml", "README.md"]
+include = ["src/**", "i18n/**", "benches/**", "tests/**", "examples/**", "build.rs", "Cargo.toml", "README.md"]
 
 [lib]
 name = "greentic_sorla_cli"

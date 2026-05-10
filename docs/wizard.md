@@ -75,6 +75,14 @@ those IDs as the deterministic control plane for create and update flows.
 - partial update documents
 - deterministic regeneration of wizard-owned content
 
+Schema `0.5` also supports rich domain declarations in answers documents. A
+create answer can provide concrete `records.items`, `actions`, `events.items`,
+`projections.items`, `provider_requirements`, `policies`, `approvals`,
+`migrations.items`, and typed `agent_endpoints.items`. When these sections are
+present, the generated `sorla.yaml` is rendered from the declared domain model
+instead of the older generic scaffold. Existing `0.4` minimal answers continue
+to work and still produce the scaffold shape.
+
 Interactive mode is intentionally just a frontend over that same model:
 
 - `greentic-sorla wizard` asks for the core answers interactively
@@ -131,3 +139,4 @@ Sample answer documents live in:
 - `crates/greentic-sorla-cli/examples/answers/create_minimal.json`
 - `crates/greentic-sorla-cli/examples/answers/update_minimal.json`
 - `crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json`
+- `examples/landlord-tenant/answers.json`

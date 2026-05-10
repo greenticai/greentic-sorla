@@ -67,10 +67,14 @@ run_validation_pack_check() {
   local validation_schema_path
   local exposure_schema_path
   local compatibility_schema_path
+  local answers_path
+  local output_dir
 
   tmp_dir="$(mktemp -d -t greentic-sorla-validation-pack.XXXXXX)"
   trap 'rm -rf "${tmp_dir}"' RETURN
-  pack_path="${tmp_dir}/landlord-tenant-sor.gtpack"
+  answers_path="${tmp_dir}/answers.json"
+  output_dir="${tmp_dir}/workspace"
+  pack_path="${output_dir}/landlord-tenant-sor.gtpack"
   inspect_path="${tmp_dir}/inspect.json"
   validation_inspect_path="${tmp_dir}/validation-inspect.json"
   validation_schema_path="${tmp_dir}/sorx-validation.schema.json"
@@ -88,10 +92,12 @@ run_validation_pack_check() {
   jq -e '."$id" == "greentic.sorx.compatibility.v1"' "${compatibility_schema_path}" >/dev/null \
     || { echo "ERROR: compatibility schema command did not emit greentic.sorx.compatibility.v1" >&2; return 1; }
 
-  run_cmd cargo run -p greentic-sorla -- pack tests/e2e/fixtures/landlord_sor_v1.yaml \
-    --name landlord-tenant-sor \
-    --version 0.1.0 \
-    --out "${pack_path}"
+  mkdir -p "${output_dir}"
+  jq --arg output_dir "${output_dir}" '.output_dir = $output_dir' \
+    examples/landlord-tenant/answers.json > "${answers_path}"
+  run_cmd cargo run -p greentic-sorla -- wizard \
+    --answers "${answers_path}" \
+    --pack-out landlord-tenant-sor.gtpack
   run_cmd cargo run -p greentic-sorla -- pack doctor "${pack_path}"
   run_capture "${inspect_path}" cargo run -p greentic-sorla -- pack inspect "${pack_path}"
   run_capture "${validation_inspect_path}" cargo run -p greentic-sorla -- pack validation-inspect "${pack_path}"
@@ -106,8 +112,8 @@ run_validation_pack_check() {
     || { echo "ERROR: pack inspect is missing validation summary" >&2; return 1; }
   jq -e '.exposure_policy.default_visibility != "public_candidate"' "${inspect_path}" >/dev/null \
     || { echo "ERROR: exposure policy default_visibility must not be public_candidate" >&2; return 1; }
-  jq -e '.compatibility.state_mode == "isolated_required"' "${validation_inspect_path}" >/dev/null \
-    || { echo "ERROR: validation-inspect compatibility summary is missing isolated_required state mode" >&2; return 1; }
+  jq -e '.compatibility.state_mode == "shared_requires_migration"' "${validation_inspect_path}" >/dev/null \
+    || { echo "ERROR: validation-inspect compatibility summary is missing shared_requires_migration state mode" >&2; return 1; }
 
   rm -rf "${tmp_dir}"
   trap - RETURN

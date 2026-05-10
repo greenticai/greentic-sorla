@@ -82,6 +82,12 @@ pub struct Field {
     pub name: String,
     #[serde(rename = "type")]
     pub type_name: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sensitive: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enum_values: Vec<String>,
     #[serde(default)]
     pub authority: Option<FieldAuthority>,
     #[serde(default)]
@@ -337,4 +343,8 @@ pub struct NamedBlock {
 
 fn default_true() -> bool {
     true
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }

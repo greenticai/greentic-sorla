@@ -66,6 +66,12 @@ pub enum RecordSourceIr {
 pub struct FieldIr {
     pub name: String,
     pub type_name: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub required: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sensitive: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enum_values: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authority: Option<FieldAuthorityIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -440,6 +446,9 @@ fn sorted_fields(record: &greentic_sorla_lang::ast::Record) -> Vec<FieldIr> {
         .map(|field| FieldIr {
             name: field.name.clone(),
             type_name: field.type_name.clone(),
+            required: field.required,
+            sensitive: field.sensitive,
+            enum_values: field.enum_values.clone(),
             authority: field.authority.as_ref().map(|authority| match authority {
                 FieldAuthority::Local => FieldAuthorityIr::Local,
                 FieldAuthority::External => FieldAuthorityIr::External,
@@ -586,6 +595,10 @@ fn sorted_strings(values: &[String]) -> Vec<String> {
     let mut sorted = values.to_vec();
     sorted.sort();
     sorted
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 pub fn inspect_ir(ir: &CanonicalIr) -> String {

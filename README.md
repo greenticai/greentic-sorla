@@ -45,11 +45,11 @@ future `greentic-sorx` consumption. The first supported pack scenario is the
 landlord/tenant system of record.
 
 ```bash
-cargo run -p greentic-sorla -- wizard --answers crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json --pack-out landlord-tenant-sor.gtpack
-cargo run -p greentic-sorla -- pack doctor landlord-tenant-sor.gtpack
-cargo run -p greentic-sorla -- pack inspect landlord-tenant-sor.gtpack
+cargo run -p greentic-sorla -- wizard --answers examples/landlord-tenant/answers.json --pack-out landlord-tenant-sor.gtpack
+cargo run -p greentic-sorla -- pack doctor examples/landlord-tenant/landlord-tenant-sor.gtpack
+cargo run -p greentic-sorla -- pack inspect examples/landlord-tenant/landlord-tenant-sor.gtpack
 cargo run -p greentic-sorla -- pack schema validation
-cargo run -p greentic-sorla -- pack validation-inspect landlord-tenant-sor.gtpack
+cargo run -p greentic-sorla -- pack validation-inspect examples/landlord-tenant/landlord-tenant-sor.gtpack
 ```
 
 See `docs/sorla-gtpack.md` for pack contents, determinism rules, and the
@@ -105,7 +105,7 @@ also supports deterministic `.gtpack` handoff output for SoRLa artifacts.
 ```bash
 cargo run -p greentic-sorla -- wizard --schema
 cargo run -p greentic-sorla -- wizard --answers crates/greentic-sorla-cli/examples/answers/create_minimal.json
-cargo run -p greentic-sorla -- wizard --answers crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json --pack-out landlord-tenant-sor.gtpack
+cargo run -p greentic-sorla -- wizard --answers examples/landlord-tenant/answers.json --pack-out landlord-tenant-sor.gtpack
 ```
 
 For the intended production path, `gtc` should discover and launch
