@@ -78,6 +78,7 @@ jobs:
 
   release:
     if: github.ref_type == 'tag'
+    needs: [release_validation]
     uses: greenticai/.github/.github/workflows/release-binaries.yml@main
     with:
       package: greentic-sorla
@@ -86,6 +87,45 @@ jobs:
         README.md
         LICENSE
     secrets: inherit
+
+  release_validation:
+    if: github.ref_type == 'tag'
+    name: Validate SORX metadata before release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Build validation-enabled fixture pack
+        run: |
+          set -euo pipefail
+          tmp_dir="$(mktemp -d -t greentic-sorla-release-validation.XXXXXX)"
+          pack_path="${tmp_dir}/landlord-tenant-sor.gtpack"
+
+          cargo run -p greentic-sorla -- pack schema validation >"${tmp_dir}/validation.schema.json"
+          cargo run -p greentic-sorla -- pack schema exposure-policy >"${tmp_dir}/exposure-policy.schema.json"
+          cargo run -p greentic-sorla -- pack schema compatibility >"${tmp_dir}/compatibility.schema.json"
+
+          jq -e '."$id" == "greentic.sorx.validation.v1"' "${tmp_dir}/validation.schema.json" >/dev/null
+          jq -e '."$id" == "greentic.sorx.exposure-policy.v1"' "${tmp_dir}/exposure-policy.schema.json" >/dev/null
+          jq -e '."$id" == "greentic.sorx.compatibility.v1"' "${tmp_dir}/compatibility.schema.json" >/dev/null
+
+          cargo run -p greentic-sorla -- pack tests/e2e/fixtures/landlord_sor_v1.yaml \
+            --name landlord-tenant-sor \
+            --version 0.1.0 \
+            --out "${pack_path}"
+          cargo run -p greentic-sorla -- pack doctor "${pack_path}"
+          cargo run -p greentic-sorla -- pack inspect "${pack_path}" >"${tmp_dir}/inspect.json"
+          cargo run -p greentic-sorla -- pack validation-inspect "${pack_path}" >"${tmp_dir}/validation-inspect.json"
+
+          jq -e '.assets | index("assets/sorx/tests/test-manifest.json")' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.assets | index("assets/sorx/exposure-policy.json")' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.assets | index("assets/sorx/compatibility.json")' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.validation.schema == "greentic.sorx.validation.v1"' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.exposure_policy.default_visibility != "public_candidate"' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.compatibility.state_mode == "isolated_required"' "${tmp_dir}/validation-inspect.json" >/dev/null
 
   publish_crates:
     if: github.ref_type == 'tag'

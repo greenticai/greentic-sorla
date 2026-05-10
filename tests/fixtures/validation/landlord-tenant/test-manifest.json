@@ -1,0 +1,143 @@
+{
+  "schema": "greentic.sorx.validation.v1",
+  "suite_version": "1.0.0",
+  "package": {
+    "name": "landlord-tenant-sor",
+    "version": "0.1.0",
+    "ir_version": "0.1",
+    "ir_hash": "3d5ce80652f87ff34cc563b553e9c83ccd37e6b6d3a159f10872e01f2b9a3ea6"
+  },
+  "default_visibility": "private",
+  "promotion_requires": [
+    "smoke",
+    "contract",
+    "provider",
+    "security"
+  ],
+  "suites": [
+    {
+      "id": "smoke",
+      "title": "Static startup handoff checks",
+      "required": true,
+      "tests": [
+        {
+          "kind": "healthcheck",
+          "id": "provider-bindings-template-present",
+          "required": true
+        },
+        {
+          "kind": "healthcheck",
+          "id": "runtime-startup-assets-present",
+          "required": true
+        },
+        {
+          "kind": "healthcheck",
+          "id": "runtime-template-present",
+          "required": true
+        },
+        {
+          "kind": "healthcheck",
+          "id": "start-schema-present",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "contract",
+      "title": "Agent endpoint contract checks",
+      "required": true,
+      "tests": [
+        {
+          "kind": "agent-endpoint",
+          "id": "agent-endpoint-add-maintenance-request-contract",
+          "title": "Add maintenance request contract",
+          "endpoint": "add_maintenance_request",
+          "required": true
+        },
+        {
+          "kind": "agent-endpoint",
+          "id": "agent-endpoint-assign-tenant-to-unit-contract",
+          "title": "Assign tenant to unit contract",
+          "endpoint": "assign_tenant_to_unit",
+          "required": true
+        },
+        {
+          "kind": "agent-endpoint",
+          "id": "agent-endpoint-create-tenant-contract",
+          "title": "Create tenant contract",
+          "endpoint": "create_tenant",
+          "required": true
+        },
+        {
+          "kind": "agent-endpoint",
+          "id": "agent-endpoint-list-active-tenants-contract",
+          "title": "List active tenants contract",
+          "endpoint": "list_active_tenants",
+          "required": true
+        },
+        {
+          "kind": "agent-endpoint",
+          "id": "agent-endpoint-record-rent-payment-contract",
+          "title": "Record rent payment contract",
+          "endpoint": "record_rent_payment",
+          "required": true
+        },
+        {
+          "kind": "agent-endpoint",
+          "id": "agent-endpoint-update-tenant-contact-preference-contract",
+          "title": "Update tenant contact preference contract",
+          "endpoint": "update_tenant_contact_preference",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "provider",
+      "title": "Provider capability checks",
+      "required": true,
+      "tests": [
+        {
+          "kind": "provider-capability",
+          "id": "provider-event-store-capabilities",
+          "title": "event-store provider capabilities",
+          "required": true,
+          "provider_category": "event-store",
+          "capabilities": [
+            "append",
+            "read-stream"
+          ]
+        },
+        {
+          "kind": "provider-capability",
+          "id": "provider-storage-capabilities",
+          "title": "storage provider capabilities",
+          "required": true,
+          "provider_category": "storage",
+          "capabilities": [
+            "event-log",
+            "projections"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "security",
+      "title": "Security policy checks",
+      "required": true,
+      "tests": [
+        {
+          "kind": "policy-enforced",
+          "id": "no-secrets-in-pack",
+          "title": "Pack contains no embedded secrets",
+          "required": true
+        },
+        {
+          "kind": "policy-enforced",
+          "id": "public-exposure-requires-validation",
+          "title": "Public exposure requires validation",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

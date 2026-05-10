@@ -14,6 +14,13 @@ run_cmd() {
   "$@"
 }
 
+run_capture() {
+  local output_path="$1"
+  shift
+  echo "+ $* > ${output_path}"
+  "$@" >"${output_path}"
+}
+
 run_publish_check() {
   local log_file
   log_file="$(mktemp -t greentic-sorla-publish-check.XXXXXX.log)"
@@ -36,6 +43,13 @@ run_publish_check() {
   return 1
 }
 
+CARGO_PACKAGE_PATCH_CONFIG=(
+  --config 'patch.crates-io.greentic-sorla.path="crates/greentic-sorla-cli"'
+  --config 'patch.crates-io.greentic-sorla-ir.path="crates/greentic-sorla-ir"'
+  --config 'patch.crates-io.greentic-sorla-lang.path="crates/greentic-sorla-lang"'
+  --config 'patch.crates-io.greentic-sorla-pack.path="crates/greentic-sorla-pack"'
+)
+
 missing_metadata() {
   local manifest_path="$1"
   local field="$2"
@@ -43,6 +57,60 @@ missing_metadata() {
     echo "Missing required field ${field} in ${manifest_path}" >&2
     return 1
   fi
+}
+
+run_validation_pack_check() {
+  local tmp_dir
+  local pack_path
+  local inspect_path
+  local validation_inspect_path
+  local validation_schema_path
+  local exposure_schema_path
+  local compatibility_schema_path
+
+  tmp_dir="$(mktemp -d -t greentic-sorla-validation-pack.XXXXXX)"
+  trap 'rm -rf "${tmp_dir}"' RETURN
+  pack_path="${tmp_dir}/landlord-tenant-sor.gtpack"
+  inspect_path="${tmp_dir}/inspect.json"
+  validation_inspect_path="${tmp_dir}/validation-inspect.json"
+  validation_schema_path="${tmp_dir}/sorx-validation.schema.json"
+  exposure_schema_path="${tmp_dir}/sorx-exposure-policy.schema.json"
+  compatibility_schema_path="${tmp_dir}/sorx-compatibility.schema.json"
+
+  run_capture "${validation_schema_path}" cargo run -p greentic-sorla -- pack schema validation
+  run_capture "${exposure_schema_path}" cargo run -p greentic-sorla -- pack schema exposure-policy
+  run_capture "${compatibility_schema_path}" cargo run -p greentic-sorla -- pack schema compatibility
+
+  jq -e '."$id" == "greentic.sorx.validation.v1"' "${validation_schema_path}" >/dev/null \
+    || { echo "ERROR: validation schema command did not emit greentic.sorx.validation.v1" >&2; return 1; }
+  jq -e '."$id" == "greentic.sorx.exposure-policy.v1"' "${exposure_schema_path}" >/dev/null \
+    || { echo "ERROR: exposure policy schema command did not emit greentic.sorx.exposure-policy.v1" >&2; return 1; }
+  jq -e '."$id" == "greentic.sorx.compatibility.v1"' "${compatibility_schema_path}" >/dev/null \
+    || { echo "ERROR: compatibility schema command did not emit greentic.sorx.compatibility.v1" >&2; return 1; }
+
+  run_cmd cargo run -p greentic-sorla -- pack tests/e2e/fixtures/landlord_sor_v1.yaml \
+    --name landlord-tenant-sor \
+    --version 0.1.0 \
+    --out "${pack_path}"
+  run_cmd cargo run -p greentic-sorla -- pack doctor "${pack_path}"
+  run_capture "${inspect_path}" cargo run -p greentic-sorla -- pack inspect "${pack_path}"
+  run_capture "${validation_inspect_path}" cargo run -p greentic-sorla -- pack validation-inspect "${pack_path}"
+
+  jq -e '.assets | index("assets/sorx/tests/test-manifest.json")' "${inspect_path}" >/dev/null \
+    || { echo "ERROR: generated .gtpack is missing assets/sorx/tests/test-manifest.json" >&2; return 1; }
+  jq -e '.assets | index("assets/sorx/exposure-policy.json")' "${inspect_path}" >/dev/null \
+    || { echo "ERROR: generated .gtpack is missing assets/sorx/exposure-policy.json" >&2; return 1; }
+  jq -e '.assets | index("assets/sorx/compatibility.json")' "${inspect_path}" >/dev/null \
+    || { echo "ERROR: generated .gtpack is missing assets/sorx/compatibility.json" >&2; return 1; }
+  jq -e '.validation.schema == "greentic.sorx.validation.v1"' "${inspect_path}" >/dev/null \
+    || { echo "ERROR: pack inspect is missing validation summary" >&2; return 1; }
+  jq -e '.exposure_policy.default_visibility != "public_candidate"' "${inspect_path}" >/dev/null \
+    || { echo "ERROR: exposure policy default_visibility must not be public_candidate" >&2; return 1; }
+  jq -e '.compatibility.state_mode == "isolated_required"' "${validation_inspect_path}" >/dev/null \
+    || { echo "ERROR: validation-inspect compatibility summary is missing isolated_required state mode" >&2; return 1; }
+
+  rm -rf "${tmp_dir}"
+  trap - RETURN
 }
 
 run_step "Environment and metadata pre-checks"
@@ -111,6 +179,9 @@ run_cmd cargo clippy --all-targets --all-features -- -D warnings
 run_step "cargo test"
 run_cmd cargo test --all-features
 
+run_step "Validation-enabled gtpack checks"
+run_validation_pack_check
+
 run_step "cargo build"
 run_cmd cargo build --all-features
 
@@ -122,19 +193,19 @@ for entry in "${PUBLISHABLE_ENTRIES[@]}"; do
   crate="${entry%%$'\t'*}"
   run_step "Package checks: ${crate}"
   if [[ "${CI:-}" == "true" ]]; then
-    run_publish_check cargo package --no-verify -p "$crate"
+    run_publish_check cargo package "${CARGO_PACKAGE_PATCH_CONFIG[@]}" --no-verify -p "$crate"
   else
-    run_publish_check cargo package --no-verify -p "$crate" --allow-dirty
+    run_publish_check cargo package "${CARGO_PACKAGE_PATCH_CONFIG[@]}" --no-verify -p "$crate" --allow-dirty
   fi
   if [[ "${CI:-}" == "true" ]]; then
-    run_publish_check cargo package -p "$crate"
+    run_publish_check cargo package "${CARGO_PACKAGE_PATCH_CONFIG[@]}" -p "$crate"
   else
-    run_publish_check cargo package -p "$crate" --allow-dirty
+    run_publish_check cargo package "${CARGO_PACKAGE_PATCH_CONFIG[@]}" -p "$crate" --allow-dirty
   fi
   if [[ "${CI:-}" == "true" ]]; then
-    run_publish_check cargo publish -p "$crate" --dry-run
+    run_publish_check cargo publish "${CARGO_PACKAGE_PATCH_CONFIG[@]}" -p "$crate" --dry-run
   else
-    run_publish_check cargo publish -p "$crate" --dry-run --allow-dirty
+    run_publish_check cargo publish "${CARGO_PACKAGE_PATCH_CONFIG[@]}" -p "$crate" --dry-run --allow-dirty
   fi
 done
 

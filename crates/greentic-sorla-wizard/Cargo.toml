@@ -14,8 +14,8 @@ readme = "README.md"
 publish = false
 
 [dependencies]
-greentic-sorla-cli = { package = "greentic-sorla", version = "0.1.0", path = "../greentic-sorla-cli" }
-greentic-sorla-lang = { version = "0.1.0", path = "../greentic-sorla-lang" }
-greentic-sorla-pack = { version = "0.1.0", path = "../greentic-sorla-pack" }
+greentic-sorla-cli.workspace = true
+greentic-sorla-lang.workspace = true
+greentic-sorla-pack.workspace = true
 serde.workspace = true
 serde_json.workspace = true

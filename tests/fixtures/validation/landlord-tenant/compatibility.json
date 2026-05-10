@@ -1,0 +1,31 @@
+{
+  "schema": "greentic.sorx.compatibility.v1",
+  "package": {
+    "name": "landlord-tenant-sor",
+    "version": "0.1.0",
+    "ir_hash": "3d5ce80652f87ff34cc563b553e9c83ccd37e6b6d3a159f10872e01f2b9a3ea6"
+  },
+  "api_compatibility": "unknown",
+  "state_compatibility": "isolated_required",
+  "provider_compatibility": [
+    {
+      "category": "event-store",
+      "required_capabilities": [
+        "append",
+        "read-stream"
+      ],
+      "contract_version_range": ">=0.1.0 <1.0.0",
+      "required": true
+    },
+    {
+      "category": "storage",
+      "required_capabilities": [
+        "event-log",
+        "projections"
+      ],
+      "contract_version_range": ">=0.1.0 <1.0.0",
+      "required": true
+    }
+  ],
+  "migration_compatibility": []
+}

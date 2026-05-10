@@ -1,0 +1,72 @@
+{
+  "schema": "greentic.sorx.validation.v1",
+  "suite_version": "1.0.0",
+  "package": {
+    "name": "tenancy",
+    "version": "0.2.0",
+    "ir_version": "0.1",
+    "ir_hash": "e389f20acd86cb844ae0246f454a57fb3ac660b17406c9f5dcf37446c59a1a84"
+  },
+  "default_visibility": "private",
+  "promotion_requires": [
+    "smoke",
+    "provider"
+  ],
+  "suites": [
+    {
+      "id": "smoke",
+      "title": "Static startup handoff checks",
+      "required": true,
+      "tests": [
+        {
+          "kind": "healthcheck",
+          "id": "provider-bindings-template-present",
+          "required": true
+        },
+        {
+          "kind": "healthcheck",
+          "id": "runtime-startup-assets-present",
+          "required": true
+        },
+        {
+          "kind": "healthcheck",
+          "id": "runtime-template-present",
+          "required": true
+        },
+        {
+          "kind": "healthcheck",
+          "id": "start-schema-present",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "provider",
+      "title": "Provider capability checks",
+      "required": true,
+      "tests": [
+        {
+          "kind": "provider-capability",
+          "id": "provider-external-ref-capabilities",
+          "title": "external-ref provider capabilities",
+          "required": true,
+          "provider_category": "external-ref",
+          "capabilities": [
+            "lookup"
+          ]
+        },
+        {
+          "kind": "provider-capability",
+          "id": "provider-storage-capabilities",
+          "title": "storage provider capabilities",
+          "required": true,
+          "provider_category": "storage",
+          "capabilities": [
+            "event-log",
+            "projections"
+          ]
+        }
+      ]
+    }
+  ]
+}

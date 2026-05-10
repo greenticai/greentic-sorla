@@ -48,10 +48,18 @@ landlord/tenant system of record.
 cargo run -p greentic-sorla -- wizard --answers crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json --pack-out landlord-tenant-sor.gtpack
 cargo run -p greentic-sorla -- pack doctor landlord-tenant-sor.gtpack
 cargo run -p greentic-sorla -- pack inspect landlord-tenant-sor.gtpack
+cargo run -p greentic-sorla -- pack schema validation
+cargo run -p greentic-sorla -- pack validation-inspect landlord-tenant-sor.gtpack
 ```
 
 See `docs/sorla-gtpack.md` for pack contents, determinism rules, and the
 `greentic-sorla` / `greentic-sorx` boundary.
+
+Generated packs carry deterministic SORX validation metadata so
+downstream SORX tooling can decide whether a deployed pack version is eligible
+for public exposure. See `docs/sorx-gtpack-validation.md` for the validation
+manifest contract, and `docs/sorx-deployment-handoff.md` for the SORX-owned
+GHCR publish, preview deployment, certification, and alias-promotion model.
 
 ## End-To-End Scenarios
 
@@ -79,6 +87,8 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 - `docs/landlord-tenant-e2e.md`: FoundationDB-backed landlord/tenant e2e scenario
 - `docs/product-shape.md`: wizard-first product contract
 - `docs/sorla-gtpack.md`: deterministic SoRLa `.gtpack` handoff contract
+- `docs/sorx-deployment-handoff.md`: downstream SORX deployment and public
+  exposure handoff expectations
 - `docs/wizard.md`: wizard schema and answer-model notes
 - `docs/extensions-with-gtc.md`: how SoRLa participates in the `gtc`
   extension flow
@@ -127,6 +137,7 @@ bash ci/local_check.sh
    - local checks
    - version and tag match
    - packaging and dry-run publish
+   - validation-enabled `.gtpack` metadata, including schema emission, `pack doctor`, `pack inspect`, and `pack validation-inspect`
 5. The workflow creates a GitHub Release named exactly as the Cargo version and uploads six binary archives:
    - Linux x86_64
    - Linux arm64
@@ -141,5 +152,6 @@ bash ci/local_check.sh
 
 - CI requires `license`, `repository`, `description`, and `readme` metadata on publishable crates.
 - Packaging uses `cargo package` and `cargo publish --dry-run` as a required validation step.
+- `ci/local_check.sh` generates a fixture `.gtpack` and verifies embedded SORX validation, exposure policy, and compatibility metadata with `pack doctor`, `pack inspect`, and `pack validation-inspect`.
 - i18n sources and locales live in `i18n/` (`en.json`, `locales.json`, and per-locale JSON files).
 - Compatibility notes are planned for `docs/compatibility.md` once milestone PRs move past scaffolding.

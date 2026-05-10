@@ -4,7 +4,11 @@ use greentic_qa_lib::{
     WizardRunConfig,
 };
 use greentic_sorla_pack::{
-    SorlaGtpackOptions, build_sorla_gtpack, doctor_sorla_gtpack, inspect_sorla_gtpack,
+    PROVIDER_BINDINGS_TEMPLATE_FILENAME, RUNTIME_TEMPLATE_FILENAME, SORX_COMPATIBILITY_SCHEMA,
+    SORX_EXPOSURE_POLICY_SCHEMA, SORX_VALIDATION_SCHEMA, START_SCHEMA_FILENAME,
+    SorlaGtpackInspection, SorlaGtpackOptions, build_handoff_artifacts_from_yaml,
+    build_sorla_gtpack, doctor_sorla_gtpack, generate_sorx_validation_manifest_from_ir,
+    inspect_sorla_gtpack, sorx_validation_schema_json,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -79,6 +83,28 @@ enum PackCommand {
     Doctor(PackPathArgs),
     /// Inspect a generated SoRLa gtpack as deterministic JSON.
     Inspect(PackPathArgs),
+    /// Emit deterministic JSON schemas for SORX handoff metadata.
+    Schema(PackSchemaArgs),
+    /// Inspect embedded SORX validation metadata as deterministic JSON.
+    ValidationInspect(PackPathArgs),
+    /// Validate embedded SORX validation metadata using pack doctor checks.
+    ValidationDoctor(PackPathArgs),
+}
+
+#[derive(Debug, Args)]
+struct PackSchemaArgs {
+    #[command(subcommand)]
+    command: PackSchemaCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum PackSchemaCommand {
+    /// Emit the greentic.sorx.validation.v1 schema.
+    Validation,
+    /// Emit the greentic.sorx.exposure-policy.v1 schema.
+    ExposurePolicy,
+    /// Emit the greentic.sorx.compatibility.v1 schema.
+    Compatibility,
 }
 
 #[derive(Debug, Args)]
@@ -332,6 +358,29 @@ fn run_pack(args: PackArgs) -> Result<(), String> {
             println!("{rendered}");
             Ok(())
         }
+        Some(PackCommand::Schema(schema_args)) => {
+            let schema = match schema_args.command {
+                PackSchemaCommand::Validation => sorx_validation_schema_json(),
+                PackSchemaCommand::ExposurePolicy => sorx_exposure_policy_schema_json(),
+                PackSchemaCommand::Compatibility => sorx_compatibility_schema_json(),
+            };
+            let rendered = serde_json::to_string_pretty(&schema).map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
+        Some(PackCommand::ValidationInspect(path_args)) => {
+            let inspection = inspect_sorla_gtpack(&path_args.path)?;
+            let rendered = serde_json::to_string_pretty(&validation_inspection_json(&inspection))
+                .map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
+        Some(PackCommand::ValidationDoctor(path_args)) => {
+            let report = doctor_sorla_gtpack(&path_args.path)?;
+            let rendered = serde_json::to_string_pretty(&report).map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
         None => {
             let input = args
                 .input
@@ -356,6 +405,184 @@ fn run_pack(args: PackArgs) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+fn validation_inspection_json(inspection: &SorlaGtpackInspection) -> serde_json::Value {
+    serde_json::json!({
+        "schema": inspection
+            .validation
+            .as_ref()
+            .map(|validation| validation.schema.clone())
+            .unwrap_or_else(|| SORX_VALIDATION_SCHEMA.to_string()),
+        "package": {
+            "name": inspection.sorla_package_name,
+            "version": inspection.sorla_package_version,
+            "ir_hash": inspection.ir_hash
+        },
+        "validation": inspection.validation,
+        "exposure": inspection.exposure_policy,
+        "compatibility": inspection.compatibility
+    })
+}
+
+fn sorx_exposure_policy_schema_json() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": SORX_EXPOSURE_POLICY_SCHEMA,
+        "title": "SORX exposure policy",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "schema",
+            "default_visibility",
+            "promotion_requires",
+            "allowed_route_prefixes",
+            "forbidden_route_prefixes",
+            "endpoints"
+        ],
+        "properties": {
+            "schema": { "const": SORX_EXPOSURE_POLICY_SCHEMA },
+            "default_visibility": {
+                "type": "string",
+                "enum": ["private", "internal", "public_candidate"]
+            },
+            "promotion_requires": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+            },
+            "allowed_route_prefixes": {
+                "type": "array",
+                "items": { "type": "string" }
+            },
+            "forbidden_route_prefixes": {
+                "type": "array",
+                "items": { "type": "string" }
+            },
+            "endpoints": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/endpoint" }
+            }
+        },
+        "$defs": {
+            "endpoint": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "endpoint_id",
+                    "visibility",
+                    "requires_approval",
+                    "export_surfaces",
+                    "route_prefixes"
+                ],
+                "properties": {
+                    "endpoint_id": { "type": "string", "minLength": 1 },
+                    "visibility": {
+                        "type": "string",
+                        "enum": ["private", "internal", "public_candidate"]
+                    },
+                    "requires_approval": { "type": "boolean" },
+                    "risk": { "type": "string" },
+                    "export_surfaces": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["openapi", "arazzo", "mcp", "llms_txt"]
+                        }
+                    },
+                    "route_prefixes": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn sorx_compatibility_schema_json() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": SORX_COMPATIBILITY_SCHEMA,
+        "title": "SORX compatibility manifest",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "schema",
+            "package",
+            "api_compatibility",
+            "state_compatibility",
+            "provider_compatibility",
+            "migration_compatibility"
+        ],
+        "properties": {
+            "schema": { "const": SORX_COMPATIBILITY_SCHEMA },
+            "package": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "version"],
+                "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "version": { "type": "string", "minLength": 1 },
+                    "ir_hash": { "type": "string", "minLength": 1 }
+                }
+            },
+            "api_compatibility": {
+                "type": "string",
+                "enum": ["additive", "backward_compatible", "breaking", "unknown"]
+            },
+            "state_compatibility": {
+                "type": "string",
+                "enum": ["isolated_required", "shared_allowed", "shared_requires_migration", "unknown"]
+            },
+            "provider_compatibility": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/provider" }
+            },
+            "migration_compatibility": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/migration" }
+            }
+        },
+        "$defs": {
+            "provider": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "category",
+                    "required_capabilities",
+                    "contract_version_range",
+                    "required"
+                ],
+                "properties": {
+                    "category": { "type": "string", "minLength": 1 },
+                    "required_capabilities": {
+                        "type": "array",
+                        "items": { "type": "string", "minLength": 1 }
+                    },
+                    "contract_version_range": { "type": "string", "minLength": 1 },
+                    "required": { "type": "boolean" }
+                }
+            },
+            "migration": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "mode", "projection_updates", "backfill_count"],
+                "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["additive", "backward_compatible", "breaking", "unknown"]
+                    },
+                    "projection_updates": {
+                        "type": "array",
+                        "items": { "type": "string", "minLength": 1 }
+                    },
+                    "backfill_count": { "type": "integer", "minimum": 0 },
+                    "idempotence_key": { "type": "string", "minLength": 1 }
+                }
+            }
+        }
+    })
 }
 
 fn run_wizard(args: WizardArgs) -> Result<(), String> {
@@ -543,6 +770,10 @@ fn apply_answers(
     );
 
     let pack_path = if let Some(pack_out) = pack_out {
+        let validation_manifest_path =
+            write_generated_sorx_validation_manifest(&generated_dir, &generated_yaml)?;
+        written_files.push(relative_to_output(&output_dir, &validation_manifest_path));
+
         let pack_path = if pack_out.is_relative() {
             output_dir.join(pack_out)
         } else {
@@ -576,6 +807,37 @@ fn apply_answers(
         pack_path,
         preserved_user_content,
     })
+}
+
+fn write_generated_sorx_validation_manifest(
+    generated_dir: &Path,
+    generated_yaml: &str,
+) -> Result<PathBuf, String> {
+    let artifacts = build_handoff_artifacts_from_yaml(generated_yaml)?;
+    let manifest = generate_sorx_validation_manifest_from_ir(
+        &artifacts.ir,
+        Some(&artifacts.canonical_hash),
+        vec![
+            START_SCHEMA_FILENAME.to_string(),
+            RUNTIME_TEMPLATE_FILENAME.to_string(),
+            PROVIDER_BINDINGS_TEMPLATE_FILENAME.to_string(),
+        ],
+    );
+    manifest.validate_static().map_err(|err| err.to_string())?;
+
+    let path = generated_dir
+        .join("assets")
+        .join("sorx")
+        .join("tests")
+        .join("test-manifest.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create directory {}: {err}", parent.display()))?;
+    }
+    let bytes = serde_json::to_vec_pretty(&manifest).map_err(|err| err.to_string())?;
+    fs::write(&path, bytes)
+        .map_err(|err| format!("failed to write generated file {}: {err}", path.display()))?;
+    Ok(path)
 }
 
 fn validate_answers_document(
@@ -2757,6 +3019,64 @@ mod tests {
     }
 
     #[test]
+    fn pack_metadata_schema_helpers_are_deterministic() {
+        for (schema, expected_id) in [
+            (sorx_validation_schema_json(), SORX_VALIDATION_SCHEMA),
+            (
+                sorx_exposure_policy_schema_json(),
+                SORX_EXPOSURE_POLICY_SCHEMA,
+            ),
+            (sorx_compatibility_schema_json(), SORX_COMPATIBILITY_SCHEMA),
+        ] {
+            let first = serde_json::to_string_pretty(&schema).expect("schema serializes");
+            let second = serde_json::to_string_pretty(&schema).expect("schema serializes again");
+            assert_eq!(first, second);
+            assert_eq!(schema["$id"], expected_id);
+        }
+    }
+
+    #[test]
+    fn pack_validation_inspection_json_is_compact() {
+        let dir = unique_temp_dir();
+        let pack_path = dir.join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: pack_path.clone(),
+        })
+        .expect("pack builds");
+        let inspection = inspect_sorla_gtpack(&pack_path).expect("pack inspects");
+        let validation = validation_inspection_json(&inspection);
+
+        assert_eq!(validation["schema"], SORX_VALIDATION_SCHEMA);
+        assert_eq!(validation["package"]["name"], "landlord-tenant-sor");
+        assert_eq!(validation["validation"]["suite_count"], 4);
+        assert_eq!(
+            validation["exposure"]["default_visibility"],
+            serde_json::json!("private")
+        );
+        assert_eq!(
+            validation["compatibility"]["state_mode"],
+            serde_json::json!("isolated_required")
+        );
+    }
+
+    #[test]
+    fn pack_metadata_subcommands_parse() {
+        Cli::try_parse_from(["greentic-sorla", "pack", "schema", "validation"])
+            .expect("validation schema command parses");
+        Cli::try_parse_from(["greentic-sorla", "pack", "schema", "exposure-policy"])
+            .expect("exposure schema command parses");
+        Cli::try_parse_from(["greentic-sorla", "pack", "schema", "compatibility"])
+            .expect("compatibility schema command parses");
+        Cli::try_parse_from(["greentic-sorla", "pack", "validation-inspect", "x.gtpack"])
+            .expect("validation-inspect command parses");
+        Cli::try_parse_from(["greentic-sorla", "pack", "validation-doctor", "x.gtpack"])
+            .expect("validation-doctor command parses");
+    }
+
+    #[test]
     fn cli_schema_includes_create_and_update_modes() {
         let schema = default_schema();
         assert!(schema.supported_modes.contains(&SchemaFlow::Create));
@@ -2993,6 +3313,27 @@ mod tests {
         let inspection = inspect_sorla_gtpack(&pack_path).expect("wizard pack should inspect");
         assert_eq!(inspection.name, "landlord-tenant-sor");
         assert_eq!(inspection.extension, "greentic.sorx.runtime.v1");
+
+        let validation_manifest_path = output_dir
+            .join(".greentic-sorla")
+            .join("generated")
+            .join("assets")
+            .join("sorx")
+            .join("tests")
+            .join("test-manifest.json");
+        let validation_manifest = fs::read_to_string(validation_manifest_path)
+            .expect("wizard should write generated validation manifest");
+        let validation: serde_json::Value =
+            serde_json::from_str(&validation_manifest).expect("validation manifest is JSON");
+        assert_eq!(validation["schema"], "greentic.sorx.validation.v1");
+        assert_eq!(validation["package"]["name"], "landlord-tenant-sor");
+        assert!(
+            validation["promotion_requires"]
+                .as_array()
+                .expect("promotion requirements")
+                .iter()
+                .any(|suite| suite == "contract")
+        );
     }
 
     #[test]
@@ -3032,6 +3373,66 @@ mod tests {
                 .get("assets/sorla/mcp-tools.json"),
             Some(&true)
         );
+    }
+
+    #[test]
+    fn validation_pack_example_answers_generate_gtpacks() {
+        for (file_name, output_dir_literal, pack_name, pack_version) in [
+            (
+                "minimal_validation_pack.json",
+                "target/greentic-sorla-minimal-validation-pack-example",
+                "minimal-validation-sor",
+                "0.1.0",
+            ),
+            (
+                "landlord_tenant_validation_pack.json",
+                "target/greentic-sorla-landlord-tenant-validation-pack-example",
+                "landlord-tenant-sor",
+                "0.1.0",
+            ),
+            (
+                "landlord_tenant_exported_candidate_pack.json",
+                "target/greentic-sorla-landlord-tenant-exported-candidate-pack-example",
+                "landlord-tenant-sor",
+                "0.1.0",
+            ),
+        ] {
+            let dir = unique_temp_dir();
+            let answers_path = dir.join(file_name);
+            let output_dir = dir.join("workspace");
+            fs::create_dir_all(&output_dir).unwrap();
+            let example_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("examples")
+                .join("answers")
+                .join(file_name);
+            let example = fs::read_to_string(example_path).expect("example answers should read");
+            let patched = example.replace(
+                &format!(r#""output_dir": "{output_dir_literal}""#),
+                &format!(r#""output_dir": "{}""#, output_dir.display()),
+            );
+            fs::write(&answers_path, patched).unwrap();
+
+            let pack_filename = format!("{pack_name}.gtpack");
+            run([
+                "greentic-sorla",
+                "wizard",
+                "--answers",
+                answers_path.to_str().unwrap(),
+                "--pack-out",
+                &pack_filename,
+            ])
+            .unwrap();
+
+            let pack_path = output_dir.join(pack_filename);
+            doctor_sorla_gtpack(&pack_path).expect("validation example pack should doctor");
+            let inspection =
+                inspect_sorla_gtpack(&pack_path).expect("validation example should inspect");
+            assert_eq!(inspection.name, pack_name);
+            assert_eq!(inspection.version, pack_version);
+            assert!(inspection.validation.is_some());
+            assert!(inspection.exposure_policy.is_some());
+            assert!(inspection.compatibility.is_some());
+        }
     }
 
     #[test]

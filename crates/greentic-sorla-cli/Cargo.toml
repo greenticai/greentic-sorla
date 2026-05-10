@@ -31,7 +31,7 @@ harness = false
 [dependencies]
 ciborium.workspace = true
 clap.workspace = true
-greentic-sorla-pack = { version = "0.1.0", path = "../greentic-sorla-pack" }
+greentic-sorla-pack.workspace = true
 greentic-qa-lib.workspace = true
 serde.workspace = true
 serde_json.workspace = true

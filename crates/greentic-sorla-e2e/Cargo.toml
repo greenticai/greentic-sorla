@@ -13,9 +13,9 @@ readme = "README.md"
 publish = false
 
 [dependencies]
-greentic-sorla-ir = { version = "0.1.0", path = "../greentic-sorla-ir" }
-greentic-sorla-lang = { version = "0.1.0", path = "../greentic-sorla-lang" }
-greentic-sorla-pack = { version = "0.1.0", path = "../greentic-sorla-pack" }
+greentic-sorla-ir = { version = "0.1.5", path = "../greentic-sorla-ir" }
+greentic-sorla-lang = { version = "0.1.5", path = "../greentic-sorla-lang" }
+greentic-sorla-pack = { version = "0.1.5", path = "../greentic-sorla-pack" }
 provider-foundationdb = { path = "../../../greentic-sorla-providers/providers/provider-foundationdb" }
 sorla-provider-core = { path = "../../../greentic-sorla-providers/crates/sorla-provider-core" }
 serde = { version = "1", features = ["derive"] }

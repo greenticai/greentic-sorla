@@ -33,6 +33,8 @@ Validate and inspect the pack with:
 ```bash
 greentic-sorla pack doctor landlord-tenant-sor.gtpack
 greentic-sorla pack inspect landlord-tenant-sor.gtpack
+greentic-sorla pack validation-inspect landlord-tenant-sor.gtpack
+greentic-sorla pack schema validation
 ```
 
 ## Contract Boundary
@@ -62,6 +64,13 @@ Every generated pack includes:
 - `assets/sorx/start.questions.cbor`
 - `assets/sorx/runtime.template.yaml`
 - `assets/sorx/provider-bindings.template.yaml`
+- `assets/sorx/compatibility.json`
+- `assets/sorx/exposure-policy.json`
+
+Generated packs also include embedded SORX validation metadata:
+
+- `assets/sorx/tests/test-manifest.json`
+- optional referenced files under `assets/sorx/tests/`
 
 The pack also carries the existing deterministic SoRLa CBOR artifacts under
 `assets/sorla/`, including actions, events, projections, policies, approvals,
@@ -86,6 +95,48 @@ startup assets by relative paths inside the pack.
 Startup assets ask for runtime/environment-specific values only, such as tenant
 ID, bind addresses, provider kind/config reference, approval policy, and audit
 sink. Generated templates use config references and do not embed secrets.
+
+## Embedded SORX Validation
+
+Generated packs carry a deterministic exposure policy at
+`assets/sorx/exposure-policy.json` using the
+`greentic.sorx.exposure-policy.v1` schema.
+
+The exposure policy keeps pack-level default visibility private, marks exported
+agent endpoints as downstream public candidates, records export surfaces, and
+requires approval for high-risk, approval-gated, or side-effectful endpoints. It
+does not define concrete runtime routes. Route prefix lists are empty until
+route metadata exists in SoRLa source.
+
+Generated packs also carry compatibility metadata at
+`assets/sorx/compatibility.json` using the `greentic.sorx.compatibility.v1`
+schema. The compatibility manifest copies abstract provider
+category/capability requirements and current SoRLa migration compatibility IR.
+If no migration metadata exists, it defaults to isolated state for downstream
+concurrent deployments.
+
+Validation-enabled packs carry a deterministic validation manifest at
+`assets/sorx/tests/test-manifest.json` using the
+`greentic.sorx.validation.v1` schema.
+
+The validation manifest describes suites that downstream SORX tooling can
+execute before promoting a deployed pack version. The metadata may cover static
+handoff checks, agent endpoint contracts, provider capability requirements,
+security policy checks, tenant isolation checks, and migration compatibility
+checks.
+
+`greentic-sorla` owns deterministic metadata generation, pack inclusion, and
+static doctor/inspect checks for validation and exposure metadata. It does not
+execute validation tests, contact providers, start runtimes, expose public
+routes, or promote deployments.
+
+SORX must not expose public endpoints from a validation-enabled pack unless the
+required validation suites pass or an explicit local operator policy overrides
+that gate.
+
+See `docs/sorx-gtpack-validation.md` for the validation manifest contract and
+`docs/sorx-deployment-handoff.md` for the downstream SORX deployment lifecycle
+that consumes validation-enabled packs.
 
 ## Determinism
 
@@ -119,3 +170,7 @@ secret markers are absent.
 `greentic-sorx` can later consume this pack as an application/runtime input and
 perform provider resolution, server startup, MCP exposure, policy enforcement,
 and bundle assembly outside this repository.
+
+For GHCR publish events, concurrent version deployment, public exposure gates,
+certification reports, and alias promotion expectations, see
+`docs/sorx-deployment-handoff.md`.

@@ -1,0 +1,95 @@
+{
+  "schema": "greentic.sorx.exposure-policy.v1",
+  "default_visibility": "private",
+  "promotion_requires": [
+    "validation_success",
+    "security_success",
+    "provider_resolution_success"
+  ],
+  "allowed_route_prefixes": [],
+  "forbidden_route_prefixes": [
+    "/internal",
+    "/debug",
+    "/admin/raw"
+  ],
+  "endpoints": [
+    {
+      "endpoint_id": "add_maintenance_request",
+      "visibility": "public_candidate",
+      "requires_approval": true,
+      "risk": "low",
+      "export_surfaces": [
+        "openapi",
+        "arazzo",
+        "mcp",
+        "llms_txt"
+      ],
+      "route_prefixes": []
+    },
+    {
+      "endpoint_id": "assign_tenant_to_unit",
+      "visibility": "public_candidate",
+      "requires_approval": true,
+      "risk": "medium",
+      "export_surfaces": [
+        "openapi",
+        "arazzo",
+        "mcp",
+        "llms_txt"
+      ],
+      "route_prefixes": []
+    },
+    {
+      "endpoint_id": "create_tenant",
+      "visibility": "public_candidate",
+      "requires_approval": true,
+      "risk": "medium",
+      "export_surfaces": [
+        "openapi",
+        "arazzo",
+        "mcp",
+        "llms_txt"
+      ],
+      "route_prefixes": []
+    },
+    {
+      "endpoint_id": "list_active_tenants",
+      "visibility": "public_candidate",
+      "requires_approval": false,
+      "risk": "low",
+      "export_surfaces": [
+        "openapi",
+        "arazzo",
+        "mcp",
+        "llms_txt"
+      ],
+      "route_prefixes": []
+    },
+    {
+      "endpoint_id": "record_rent_payment",
+      "visibility": "public_candidate",
+      "requires_approval": true,
+      "risk": "low",
+      "export_surfaces": [
+        "openapi",
+        "arazzo",
+        "mcp",
+        "llms_txt"
+      ],
+      "route_prefixes": []
+    },
+    {
+      "endpoint_id": "update_tenant_contact_preference",
+      "visibility": "public_candidate",
+      "requires_approval": true,
+      "risk": "low",
+      "export_surfaces": [
+        "openapi",
+        "arazzo",
+        "mcp",
+        "llms_txt"
+      ],
+      "route_prefixes": []
+    }
+  ]
+}

@@ -14,8 +14,8 @@ readme = "README.md"
 
 [dependencies]
 ciborium.workspace = true
-greentic-sorla-lang = { version = "0.1.0", path = "../greentic-sorla-lang" }
-greentic-sorla-ir = { version = "0.1.0", path = "../greentic-sorla-ir" }
+greentic-sorla-lang.workspace = true
+greentic-sorla-ir.workspace = true
 semver = "1"
 serde.workspace = true
 serde_json.workspace = true

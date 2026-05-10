@@ -1,3 +1,26 @@
+pub mod sorx_compatibility;
+pub mod sorx_exposure;
+pub mod sorx_validation;
+pub mod validation_generator;
+
+pub use sorx_compatibility::{
+    ApiCompatibilityMode, SORX_COMPATIBILITY_SCHEMA, SorxCompatibilityError,
+    SorxCompatibilityManifest, SorxCompatibilityPackageRef, StateCompatibilityMode,
+    generate_sorx_compatibility_manifest,
+};
+pub use sorx_exposure::{
+    SORX_EXPOSURE_POLICY_SCHEMA, SorxEndpointExposurePolicy, SorxExposurePolicy,
+    SorxExposurePolicyError, generate_sorx_exposure_policy,
+};
+pub use sorx_validation::{
+    EndpointVisibility, SORX_VALIDATION_SCHEMA, SorxValidationError, SorxValidationManifest,
+    SorxValidationPackageRef, SorxValidationSuite, SorxValidationTest, sorx_validation_schema_json,
+};
+pub use validation_generator::{
+    SorxValidationGenerationInput, generate_sorx_validation_manifest,
+    generate_sorx_validation_manifest_from_ir,
+};
+
 use greentic_sorla_ir::{
     AgentEndpointApprovalModeIr, AgentEndpointInputIr, AgentEndpointIr, AgentEndpointOutputIr,
     AgentEndpointRiskIr, CanonicalIr, IrVersion, ProviderRequirementIr, agent_tools_json,
@@ -28,6 +51,12 @@ pub const START_SCHEMA_FILENAME: &str = "start.schema.json";
 pub const START_QUESTIONS_FILENAME: &str = "start.questions.cbor";
 pub const RUNTIME_TEMPLATE_FILENAME: &str = "runtime.template.yaml";
 pub const PROVIDER_BINDINGS_TEMPLATE_FILENAME: &str = "provider-bindings.template.yaml";
+pub const SORX_COMPATIBILITY_PATH: &str = "assets/sorx/compatibility.json";
+const SORX_COMPATIBILITY_ASSET: &str = "compatibility.json";
+pub const SORX_EXPOSURE_POLICY_PATH: &str = "assets/sorx/exposure-policy.json";
+const SORX_EXPOSURE_POLICY_ASSET: &str = "exposure-policy.json";
+pub const SORX_VALIDATION_MANIFEST_PATH: &str = "assets/sorx/tests/test-manifest.json";
+const SORX_VALIDATION_MANIFEST_ASSET: &str = "tests/test-manifest.json";
 
 const STABLE_PACK_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
 
@@ -171,6 +200,35 @@ pub struct SorlaGtpackInspection {
     pub ir_hash: String,
     pub assets: Vec<String>,
     pub optional_artifacts: BTreeMap<String, bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation: Option<SorlaGtpackValidationInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exposure_policy: Option<SorlaGtpackExposurePolicyInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compatibility: Option<SorlaGtpackCompatibilityInspection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackValidationInspection {
+    pub schema: String,
+    pub suite_count: usize,
+    pub test_count: usize,
+    pub promotion_requires: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackExposurePolicyInspection {
+    pub default_visibility: EndpointVisibility,
+    pub public_candidate_endpoints: usize,
+    pub approval_required_endpoints: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackCompatibilityInspection {
+    pub api_mode: ApiCompatibilityMode,
+    pub state_mode: StateCompatibilityMode,
+    pub provider_requirement_count: usize,
+    pub migration_rule_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -357,7 +415,43 @@ fn build_sorla_gtpack_from_artifacts(
         return Err("pack name must not be empty".to_string());
     }
 
-    let sorx_assets = sorx_startup_assets(&artifacts.ir);
+    let mut sorx_assets = sorx_startup_assets(&artifacts.ir);
+    let sorx_startup_asset_names = sorx_assets.keys().cloned().collect();
+    let validation_manifest = generate_sorx_validation_manifest_from_ir(
+        &artifacts.ir,
+        Some(&artifacts.canonical_hash),
+        sorx_startup_asset_names,
+    );
+    validation_manifest
+        .validate_static()
+        .map_err(|err| err.to_string())?;
+    sorx_assets.insert(
+        SORX_VALIDATION_MANIFEST_ASSET.to_string(),
+        serde_json::to_vec_pretty(&validation_manifest).map_err(|err| err.to_string())?,
+    );
+    let exposure_policy = generate_sorx_exposure_policy(&artifacts.ir.agent_endpoints);
+    let known_endpoint_ids = artifacts
+        .ir
+        .agent_endpoints
+        .iter()
+        .map(|endpoint| endpoint.id.as_str())
+        .collect();
+    exposure_policy
+        .validate_static(&known_endpoint_ids)
+        .map_err(|err| err.to_string())?;
+    sorx_assets.insert(
+        SORX_EXPOSURE_POLICY_ASSET.to_string(),
+        serde_json::to_vec_pretty(&exposure_policy).map_err(|err| err.to_string())?,
+    );
+    let compatibility_manifest =
+        generate_sorx_compatibility_manifest(&artifacts.ir, Some(&artifacts.canonical_hash));
+    compatibility_manifest
+        .validate_static()
+        .map_err(|err| err.to_string())?;
+    sorx_assets.insert(
+        SORX_COMPATIBILITY_ASSET.to_string(),
+        serde_json::to_vec_pretty(&compatibility_manifest).map_err(|err| err.to_string())?,
+    );
     let extension = sorx_runtime_extension_value(&artifacts, &sorx_assets);
 
     let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
@@ -636,8 +730,13 @@ fn sorx_runtime_extension_value(
         );
     }
 
-    let sorx = sorx_assets
+    let mut sorx = sorx_assets
         .keys()
+        .filter(|name| {
+            name.as_str() != SORX_VALIDATION_MANIFEST_ASSET
+                && name.as_str() != SORX_EXPOSURE_POLICY_ASSET
+                && name.as_str() != SORX_COMPATIBILITY_ASSET
+        })
         .map(|name| {
             let key = name
                 .strip_suffix(".json")
@@ -651,6 +750,24 @@ fn sorx_runtime_extension_value(
             )
         })
         .collect::<serde_json::Map<_, _>>();
+    if sorx_assets.contains_key(SORX_VALIDATION_MANIFEST_ASSET) {
+        sorx.insert(
+            "validation_manifest".to_string(),
+            serde_json::Value::String(SORX_VALIDATION_MANIFEST_PATH.to_string()),
+        );
+    }
+    if sorx_assets.contains_key(SORX_EXPOSURE_POLICY_ASSET) {
+        sorx.insert(
+            "exposure_policy".to_string(),
+            serde_json::Value::String(SORX_EXPOSURE_POLICY_PATH.to_string()),
+        );
+    }
+    if sorx_assets.contains_key(SORX_COMPATIBILITY_ASSET) {
+        sorx.insert(
+            "compatibility".to_string(),
+            serde_json::Value::String(SORX_COMPATIBILITY_PATH.to_string()),
+        );
+    }
 
     serde_json::json!({
         "extension": SORX_RUNTIME_EXTENSION_ID,
@@ -726,6 +843,9 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
     let model_bytes = zip_bytes(&mut archive, "assets/sorla/model.cbor")?;
     let ir: CanonicalIr = ciborium::de::from_reader(Cursor::new(model_bytes))
         .map_err(|err| format!("assets/sorla/model.cbor is invalid canonical IR: {err}"))?;
+    let validation = validation_manifest_summary(&mut archive, &manifest, &names)?;
+    let exposure_policy = exposure_policy_summary(&mut archive, &manifest, &names)?;
+    let compatibility = compatibility_summary(&mut archive, &manifest, &names)?;
     let optional_artifacts = [
         AGENT_ENDPOINTS_IR_CBOR_FILENAME,
         AGENT_OPENAPI_OVERLAY_FILENAME,
@@ -760,7 +880,325 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
             .filter(|name| name.starts_with("assets/"))
             .collect(),
         optional_artifacts,
+        validation,
+        exposure_policy,
+        compatibility,
     })
+}
+
+fn sorx_extension_path(
+    manifest: &SorlaPackManifest,
+    key: &str,
+    expected: &str,
+) -> Result<Option<String>, String> {
+    let Some(path) = manifest
+        .extension
+        .get("sorx")
+        .and_then(|sorx| sorx.get(key))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Ok(None);
+    };
+
+    if path != expected {
+        return Err(format!(
+            "pack.cbor references unsupported SORX asset path `{path}` for `{key}`"
+        ));
+    }
+    Ok(Some(path.to_string()))
+}
+
+fn validation_manifest_path(manifest: &SorlaPackManifest) -> Result<Option<String>, String> {
+    sorx_extension_path(
+        manifest,
+        "validation_manifest",
+        SORX_VALIDATION_MANIFEST_PATH,
+    )
+}
+
+fn exposure_policy_path(manifest: &SorlaPackManifest) -> Result<Option<String>, String> {
+    sorx_extension_path(manifest, "exposure_policy", SORX_EXPOSURE_POLICY_PATH)
+}
+
+fn compatibility_path(manifest: &SorlaPackManifest) -> Result<Option<String>, String> {
+    sorx_extension_path(manifest, "compatibility", SORX_COMPATIBILITY_PATH)
+}
+
+fn compatibility_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackCompatibilityInspection>, String> {
+    let Some(path) = compatibility_path(manifest)? else {
+        return Ok(None);
+    };
+    if !names.contains(&path) {
+        return Err(format!(
+            "pack.cbor references missing compatibility manifest `{path}`"
+        ));
+    }
+
+    let compatibility = read_compatibility_manifest(archive, &path)?;
+    compatibility
+        .validate_static()
+        .map_err(|err| err.to_string())?;
+    Ok(Some(SorlaGtpackCompatibilityInspection {
+        api_mode: compatibility.api_compatibility,
+        state_mode: compatibility.state_compatibility,
+        provider_requirement_count: compatibility.provider_compatibility.len(),
+        migration_rule_count: compatibility.migration_compatibility.len(),
+    }))
+}
+
+fn exposure_policy_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackExposurePolicyInspection>, String> {
+    let Some(path) = exposure_policy_path(manifest)? else {
+        return Ok(None);
+    };
+    if !names.contains(&path) {
+        return Err(format!(
+            "pack.cbor references missing exposure policy `{path}`"
+        ));
+    }
+
+    let policy = read_exposure_policy(archive, &path)?;
+    Ok(Some(SorlaGtpackExposurePolicyInspection {
+        default_visibility: policy.default_visibility,
+        public_candidate_endpoints: policy
+            .endpoints
+            .iter()
+            .filter(|endpoint| endpoint.visibility == EndpointVisibility::PublicCandidate)
+            .count(),
+        approval_required_endpoints: policy
+            .endpoints
+            .iter()
+            .filter(|endpoint| endpoint.requires_approval)
+            .count(),
+    }))
+}
+
+fn validation_manifest_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackValidationInspection>, String> {
+    let Some(path) = validation_manifest_path(manifest)? else {
+        return Ok(None);
+    };
+    if !names.contains(&path) {
+        return Err(format!(
+            "pack.cbor references missing validation manifest `{path}`"
+        ));
+    }
+
+    let validation = read_validation_manifest(archive, &path)?;
+    validation
+        .validate_static()
+        .map_err(|err| err.to_string())?;
+    Ok(Some(SorlaGtpackValidationInspection {
+        schema: validation.schema,
+        suite_count: validation.suites.len(),
+        test_count: validation
+            .suites
+            .iter()
+            .map(|suite| suite.tests.len())
+            .sum(),
+        promotion_requires: validation.promotion_requires,
+    }))
+}
+
+fn validate_embedded_sorx_validation<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let path = validation_manifest_path(&pack_manifest)?
+        .ok_or_else(|| "pack.cbor is missing `sorx.validation_manifest`".to_string())?;
+    if !names.contains(&path) {
+        return Err(format!(
+            "pack.cbor references missing validation manifest `{path}`"
+        ));
+    }
+    if !pack_manifest.assets.iter().any(|asset| asset == &path) {
+        return Err(format!("pack.cbor assets do not include `{path}`"));
+    }
+    validate_lock_includes_entry(archive, &path)?;
+
+    let validation = read_validation_manifest(archive, &path)?;
+    validation
+        .validate_static()
+        .map_err(|err| err.to_string())?;
+    if validation.package.name != ir.package.name {
+        return Err(format!(
+            "validation manifest package.name `{}` does not match SoRLa package `{}`",
+            validation.package.name, ir.package.name
+        ));
+    }
+    if validation.package.version != ir.package.version {
+        return Err(format!(
+            "validation manifest package.version `{}` does not match SoRLa package `{}`",
+            validation.package.version, ir.package.version
+        ));
+    }
+    for suite in &validation.suites {
+        for test in &suite.tests {
+            for reference in test.referenced_asset_paths() {
+                let asset_path = format!("assets/sorx/tests/{reference}");
+                if !names.contains(&asset_path) {
+                    return Err(format!(
+                        "validation manifest references missing asset `{asset_path}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_embedded_sorx_exposure_policy<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let path = exposure_policy_path(&pack_manifest)?
+        .ok_or_else(|| "pack.cbor is missing `sorx.exposure_policy`".to_string())?;
+    if !names.contains(&path) {
+        return Err(format!(
+            "pack.cbor references missing exposure policy `{path}`"
+        ));
+    }
+    if !pack_manifest.assets.iter().any(|asset| asset == &path) {
+        return Err(format!("pack.cbor assets do not include `{path}`"));
+    }
+    validate_lock_includes_entry(archive, &path)?;
+
+    let known_endpoint_ids = ir
+        .agent_endpoints
+        .iter()
+        .map(|endpoint| endpoint.id.as_str())
+        .collect();
+    let policy = read_exposure_policy(archive, &path)?;
+    policy
+        .validate_static(&known_endpoint_ids)
+        .map_err(|err| err.to_string())?;
+    validate_exposure_policy_against_validation(archive, &policy)?;
+    Ok(())
+}
+
+fn validate_embedded_sorx_compatibility<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let path = compatibility_path(&pack_manifest)?
+        .ok_or_else(|| "pack.cbor is missing `sorx.compatibility`".to_string())?;
+    if !names.contains(&path) {
+        return Err(format!(
+            "pack.cbor references missing compatibility manifest `{path}`"
+        ));
+    }
+    if !pack_manifest.assets.iter().any(|asset| asset == &path) {
+        return Err(format!("pack.cbor assets do not include `{path}`"));
+    }
+    validate_lock_includes_entry(archive, &path)?;
+
+    let compatibility = read_compatibility_manifest(archive, &path)?;
+    compatibility
+        .validate_static()
+        .map_err(|err| err.to_string())?;
+    if compatibility.package.name != ir.package.name {
+        return Err(format!(
+            "compatibility manifest package.name `{}` does not match SoRLa package `{}`",
+            compatibility.package.name, ir.package.name
+        ));
+    }
+    if compatibility.package.version != ir.package.version {
+        return Err(format!(
+            "compatibility manifest package.version `{}` does not match SoRLa package `{}`",
+            compatibility.package.version, ir.package.version
+        ));
+    }
+    Ok(())
+}
+
+fn validate_exposure_policy_against_validation<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    policy: &SorxExposurePolicy,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let validation_path = validation_manifest_path(&pack_manifest)?
+        .ok_or_else(|| "pack.cbor is missing `sorx.validation_manifest`".to_string())?;
+    let validation = read_validation_manifest(archive, &validation_path)?;
+    if policy
+        .promotion_requires
+        .iter()
+        .any(|requirement| requirement == "validation_success")
+        && validation.promotion_requires.is_empty()
+    {
+        return Err(
+            "exposure policy requires validation_success but validation has no promotion suites"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn read_validation_manifest<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<SorxValidationManifest, String> {
+    serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid JSON: {err}"))
+}
+
+fn read_exposure_policy<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<SorxExposurePolicy, String> {
+    serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid JSON: {err}"))
+}
+
+fn read_compatibility_manifest<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<SorxCompatibilityManifest, String> {
+    serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid JSON: {err}"))
+}
+
+fn validate_lock_includes_entry<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<(), String> {
+    let lock_bytes = zip_bytes(archive, "pack.lock.cbor")?;
+    let lock: SorlaPackLock = ciborium::de::from_reader(Cursor::new(lock_bytes))
+        .map_err(|err| format!("pack.lock.cbor is invalid CBOR: {err}"))?;
+    if !lock.entries.contains_key(path) {
+        return Err(format!(
+            "pack.lock.cbor is missing validation asset `{path}`"
+        ));
+    }
+    Ok(())
 }
 
 pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, String> {
@@ -781,6 +1219,9 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
     let model_bytes = zip_bytes(&mut archive, "assets/sorla/model.cbor")?;
     let ir: CanonicalIr = ciborium::de::from_reader(Cursor::new(model_bytes))
         .map_err(|err| format!("model.cbor is invalid canonical IR: {err}"))?;
+    validate_embedded_sorx_validation(&mut archive, &names, &ir)?;
+    validate_embedded_sorx_exposure_policy(&mut archive, &names, &ir)?;
+    validate_embedded_sorx_compatibility(&mut archive, &names, &ir)?;
     let endpoint_ids: BTreeSet<_> = ir
         .agent_endpoints
         .iter()
@@ -867,6 +1308,9 @@ fn required_pack_entries() -> Vec<&'static str> {
         "assets/sorx/start.questions.cbor",
         "assets/sorx/runtime.template.yaml",
         "assets/sorx/provider-bindings.template.yaml",
+        SORX_COMPATIBILITY_PATH,
+        SORX_EXPOSURE_POLICY_PATH,
+        SORX_VALIDATION_MANIFEST_PATH,
     ]
 }
 
@@ -1597,6 +2041,29 @@ mod tests {
         let inspection = inspect_sorla_gtpack(&first_out).expect("inspect pack");
         assert_eq!(inspection.extension, SORX_RUNTIME_EXTENSION_ID);
         assert_eq!(inspection.sorla_package_name, "landlord-tenant-sor");
+        let validation = inspection
+            .validation
+            .as_ref()
+            .expect("inspect should summarize validation manifest");
+        assert_eq!(validation.schema, SORX_VALIDATION_SCHEMA);
+        assert!(validation.suite_count >= 1);
+        assert!(validation.test_count >= 1);
+        let exposure = inspection
+            .exposure_policy
+            .as_ref()
+            .expect("inspect should summarize exposure policy");
+        assert_eq!(exposure.default_visibility, EndpointVisibility::Private);
+        assert!(exposure.public_candidate_endpoints >= 1);
+        assert!(exposure.approval_required_endpoints >= 1);
+        let compatibility = inspection
+            .compatibility
+            .as_ref()
+            .expect("inspect should summarize compatibility manifest");
+        assert!(compatibility.provider_requirement_count >= 1);
+        assert_eq!(
+            compatibility.state_mode,
+            StateCompatibilityMode::IsolatedRequired
+        );
         assert_eq!(
             inspection
                 .optional_artifacts
@@ -1610,6 +2077,260 @@ mod tests {
         for required in required_pack_entries() {
             archive.by_name(required).expect("required entry exists");
         }
+        let pack_manifest: SorlaPackManifest = ciborium::de::from_reader(Cursor::new(
+            zip_bytes(&mut archive, "pack.cbor").expect("pack.cbor"),
+        ))
+        .expect("pack manifest decodes");
+        assert_eq!(
+            pack_manifest
+                .extension
+                .get("sorx")
+                .and_then(|sorx| sorx.get("validation_manifest"))
+                .and_then(serde_json::Value::as_str),
+            Some(SORX_VALIDATION_MANIFEST_PATH)
+        );
+        assert_eq!(
+            pack_manifest
+                .extension
+                .get("sorx")
+                .and_then(|sorx| sorx.get("exposure_policy"))
+                .and_then(serde_json::Value::as_str),
+            Some(SORX_EXPOSURE_POLICY_PATH)
+        );
+        assert_eq!(
+            pack_manifest
+                .extension
+                .get("sorx")
+                .and_then(|sorx| sorx.get("compatibility"))
+                .and_then(serde_json::Value::as_str),
+            Some(SORX_COMPATIBILITY_PATH)
+        );
+        assert!(
+            pack_manifest
+                .assets
+                .contains(&SORX_VALIDATION_MANIFEST_PATH.to_string())
+        );
+        assert!(
+            pack_manifest
+                .assets
+                .contains(&SORX_EXPOSURE_POLICY_PATH.to_string())
+        );
+        assert!(
+            pack_manifest
+                .assets
+                .contains(&SORX_COMPATIBILITY_PATH.to_string())
+        );
+    }
+
+    #[test]
+    fn validation_pack_assets_match_golden_snapshots() {
+        let temp = tempdir().expect("tempdir");
+        let minimal_out = temp.path().join("minimal.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("tests/golden/tenant_v0_2.sorla.yaml"),
+            name: "tenancy".to_string(),
+            version: "0.2.0".to_string(),
+            out_path: minimal_out.clone(),
+        })
+        .expect("minimal pack builds");
+        assert_gtpack_json_matches_fixture(
+            &minimal_out,
+            SORX_VALIDATION_MANIFEST_PATH,
+            "../../tests/fixtures/validation/minimal/test-manifest.json",
+        );
+
+        let landlord_out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: landlord_out.clone(),
+        })
+        .expect("landlord pack builds");
+        assert_gtpack_json_matches_fixture(
+            &landlord_out,
+            SORX_VALIDATION_MANIFEST_PATH,
+            "../../tests/fixtures/validation/landlord-tenant/test-manifest.json",
+        );
+        assert_gtpack_json_matches_fixture(
+            &landlord_out,
+            SORX_EXPOSURE_POLICY_PATH,
+            "../../tests/fixtures/validation/landlord-tenant/exposure-policy.json",
+        );
+        assert_gtpack_json_matches_fixture(
+            &landlord_out,
+            SORX_COMPATIBILITY_PATH,
+            "../../tests/fixtures/validation/landlord-tenant/compatibility.json",
+        );
+    }
+
+    fn assert_gtpack_json_matches_fixture(pack_path: &Path, asset_path: &str, fixture_path: &str) {
+        let mut archive =
+            ZipArchive::new(fs::File::open(pack_path).expect("open pack")).expect("read pack");
+        let actual = zip_text(&mut archive, asset_path).expect("asset should exist");
+        let expected = fs::read_to_string(fixture_path).expect("fixture should read");
+        assert_eq!(actual.trim_end(), expected.trim_end(), "{asset_path}");
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_shared_state_without_migration_metadata() {
+        let temp = tempdir().expect("tempdir");
+        let out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        let mut archive =
+            ZipArchive::new(fs::File::open(&out).expect("open pack")).expect("read pack");
+        let mut entries = BTreeMap::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("entry");
+            if entry.name() == "pack.lock.cbor" {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read entry");
+            if entry.name() == SORX_COMPATIBILITY_PATH {
+                let mut compatibility: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("compatibility JSON");
+                compatibility["state_compatibility"] =
+                    serde_json::Value::String("shared_allowed".to_string());
+                compatibility["migration_compatibility"] = serde_json::Value::Array(Vec::new());
+                bytes =
+                    serde_json::to_vec_pretty(&compatibility).expect("compatibility serializes");
+            }
+            entries.insert(entry.name().to_string(), bytes);
+        }
+        drop(archive);
+        let lock = pack_lock_for_entries(&entries);
+        entries.insert("pack.lock.cbor".to_string(), canonical_cbor(&lock));
+        write_zip_entries(&out, entries).expect("rewrite malformed pack");
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("shared state"));
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_missing_validation_fixture_reference() {
+        let temp = tempdir().expect("tempdir");
+        let out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        let mut archive =
+            ZipArchive::new(fs::File::open(&out).expect("open pack")).expect("read pack");
+        let mut entries = BTreeMap::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("entry");
+            if entry.name() == "pack.lock.cbor" {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read entry");
+            if entry.name() == SORX_VALIDATION_MANIFEST_PATH {
+                let mut manifest: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("validation manifest JSON");
+                manifest["suites"][0]["tests"][0]["input_ref"] =
+                    serde_json::Value::String("fixtures/missing.json".to_string());
+                bytes = serde_json::to_vec_pretty(&manifest).expect("manifest serializes");
+            }
+            entries.insert(entry.name().to_string(), bytes);
+        }
+        drop(archive);
+        let lock = pack_lock_for_entries(&entries);
+        entries.insert("pack.lock.cbor".to_string(), canonical_cbor(&lock));
+        write_zip_entries(&out, entries).expect("rewrite malformed pack");
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("assets/sorx/tests/fixtures/missing.json"));
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_public_candidate_exposure_default() {
+        let temp = tempdir().expect("tempdir");
+        let out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        let mut archive =
+            ZipArchive::new(fs::File::open(&out).expect("open pack")).expect("read pack");
+        let mut entries = BTreeMap::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("entry");
+            if entry.name() == "pack.lock.cbor" {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read entry");
+            if entry.name() == SORX_EXPOSURE_POLICY_PATH {
+                let mut policy: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("exposure policy JSON");
+                policy["default_visibility"] =
+                    serde_json::Value::String("public_candidate".to_string());
+                bytes = serde_json::to_vec_pretty(&policy).expect("policy serializes");
+            }
+            entries.insert(entry.name().to_string(), bytes);
+        }
+        drop(archive);
+        let lock = pack_lock_for_entries(&entries);
+        entries.insert("pack.lock.cbor".to_string(), canonical_cbor(&lock));
+        write_zip_entries(&out, entries).expect("rewrite malformed pack");
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("default_visibility"));
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_invalid_validation_schema() {
+        let temp = tempdir().expect("tempdir");
+        let out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        let mut archive =
+            ZipArchive::new(fs::File::open(&out).expect("open pack")).expect("read pack");
+        let mut entries = BTreeMap::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("entry");
+            if entry.name() == "pack.lock.cbor" {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read entry");
+            if entry.name() == SORX_VALIDATION_MANIFEST_PATH {
+                let mut manifest: serde_json::Value =
+                    serde_json::from_slice(&bytes).expect("validation manifest JSON");
+                manifest["schema"] = serde_json::Value::String("wrong.schema".to_string());
+                bytes = serde_json::to_vec_pretty(&manifest).expect("manifest serializes");
+            }
+            entries.insert(entry.name().to_string(), bytes);
+        }
+        drop(archive);
+        let lock = pack_lock_for_entries(&entries);
+        entries.insert("pack.lock.cbor".to_string(), canonical_cbor(&lock));
+        write_zip_entries(&out, entries).expect("rewrite malformed pack");
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains(SORX_VALIDATION_SCHEMA));
     }
 
     #[test]
