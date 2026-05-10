@@ -60,6 +60,10 @@ jobs:
           fi
 
           if ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+              echo "No ${tag} tag exists for this push; skipping release dispatch."
+              exit 0
+            fi
             echo "Expected release tag ${tag} was not found on origin." >&2
             echo "Push the tag or rerun Tag on Version Bump before dispatching this workflow from a branch." >&2
             exit 1
@@ -69,9 +73,8 @@ jobs:
           tag_sha="$(git rev-list -n1 "${tag}")"
           expected_sha="${{ github.event.workflow_run.head_sha || github.sha }}"
           if [[ "${{ github.event_name }}" == "workflow_run" && "${tag_sha}" != "${expected_sha}" ]]; then
-            echo "Tag ${tag} points at ${tag_sha}, but this run is for ${expected_sha}." >&2
-            echo "Update Cargo.toml before releasing, or manually dispatch this workflow with an explicit tag." >&2
-            exit 1
+            echo "Tag ${tag} points at ${tag_sha}, but this push is ${expected_sha}; skipping release dispatch."
+            exit 0
           fi
 
           gh workflow run release-binaries.yml --ref "${tag}"
