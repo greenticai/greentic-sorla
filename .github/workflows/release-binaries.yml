@@ -103,6 +103,7 @@ jobs:
       extra-files: |
         README.md
         LICENSE
+        packs/sorla/landlord-tenant/landloard-tenant-sor.gtpack
     secrets: inherit
 
   release_validation:
