@@ -17,8 +17,9 @@ include = ["src/**", "benches/**", "tests/**", "examples/**", "Cargo.toml", "REA
 name = "greentic_sorla_cli"
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }-v{ version }.tar.gz"
-bin-dir = "{ name }-{ target }-v{ version }/{ bin }{ binary-ext }"
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-v{ version }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
 
 [[bin]]
 name = "greentic-sorla"
