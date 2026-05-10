@@ -44,6 +44,8 @@ jobs:
         run: |
           set -euo pipefail
           requested_tag="${{ github.event.inputs.tag || '' }}"
+          previous_version=""
+          version_changed="false"
           if [[ -n "${requested_tag}" ]]; then
             if [[ "${requested_tag}" == v* ]]; then
               tag="${requested_tag}"
@@ -57,10 +59,17 @@ jobs:
               exit 1
             fi
             tag="v${version}"
+            if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              previous_version="$(git show HEAD^:Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p' | head -n1 || true)"
+            fi
+            if [[ -n "${previous_version}" && "${version}" != "${previous_version}" ]]; then
+              version_changed="true"
+            fi
+            echo "Current version: ${version}; previous version: ${previous_version:-unknown}; version changed: ${version_changed}"
           fi
 
           if ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
-            if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            if [[ "${{ github.event_name }}" == "workflow_run" && "${version_changed}" != "true" ]]; then
               echo "No ${tag} tag exists for this push; skipping release dispatch."
               exit 0
             fi
@@ -73,8 +82,13 @@ jobs:
           tag_sha="$(git rev-list -n1 "${tag}")"
           expected_sha="${{ github.event.workflow_run.head_sha || github.sha }}"
           if [[ "${{ github.event_name }}" == "workflow_run" && "${tag_sha}" != "${expected_sha}" ]]; then
-            echo "Tag ${tag} points at ${tag_sha}, but this push is ${expected_sha}; skipping release dispatch."
-            exit 0
+            if [[ "${version_changed}" != "true" ]]; then
+              echo "Tag ${tag} points at ${tag_sha}, but this push is ${expected_sha}; skipping release dispatch."
+              exit 0
+            fi
+            echo "Tag ${tag} points at ${tag_sha}, but this version bump push is ${expected_sha}." >&2
+            echo "The release tag must point at the version bump commit before binaries can be generated." >&2
+            exit 1
           fi
 
           gh workflow run release-binaries.yml --ref "${tag}"
