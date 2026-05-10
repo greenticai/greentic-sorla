@@ -38,4 +38,4 @@ jobs:
             echo "greentic-dev not found in PATH." >&2
             exit 1
           fi
-          greentic-dev coverage --policy-file coverage-policy.json
+          greentic-dev coverage
