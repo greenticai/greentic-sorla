@@ -4751,7 +4751,7 @@ mod tests {
             Some("Asistente de SoRLa")
         );
         assert_eq!(
-            resolved.get("wizard.flow.label").map(String::as_str),
+            spanish.get("wizard.flow.label").map(String::as_str),
             Some("Flujo del asistente")
         );
     }
