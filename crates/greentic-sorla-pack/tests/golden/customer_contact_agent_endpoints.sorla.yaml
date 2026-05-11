@@ -1,0 +1,96 @@
+package:
+  name: website-lead-capture
+  version: 0.2.0
+
+records:
+  - name: Contact
+    source: hybrid
+    external_ref:
+      system: hubspot
+      key: email
+      authoritative: true
+    fields:
+      - name: email
+        type: string
+        authority: external
+      - name: contact_persona
+        type: string
+        authority: external
+      - name: problem_to_solve
+        type: string
+        authority: local
+      - name: company_size
+        type: string
+        authority: local
+
+actions:
+  - name: UpsertContact
+  - name: SendConfirmation
+
+events:
+  - name: ContactCaptured
+    record: Contact
+    kind: integration
+    emits:
+      - name: email
+        type: string
+      - name: contact_persona
+        type: string
+
+policies:
+  - name: CustomerContactPolicy
+
+approvals:
+  - name: ReviewHighRiskContact
+
+agent_endpoints:
+  - id: create_customer_contact
+    title: Create customer contact
+    intent: Capture a customer enquiry and create or update the CRM contact.
+    inputs:
+      - name: email
+        type: string
+        required: true
+        sensitive: true
+      - name: company_name
+        type: string
+        required: true
+      - name: company_size
+        type: string
+        required: false
+      - name: problem_to_solve
+        type: string
+        required: true
+    outputs:
+      - name: contact_id
+        type: string
+    side_effects:
+      - crm.contact.upsert
+      - event.ContactCaptured
+    risk: medium
+    approval: policy-driven
+    provider_requirements:
+      - category: crm
+        capabilities:
+          - contacts.read
+          - contacts.write
+    backing:
+      actions:
+        - UpsertContact
+        - SendConfirmation
+      events:
+        - ContactCaptured
+      policies:
+        - CustomerContactPolicy
+      approvals:
+        - ReviewHighRiskContact
+    examples:
+      - name: customer-lead
+        summary: Capture an inbound website lead.
+        input:
+          email: buyer@example.com
+          company_name: Example Co
+          company_size: enterprise
+          problem_to_solve: Improve qualification speed
+        expected_output:
+          contact_id: contact-123

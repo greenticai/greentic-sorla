@@ -11,8 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 description = "Language-facing types for Greentic SoRLa."
 readme = "README.md"
-publish = false
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 serde_yaml.workspace = true

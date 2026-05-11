@@ -3,13 +3,23 @@ use greentic_qa_lib::{
     AnswerProvider, I18nConfig, QaLibError, ResolvedI18nMap, WizardDriver, WizardFrontend,
     WizardRunConfig,
 };
+use greentic_sorla_pack::{
+    PROVIDER_BINDINGS_TEMPLATE_FILENAME, RUNTIME_TEMPLATE_FILENAME, SORX_COMPATIBILITY_SCHEMA,
+    SORX_EXPOSURE_POLICY_SCHEMA, SORX_VALIDATION_SCHEMA, START_SCHEMA_FILENAME,
+    SorlaGtpackInspection, SorlaGtpackOptions, build_handoff_artifacts_from_yaml,
+    build_sorla_gtpack, doctor_sorla_gtpack, generate_sorx_validation_manifest_from_ir,
+    inspect_sorla_gtpack, sorx_validation_schema_json,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-mod embedded_i18n;
+mod embedded_i18n {
+    include!(concat!(env!("OUT_DIR"), "/embedded_i18n.rs"));
+}
 
 const GENERATED_BEGIN: &str = "# --- BEGIN GREENTIC-SORLA GENERATED ---";
 const GENERATED_END: &str = "# --- END GREENTIC-SORLA GENERATED ---";
@@ -21,8 +31,8 @@ const LAUNCHER_HANDOFF_FILENAME: &str = "launcher-handoff.json";
 #[command(
     name = "greentic-sorla",
     about = "Wizard-first tooling for Greentic SoRLa source layouts and handoff artifacts.",
-    long_about = "greentic-sorla is a wizard-first tool for authoring SoRLa source layouts and extension handoff artifacts.\n\nSupported product surface:\n  greentic-sorla wizard --schema\n  greentic-sorla wizard --answers <file>\n",
-    after_help = "Internal helper commands may exist, but the supported UX is the wizard flow."
+    long_about = "greentic-sorla is a wizard-first tool for authoring SoRLa source layouts, extension handoff artifacts, and deterministic handoff packs.\n\nSupported product surface:\n  greentic-sorla wizard --schema\n  greentic-sorla wizard --answers <file>\n  greentic-sorla wizard --answers <file> --pack-out <file.gtpack>\n  greentic-sorla pack <file> --name <name> --version <version> --out <file.gtpack>\n",
+    after_help = "Internal helper commands may exist, but the supported UX is the wizard flow plus deterministic pack handoff."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -33,6 +43,8 @@ pub struct Cli {
 enum Commands {
     /// Generate wizard schema or apply a saved answers document.
     Wizard(WizardArgs),
+    /// Build, inspect, or doctor deterministic SoRLa gtpack handoff artifacts.
+    Pack(PackArgs),
     #[command(name = "__inspect-product-shape", hide = true)]
     InspectProductShape,
 }
@@ -42,9 +54,70 @@ struct WizardArgs {
     /// Emit the wizard schema as deterministic JSON.
     #[arg(long, action = ArgAction::SetTrue)]
     schema: bool,
+    /// Locale used for wizard schema metadata and interactive prompts.
+    #[arg(long)]
+    locale: Option<String>,
     /// Apply a saved answers document.
     #[arg(long, value_name = "FILE")]
     answers: Option<PathBuf>,
+    /// Also build a deterministic .gtpack from the generated sorla.yaml.
+    #[arg(long, value_name = "FILE")]
+    pack_out: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+struct PackArgs {
+    /// SoRLa YAML input to package.
+    #[arg(value_name = "FILE")]
+    input: Option<PathBuf>,
+    /// Pack name to write into the gtpack manifest.
+    #[arg(long)]
+    name: Option<String>,
+    /// Pack semantic version.
+    #[arg(long)]
+    version: Option<String>,
+    /// Output .gtpack path.
+    #[arg(long, value_name = "FILE")]
+    out: Option<PathBuf>,
+    #[command(subcommand)]
+    command: Option<PackCommand>,
+}
+
+#[derive(Debug, Subcommand)]
+enum PackCommand {
+    /// Validate a generated SoRLa gtpack.
+    Doctor(PackPathArgs),
+    /// Inspect a generated SoRLa gtpack as deterministic JSON.
+    Inspect(PackPathArgs),
+    /// Emit deterministic JSON schemas for SORX handoff metadata.
+    Schema(PackSchemaArgs),
+    /// Inspect embedded SORX validation metadata as deterministic JSON.
+    ValidationInspect(PackPathArgs),
+    /// Validate embedded SORX validation metadata using pack doctor checks.
+    ValidationDoctor(PackPathArgs),
+}
+
+#[derive(Debug, Args)]
+struct PackSchemaArgs {
+    #[command(subcommand)]
+    command: PackSchemaCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum PackSchemaCommand {
+    /// Emit the greentic.sorx.validation.v1 schema.
+    Validation,
+    /// Emit the greentic.sorx.exposure-policy.v1 schema.
+    ExposurePolicy,
+    /// Emit the greentic.sorx.compatibility.v1 schema.
+    Compatibility,
+}
+
+#[derive(Debug, Args)]
+struct PackPathArgs {
+    /// .gtpack file to inspect or validate.
+    #[arg(value_name = "FILE")]
+    path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -119,6 +192,8 @@ struct ExecutionSummary {
     package_name: String,
     locale: String,
     written_files: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pack_path: Option<String>,
     preserved_user_content: bool,
 }
 
@@ -136,11 +211,21 @@ struct AnswersDocument {
     #[serde(default)]
     records: Option<RecordAnswers>,
     #[serde(default)]
+    actions: Vec<NamedAnswer>,
+    #[serde(default)]
     events: Option<EventAnswers>,
     #[serde(default)]
     projections: Option<ProjectionAnswers>,
     #[serde(default)]
+    provider_requirements: Vec<ProviderRequirementAnswer>,
+    #[serde(default)]
+    policies: Vec<NamedAnswer>,
+    #[serde(default)]
+    approvals: Vec<NamedAnswer>,
+    #[serde(default)]
     migrations: Option<MigrationAnswers>,
+    #[serde(default)]
+    agent_endpoints: Option<AgentEndpointAnswers>,
     #[serde(default)]
     output: Option<OutputAnswers>,
 }
@@ -169,16 +254,92 @@ struct RecordAnswers {
     default_source: Option<String>,
     #[serde(default)]
     external_ref_system: Option<String>,
+    #[serde(default)]
+    items: Vec<RecordItemAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct RecordItemAnswer {
+    name: String,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    external_ref: Option<ExternalRefAnswer>,
+    #[serde(default)]
+    fields: Vec<FieldAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct ExternalRefAnswer {
+    system: String,
+    key: String,
+    #[serde(default)]
+    authoritative: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct FieldAnswer {
+    name: String,
+    #[serde(rename = "type")]
+    type_name: String,
+    #[serde(default)]
+    required: Option<bool>,
+    #[serde(default)]
+    sensitive: Option<bool>,
+    #[serde(default)]
+    enum_values: Vec<String>,
+    #[serde(default)]
+    references: Option<FieldReferenceAnswer>,
+    #[serde(default)]
+    authority: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct FieldReferenceAnswer {
+    record: String,
+    field: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct EventAnswers {
     #[serde(default)]
     enabled: Option<bool>,
+    #[serde(default)]
+    items: Vec<EventItemAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct EventItemAnswer {
+    name: String,
+    record: String,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    emits: Vec<EventFieldAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct EventFieldAnswer {
+    name: String,
+    #[serde(rename = "type")]
+    type_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct ProjectionAnswers {
+    #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
+    items: Vec<ProjectionItemAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct ProjectionItemAnswer {
+    name: String,
+    record: String,
+    source_event: String,
     #[serde(default)]
     mode: Option<String>,
 }
@@ -187,6 +348,134 @@ struct ProjectionAnswers {
 struct MigrationAnswers {
     #[serde(default)]
     compatibility: Option<String>,
+    #[serde(default)]
+    items: Vec<MigrationItemAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MigrationItemAnswer {
+    name: String,
+    #[serde(default)]
+    compatibility: Option<String>,
+    #[serde(default)]
+    projection_updates: Vec<String>,
+    #[serde(default)]
+    backfills: Vec<MigrationBackfillAnswer>,
+    #[serde(default)]
+    idempotence_key: Option<String>,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MigrationBackfillAnswer {
+    record: String,
+    field: String,
+    #[serde(default)]
+    default: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct ProviderRequirementAnswer {
+    category: String,
+    #[serde(default)]
+    capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct NamedAnswer {
+    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct AgentEndpointAnswers {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    ids: Option<Vec<String>>,
+    #[serde(default)]
+    default_risk: Option<String>,
+    #[serde(default)]
+    default_approval: Option<String>,
+    #[serde(default)]
+    exports: Option<Vec<String>>,
+    #[serde(default)]
+    provider_category: Option<String>,
+    #[serde(default)]
+    items: Vec<AgentEndpointItemAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct AgentEndpointItemAnswer {
+    id: String,
+    title: String,
+    intent: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    inputs: Vec<FieldAnswer>,
+    #[serde(default)]
+    outputs: Vec<FieldAnswer>,
+    #[serde(default)]
+    side_effects: Vec<String>,
+    #[serde(default)]
+    emits: Option<AgentEndpointEmitAnswer>,
+    #[serde(default)]
+    risk: Option<String>,
+    #[serde(default)]
+    approval: Option<String>,
+    #[serde(default)]
+    provider_requirements: Vec<ProviderRequirementAnswer>,
+    #[serde(default)]
+    backing: AgentEndpointBackingAnswer,
+    #[serde(default)]
+    agent_visibility: Option<AgentVisibilityAnswer>,
+    #[serde(default)]
+    examples: Vec<AgentEndpointExampleAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct AgentEndpointEmitAnswer {
+    event: String,
+    stream: String,
+    #[serde(default)]
+    payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct AgentEndpointBackingAnswer {
+    #[serde(default)]
+    actions: Vec<String>,
+    #[serde(default)]
+    events: Vec<String>,
+    #[serde(default)]
+    flows: Vec<String>,
+    #[serde(default)]
+    policies: Vec<String>,
+    #[serde(default)]
+    approvals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct AgentVisibilityAnswer {
+    #[serde(default)]
+    openapi: Option<bool>,
+    #[serde(default)]
+    arazzo: Option<bool>,
+    #[serde(default)]
+    mcp: Option<bool>,
+    #[serde(default)]
+    llms_txt: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct AgentEndpointExampleAnswer {
+    name: String,
+    summary: String,
+    #[serde(default)]
+    input: serde_json::Value,
+    #[serde(default)]
+    expected_output: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -210,9 +499,39 @@ struct ResolvedAnswers {
     provider_hints: Vec<String>,
     default_source: String,
     external_ref_system: Option<String>,
+    #[serde(default)]
+    record_items: Vec<RecordItemAnswer>,
+    #[serde(default)]
+    actions: Vec<NamedAnswer>,
+    #[serde(default)]
+    event_items: Vec<EventItemAnswer>,
+    #[serde(default)]
+    projection_items: Vec<ProjectionItemAnswer>,
+    #[serde(default)]
+    provider_requirements: Vec<ProviderRequirementAnswer>,
+    #[serde(default)]
+    policies: Vec<NamedAnswer>,
+    #[serde(default)]
+    approvals: Vec<NamedAnswer>,
+    #[serde(default)]
+    migration_items: Vec<MigrationItemAnswer>,
     events_enabled: bool,
     projection_mode: String,
     compatibility_mode: String,
+    #[serde(default)]
+    agent_endpoints_enabled: bool,
+    #[serde(default)]
+    agent_endpoint_ids: Vec<String>,
+    #[serde(default = "default_agent_endpoint_risk")]
+    agent_endpoint_default_risk: String,
+    #[serde(default = "default_agent_endpoint_approval")]
+    agent_endpoint_default_approval: String,
+    #[serde(default)]
+    agent_endpoint_exports: Vec<String>,
+    #[serde(default)]
+    agent_endpoint_provider_category: Option<String>,
+    #[serde(default)]
+    agent_endpoint_items: Vec<AgentEndpointItemAnswer>,
     include_agent_tools: bool,
     artifacts: Vec<String>,
 }
@@ -230,23 +549,583 @@ pub fn main() -> std::process::ExitCode {
 pub fn run<I, T>(args: I) -> Result<(), String>
 where
     I: IntoIterator<Item = T>,
-    T: Into<std::ffi::OsString> + Clone,
+    T: Into<OsString> + Clone,
 {
+    let args = args.into_iter().map(Into::into).collect::<Vec<OsString>>();
+    if let Some(help) = localized_help_for_args(&args) {
+        println!("{help}");
+        return Ok(());
+    }
+
     let cli = Cli::parse_from(args);
 
     match cli.command {
         Commands::Wizard(args) => run_wizard(args),
+        Commands::Pack(args) => run_pack(args),
         Commands::InspectProductShape => {
-            println!("wizard-first");
+            println!("wizard-first-plus-pack");
             Ok(())
         }
     }
 }
 
+fn localized_help_for_args(args: &[OsString]) -> Option<String> {
+    if !args.iter().any(|arg| {
+        let arg = arg.to_string_lossy();
+        arg == "--help" || arg == "-h"
+    }) {
+        return None;
+    }
+
+    let locale = explicit_locale_arg(args).or_else(|| std::env::var("SORLA_LOCALE").ok())?;
+    let locale = locale.trim();
+    if locale.is_empty() {
+        return None;
+    }
+
+    let localized = locale_catalog(locale)?;
+    let fallback = locale_catalog("en").unwrap_or_default();
+
+    match help_command(args) {
+        HelpCommand::Wizard => Some(render_wizard_help(&localized, &fallback)),
+        HelpCommand::Pack => Some(render_pack_help(&localized, &fallback)),
+        HelpCommand::Root => Some(render_root_help(&localized, &fallback)),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelpCommand {
+    Root,
+    Wizard,
+    Pack,
+}
+
+fn help_command(args: &[OsString]) -> HelpCommand {
+    let mut iter = args.iter().skip(1);
+    while let Some(arg) = iter.next() {
+        let arg = arg.to_string_lossy();
+        match arg.as_ref() {
+            "wizard" => return HelpCommand::Wizard,
+            "pack" => return HelpCommand::Pack,
+            "--help" | "-h" => return HelpCommand::Root,
+            "--locale" => {
+                let _ = iter.next();
+            }
+            value if value.starts_with("--locale=") => {}
+            value if value.starts_with('-') => {}
+            _ => return HelpCommand::Root,
+        }
+    }
+    HelpCommand::Root
+}
+
+fn explicit_locale_arg(args: &[OsString]) -> Option<String> {
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        let arg = arg.to_string_lossy();
+        if arg == "--locale" {
+            return iter.next().map(|value| value.to_string_lossy().to_string());
+        }
+        if let Some(value) = arg.strip_prefix("--locale=") {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+fn locale_catalog(locale: &str) -> Option<BTreeMap<String, String>> {
+    serde_json::from_str(included_locale_json(locale)?).ok()
+}
+
+fn catalog_text<'a>(
+    catalog: &'a BTreeMap<String, String>,
+    fallback: &'a BTreeMap<String, String>,
+    key: &str,
+    default: &'static str,
+) -> &'a str {
+    catalog
+        .get(key)
+        .or_else(|| fallback.get(key))
+        .map(String::as_str)
+        .unwrap_or(default)
+}
+
+fn render_root_help(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+) -> String {
+    format!(
+        "{title}\n\n{description}\n\n{usage}: greentic-sorla <COMMAND>\n\n{commands}:\n  wizard  {wizard_description}\n  pack    {pack_description}\n  help    {help_description}\n\n{options}:\n  -h, --help  {help_option}",
+        title = catalog_text(catalog, fallback, "wizard.title", "SoRLa wizard"),
+        description = catalog_text(
+            catalog,
+            fallback,
+            "wizard.description",
+            "Generate schema or apply answers documents."
+        ),
+        wizard_description = catalog_text(
+            catalog,
+            fallback,
+            "wizard.description",
+            "Generate schema or apply answers documents."
+        ),
+        pack_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.commands.pack.description",
+            "Build, inspect, or doctor deterministic SoRLa gtpack handoff artifacts."
+        ),
+        help_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.commands.help.description",
+            "Print this message or the help of the given subcommand(s)."
+        ),
+        usage = catalog_text(catalog, fallback, "cli.usage", "Usage"),
+        commands = catalog_text(catalog, fallback, "cli.commands", "Commands"),
+        options = catalog_text(catalog, fallback, "cli.options", "Options"),
+        help_option = catalog_text(
+            catalog,
+            fallback,
+            "cli.options.help.description",
+            "Print help"
+        )
+    )
+}
+
+fn render_wizard_help(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+) -> String {
+    format!(
+        "{description}\n\n{usage}: greentic-sorla wizard [{options_placeholder}]\n\n{options}:\n      --schema           {schema_description}\n      --locale <LOCALE>  {locale_description}\n      --answers <FILE>   {answers_description}\n      --pack-out <FILE>  {pack_out_description}\n  -h, --help             {help_option}\n\n{core_prompts}:\n  {flow_label}\n  {output_dir_label}\n  {package_name_label}\n  {package_version_label}\n  {storage_provider_label}\n  {default_source_label}\n  {events_enabled_label}\n  {projection_mode_label}\n  {compatibility_mode_label}\n  {include_agent_tools_label}",
+        description = catalog_text(
+            catalog,
+            fallback,
+            "wizard.description",
+            "Generate schema or apply answers documents."
+        ),
+        usage = catalog_text(catalog, fallback, "cli.usage", "Usage"),
+        options_placeholder = catalog_text(catalog, fallback, "cli.options.placeholder", "OPTIONS"),
+        options = catalog_text(catalog, fallback, "cli.options", "Options"),
+        schema_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.wizard.options.schema.description",
+            "Emit the wizard schema as deterministic JSON"
+        ),
+        locale_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.wizard.options.locale.description",
+            "Locale used for wizard schema metadata and interactive prompts"
+        ),
+        answers_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.wizard.options.answers.description",
+            "Apply a saved answers document"
+        ),
+        pack_out_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.wizard.options.pack_out.description",
+            "Also build a deterministic .gtpack from the generated sorla.yaml"
+        ),
+        help_option = catalog_text(
+            catalog,
+            fallback,
+            "cli.options.help.description",
+            "Print help"
+        ),
+        core_prompts = catalog_text(catalog, fallback, "cli.wizard.core_prompts", "Core prompts"),
+        flow_label = catalog_text(catalog, fallback, "wizard.flow.label", "Wizard flow"),
+        output_dir_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.output_dir.label",
+            "Output directory"
+        ),
+        package_name_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.questions.package_name.label",
+            "Package name"
+        ),
+        package_version_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.questions.package_version.label",
+            "Package version"
+        ),
+        storage_provider_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.questions.storage_provider.label",
+            "Storage provider category"
+        ),
+        default_source_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.questions.default_source.label",
+            "Default record source"
+        ),
+        events_enabled_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.questions.events_enabled.label",
+            "Enable event declarations"
+        ),
+        projection_mode_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.questions.projection_mode.label",
+            "Projection mode"
+        ),
+        compatibility_mode_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.questions.compatibility_mode.label",
+            "Compatibility mode"
+        ),
+        include_agent_tools_label = catalog_text(
+            catalog,
+            fallback,
+            "wizard.questions.include_agent_tools.label",
+            "Include agent tools output"
+        )
+    )
+}
+
+fn render_pack_help(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+) -> String {
+    format!(
+        "{description}\n\n{usage}: greentic-sorla pack [{options_placeholder}] [FILE] [COMMAND]\n\n{commands}:\n  doctor               {doctor_description}\n  inspect              {inspect_description}\n  schema               {schema_command_description}\n  validation-inspect   {validation_inspect_description}\n  validation-doctor    {validation_doctor_description}\n  help                 {help_description}\n\n{options}:\n      --name <NAME>     {name_description}\n      --version <VER>   {version_description}\n      --out <FILE>      {out_description}\n  -h, --help            {help_option}",
+        description = catalog_text(
+            catalog,
+            fallback,
+            "cli.commands.pack.description",
+            "Build, inspect, or doctor deterministic SoRLa gtpack handoff artifacts."
+        ),
+        usage = catalog_text(catalog, fallback, "cli.usage", "Usage"),
+        options_placeholder = catalog_text(catalog, fallback, "cli.options.placeholder", "OPTIONS"),
+        commands = catalog_text(catalog, fallback, "cli.commands", "Commands"),
+        options = catalog_text(catalog, fallback, "cli.options", "Options"),
+        doctor_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.pack.commands.doctor.description",
+            "Validate a generated SoRLa gtpack."
+        ),
+        inspect_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.pack.commands.inspect.description",
+            "Inspect a generated SoRLa gtpack as deterministic JSON."
+        ),
+        schema_command_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.pack.commands.schema.description",
+            "Emit deterministic JSON schemas for SORX handoff metadata."
+        ),
+        validation_inspect_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.pack.commands.validation_inspect.description",
+            "Inspect embedded SORX validation metadata as deterministic JSON."
+        ),
+        validation_doctor_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.pack.commands.validation_doctor.description",
+            "Validate embedded SORX validation metadata using pack doctor checks."
+        ),
+        help_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.commands.help.description",
+            "Print this message or the help of the given subcommand(s)."
+        ),
+        name_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.pack.options.name.description",
+            "Pack name to write into the gtpack manifest."
+        ),
+        version_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.pack.options.version.description",
+            "Pack semantic version."
+        ),
+        out_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.pack.options.out.description",
+            "Output .gtpack path."
+        ),
+        help_option = catalog_text(
+            catalog,
+            fallback,
+            "cli.options.help.description",
+            "Print help"
+        )
+    )
+}
+
+fn run_pack(args: PackArgs) -> Result<(), String> {
+    match args.command {
+        Some(PackCommand::Doctor(path_args)) => {
+            let report = doctor_sorla_gtpack(&path_args.path)?;
+            let rendered = serde_json::to_string_pretty(&report).map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
+        Some(PackCommand::Inspect(path_args)) => {
+            let inspection = inspect_sorla_gtpack(&path_args.path)?;
+            let rendered =
+                serde_json::to_string_pretty(&inspection).map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
+        Some(PackCommand::Schema(schema_args)) => {
+            let schema = match schema_args.command {
+                PackSchemaCommand::Validation => sorx_validation_schema_json(),
+                PackSchemaCommand::ExposurePolicy => sorx_exposure_policy_schema_json(),
+                PackSchemaCommand::Compatibility => sorx_compatibility_schema_json(),
+            };
+            let rendered = serde_json::to_string_pretty(&schema).map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
+        Some(PackCommand::ValidationInspect(path_args)) => {
+            let inspection = inspect_sorla_gtpack(&path_args.path)?;
+            let rendered = serde_json::to_string_pretty(&validation_inspection_json(&inspection))
+                .map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
+        Some(PackCommand::ValidationDoctor(path_args)) => {
+            let report = doctor_sorla_gtpack(&path_args.path)?;
+            let rendered = serde_json::to_string_pretty(&report).map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
+        None => {
+            let input = args
+                .input
+                .ok_or_else(|| "pack requires a SoRLa input file".to_string())?;
+            let name = args
+                .name
+                .ok_or_else(|| "pack requires `--name <name>`".to_string())?;
+            let version = args
+                .version
+                .ok_or_else(|| "pack requires `--version <semver>`".to_string())?;
+            let out = args
+                .out
+                .ok_or_else(|| "pack requires `--out <file.gtpack>`".to_string())?;
+            let summary = build_sorla_gtpack(&SorlaGtpackOptions {
+                input_path: input,
+                name,
+                version,
+                out_path: out,
+            })?;
+            let rendered = serde_json::to_string_pretty(&summary).map_err(|err| err.to_string())?;
+            println!("{rendered}");
+            Ok(())
+        }
+    }
+}
+
+fn validation_inspection_json(inspection: &SorlaGtpackInspection) -> serde_json::Value {
+    serde_json::json!({
+        "schema": inspection
+            .validation
+            .as_ref()
+            .map(|validation| validation.schema.clone())
+            .unwrap_or_else(|| SORX_VALIDATION_SCHEMA.to_string()),
+        "package": {
+            "name": inspection.sorla_package_name,
+            "version": inspection.sorla_package_version,
+            "ir_hash": inspection.ir_hash
+        },
+        "validation": inspection.validation,
+        "exposure": inspection.exposure_policy,
+        "compatibility": inspection.compatibility
+    })
+}
+
+fn sorx_exposure_policy_schema_json() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": SORX_EXPOSURE_POLICY_SCHEMA,
+        "title": "SORX exposure policy",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "schema",
+            "default_visibility",
+            "promotion_requires",
+            "allowed_route_prefixes",
+            "forbidden_route_prefixes",
+            "endpoints"
+        ],
+        "properties": {
+            "schema": { "const": SORX_EXPOSURE_POLICY_SCHEMA },
+            "default_visibility": {
+                "type": "string",
+                "enum": ["private", "internal", "public_candidate"]
+            },
+            "promotion_requires": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+            },
+            "allowed_route_prefixes": {
+                "type": "array",
+                "items": { "type": "string" }
+            },
+            "forbidden_route_prefixes": {
+                "type": "array",
+                "items": { "type": "string" }
+            },
+            "endpoints": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/endpoint" }
+            }
+        },
+        "$defs": {
+            "endpoint": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "endpoint_id",
+                    "visibility",
+                    "requires_approval",
+                    "export_surfaces",
+                    "route_prefixes"
+                ],
+                "properties": {
+                    "endpoint_id": { "type": "string", "minLength": 1 },
+                    "visibility": {
+                        "type": "string",
+                        "enum": ["private", "internal", "public_candidate"]
+                    },
+                    "requires_approval": { "type": "boolean" },
+                    "risk": { "type": "string" },
+                    "export_surfaces": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["openapi", "arazzo", "mcp", "llms_txt"]
+                        }
+                    },
+                    "route_prefixes": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn sorx_compatibility_schema_json() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": SORX_COMPATIBILITY_SCHEMA,
+        "title": "SORX compatibility manifest",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "schema",
+            "package",
+            "api_compatibility",
+            "state_compatibility",
+            "provider_compatibility",
+            "migration_compatibility"
+        ],
+        "properties": {
+            "schema": { "const": SORX_COMPATIBILITY_SCHEMA },
+            "package": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "version"],
+                "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "version": { "type": "string", "minLength": 1 },
+                    "ir_hash": { "type": "string", "minLength": 1 }
+                }
+            },
+            "api_compatibility": {
+                "type": "string",
+                "enum": ["additive", "backward_compatible", "breaking", "unknown"]
+            },
+            "state_compatibility": {
+                "type": "string",
+                "enum": ["isolated_required", "shared_allowed", "shared_requires_migration", "unknown"]
+            },
+            "provider_compatibility": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/provider" }
+            },
+            "migration_compatibility": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/migration" }
+            }
+        },
+        "$defs": {
+            "provider": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                    "category",
+                    "required_capabilities",
+                    "contract_version_range",
+                    "required"
+                ],
+                "properties": {
+                    "category": { "type": "string", "minLength": 1 },
+                    "required_capabilities": {
+                        "type": "array",
+                        "items": { "type": "string", "minLength": 1 }
+                    },
+                    "contract_version_range": { "type": "string", "minLength": 1 },
+                    "required": { "type": "boolean" }
+                }
+            },
+            "migration": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "mode", "projection_updates", "backfill_count"],
+                "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["additive", "backward_compatible", "breaking", "unknown"]
+                    },
+                    "projection_updates": {
+                        "type": "array",
+                        "items": { "type": "string", "minLength": 1 }
+                    },
+                    "backfill_count": { "type": "integer", "minimum": 0 },
+                    "idempotence_key": { "type": "string", "minLength": 1 }
+                }
+            }
+        }
+    })
+}
+
 fn run_wizard(args: WizardArgs) -> Result<(), String> {
+    let pack_out = args.pack_out;
     match (args.schema, args.answers) {
         (true, None) => {
-            let schema = default_schema();
+            if pack_out.is_some() {
+                return Err("`--pack-out` can only be used when applying answers or running the interactive wizard".to_string());
+            }
+            let schema = default_schema_for_locale(&selected_locale(args.locale.as_deref(), None));
             let rendered = serde_json::to_string_pretty(&schema).map_err(|err| err.to_string())?;
             println!("{rendered}");
             Ok(())
@@ -254,9 +1133,12 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
         (false, Some(path)) => {
             let contents = fs::read_to_string(&path)
                 .map_err(|err| format!("failed to read answers file {}: {err}", path.display()))?;
-            let answers: AnswersDocument = serde_json::from_str(&contents)
+            let mut answers: AnswersDocument = serde_json::from_str(&contents)
                 .map_err(|err| format!("failed to parse answers file {}: {err}", path.display()))?;
-            let summary = apply_answers(answers)?;
+            if args.locale.is_some() {
+                answers.locale = args.locale;
+            }
+            let summary = apply_answers(answers, pack_out)?;
             let rendered = serde_json::to_string_pretty(&summary).map_err(|err| err.to_string())?;
             println!("{rendered}");
             Ok(())
@@ -264,16 +1146,19 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
         (true, Some(_)) => {
             Err("choose one wizard mode: use either `--schema` or `--answers <file>`".to_string())
         }
-        (false, None) => run_interactive_wizard(),
+        (false, None) => run_interactive_wizard(args.locale.as_deref(), pack_out),
     }
 }
 
-fn run_interactive_wizard() -> Result<(), String> {
-    let locale = selected_locale(None, None);
+fn run_interactive_wizard(
+    requested_locale: Option<&str>,
+    pack_out: Option<PathBuf>,
+) -> Result<(), String> {
+    let locale = selected_locale(requested_locale, None);
     let mut provider = |question_id: &str, question: &serde_json::Value| {
         prompt_interactive_answer(question_id, question)
     };
-    let summary = run_interactive_wizard_with_provider(&locale, &mut provider)?;
+    let summary = run_interactive_wizard_with_provider(&locale, &mut provider, pack_out)?;
     let rendered = serde_json::to_string_pretty(&summary).map_err(|err| err.to_string())?;
     println!("{rendered}");
     Ok(())
@@ -282,6 +1167,7 @@ fn run_interactive_wizard() -> Result<(), String> {
 fn run_interactive_wizard_with_provider(
     locale: &str,
     answer_provider: &mut AnswerProvider,
+    pack_out: Option<PathBuf>,
 ) -> Result<ExecutionSummary, String> {
     let spec_json = serde_json::to_string_pretty(&build_interactive_qa_spec(locale))
         .map_err(|err| err.to_string())?;
@@ -334,10 +1220,13 @@ fn run_interactive_wizard_with_provider(
     let result = driver.finish().map_err(format_qa_error)?;
 
     let answers = answers_document_from_qa_answers(result.answer_set.answers)?;
-    apply_answers(answers)
+    apply_answers(answers, pack_out)
 }
 
-fn apply_answers(answers: AnswersDocument) -> Result<ExecutionSummary, String> {
+fn apply_answers(
+    answers: AnswersDocument,
+    pack_out: Option<PathBuf>,
+) -> Result<ExecutionSummary, String> {
     let schema = default_schema();
     validate_answers_document(&answers, &schema)?;
 
@@ -418,6 +1307,29 @@ fn apply_answers(answers: AnswersDocument) -> Result<ExecutionSummary, String> {
             .into_iter()
             .map(|path| relative_to_output(&output_dir, &path)),
     );
+
+    let pack_path = if let Some(pack_out) = pack_out {
+        let validation_manifest_path =
+            write_generated_sorx_validation_manifest(&generated_dir, &generated_yaml)?;
+        written_files.push(relative_to_output(&output_dir, &validation_manifest_path));
+
+        let pack_path = if pack_out.is_relative() {
+            output_dir.join(pack_out)
+        } else {
+            pack_out
+        };
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: package_path.clone(),
+            name: resolved.package_name.clone(),
+            version: resolved.package_version.clone(),
+            out_path: pack_path.clone(),
+        })?;
+        written_files.push(relative_to_output(&output_dir, &pack_path));
+        Some(relative_to_output(&output_dir, &pack_path))
+    } else {
+        None
+    };
+
     written_files.sort();
     written_files.dedup();
 
@@ -431,17 +1343,49 @@ fn apply_answers(answers: AnswersDocument) -> Result<ExecutionSummary, String> {
         package_name: resolved.package_name.clone(),
         locale: resolved.locale.clone(),
         written_files,
+        pack_path,
         preserved_user_content,
     })
+}
+
+fn write_generated_sorx_validation_manifest(
+    generated_dir: &Path,
+    generated_yaml: &str,
+) -> Result<PathBuf, String> {
+    let artifacts = build_handoff_artifacts_from_yaml(generated_yaml)?;
+    let manifest = generate_sorx_validation_manifest_from_ir(
+        &artifacts.ir,
+        Some(&artifacts.canonical_hash),
+        vec![
+            START_SCHEMA_FILENAME.to_string(),
+            RUNTIME_TEMPLATE_FILENAME.to_string(),
+            PROVIDER_BINDINGS_TEMPLATE_FILENAME.to_string(),
+        ],
+    );
+    manifest.validate_static().map_err(|err| err.to_string())?;
+
+    let path = generated_dir
+        .join("assets")
+        .join("sorx")
+        .join("tests")
+        .join("test-manifest.json");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create directory {}: {err}", parent.display()))?;
+    }
+    let bytes = serde_json::to_vec_pretty(&manifest).map_err(|err| err.to_string())?;
+    fs::write(&path, bytes)
+        .map_err(|err| format!("failed to write generated file {}: {err}", path.display()))?;
+    Ok(path)
 }
 
 fn validate_answers_document(
     answers: &AnswersDocument,
     schema: &WizardSchema,
 ) -> Result<(), String> {
-    if answers.schema_version != schema.schema_version {
+    if answers.schema_version != schema.schema_version && answers.schema_version != "0.4" {
         return Err(format!(
-            "schema_version mismatch: expected {}, got {}",
+            "schema_version mismatch: expected {} or 0.4, got {}",
             schema.schema_version, answers.schema_version
         ));
     }
@@ -516,6 +1460,73 @@ fn validate_answers_document(
         &["external-ref"],
         "providers.external_ref_category",
     )?;
+    validate_choice(
+        answers
+            .agent_endpoints
+            .as_ref()
+            .and_then(|agent_endpoints| agent_endpoints.default_risk.as_deref()),
+        &["low", "medium", "high"],
+        "agent_endpoints.default_risk",
+    )?;
+    validate_choice(
+        answers
+            .agent_endpoints
+            .as_ref()
+            .and_then(|agent_endpoints| agent_endpoints.default_approval.as_deref()),
+        &["none", "optional", "required", "policy-driven"],
+        "agent_endpoints.default_approval",
+    )?;
+    if let Some(agent_endpoints) = &answers.agent_endpoints {
+        for (index, endpoint) in agent_endpoints.items.iter().enumerate() {
+            validate_choice(
+                endpoint.risk.as_deref(),
+                &["low", "medium", "high"],
+                &format!("agent_endpoints.items[{index}].risk"),
+            )?;
+            validate_choice(
+                endpoint.approval.as_deref(),
+                &["none", "optional", "required", "policy-driven"],
+                &format!("agent_endpoints.items[{index}].approval"),
+            )?;
+        }
+
+        let enabled = agent_endpoints
+            .enabled
+            .unwrap_or(!agent_endpoints.items.is_empty());
+        if enabled {
+            let ids = normalize_text_list(agent_endpoints.ids.clone().unwrap_or_default());
+            if ids.is_empty() && agent_endpoints.items.is_empty() {
+                return Err(
+                    "field `agent_endpoints.ids` or `agent_endpoints.items` requires at least one endpoint when agent endpoints are enabled"
+                        .to_string(),
+                );
+            }
+
+            let risk = agent_endpoints.default_risk.as_deref().unwrap_or("medium");
+            let approval = agent_endpoints
+                .default_approval
+                .as_deref()
+                .unwrap_or("policy-driven");
+            if risk == "high" && !matches!(approval, "required" | "policy-driven") {
+                return Err(
+                    "field `agent_endpoints.default_approval` must be `required` or `policy-driven` when `agent_endpoints.default_risk` is `high`"
+                        .to_string(),
+                );
+            }
+
+            if let Some(exports) = &agent_endpoints.exports {
+                for export in exports {
+                    if !["openapi", "arazzo", "mcp", "llms_txt"].contains(&export.as_str()) {
+                        return Err(format!(
+                            "agent_endpoints.exports contains unsupported export `{export}`"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    validate_rich_answers(answers)?;
 
     if let Some(output) = &answers.output
         && let Some(artifacts) = &output.artifacts
@@ -543,6 +1554,348 @@ fn validate_choice(value: Option<&str>, allowed: &[&str], field: &str) -> Result
         ));
     }
     Ok(())
+}
+
+fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
+    let mut record_fields = BTreeMap::<String, BTreeSet<String>>::new();
+    if let Some(records) = &answers.records {
+        let mut record_names = BTreeSet::new();
+        for (record_index, record) in records.items.iter().enumerate() {
+            require_non_empty(&record.name, &format!("records.items[{record_index}].name"))?;
+            validate_choice(
+                record.source.as_deref(),
+                &["native", "external", "hybrid"],
+                &format!("records.items[{record_index}].source"),
+            )?;
+            if !record_names.insert(record.name.clone()) {
+                return Err(format!(
+                    "records.items[{record_index}].name duplicates record `{}`",
+                    record.name
+                ));
+            }
+
+            let mut field_names = BTreeSet::new();
+            for (field_index, field) in record.fields.iter().enumerate() {
+                require_non_empty(
+                    &field.name,
+                    &format!("records.items[{record_index}].fields[{field_index}].name"),
+                )?;
+                require_non_empty(
+                    &field.type_name,
+                    &format!("records.items[{record_index}].fields[{field_index}].type"),
+                )?;
+                validate_choice(
+                    field.authority.as_deref(),
+                    &["local", "external"],
+                    &format!("records.items[{record_index}].fields[{field_index}].authority"),
+                )?;
+                validate_enum_values(
+                    &field.enum_values,
+                    &format!("records.items[{record_index}].fields[{field_index}].enum_values"),
+                )?;
+                if !field_names.insert(field.name.clone()) {
+                    return Err(format!(
+                        "records.items[{record_index}].fields[{field_index}].name duplicates field `{}`",
+                        field.name
+                    ));
+                }
+            }
+            record_fields.insert(record.name.clone(), field_names);
+        }
+
+        for (record_index, record) in records.items.iter().enumerate() {
+            for (field_index, field) in record.fields.iter().enumerate() {
+                if let Some(reference) = &field.references {
+                    let Some(target_fields) = record_fields.get(&reference.record) else {
+                        return Err(format!(
+                            "records.items[{record_index}].fields[{field_index}].references.record points to unknown record `{}`",
+                            reference.record
+                        ));
+                    };
+                    if !target_fields.contains(&reference.field) {
+                        return Err(format!(
+                            "records.items[{record_index}].fields[{field_index}].references.field points to unknown field `{}` on record `{}`",
+                            reference.field, reference.record
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    let action_names = validate_named_answers(&answers.actions, "actions")?;
+    let policy_names = validate_named_answers(&answers.policies, "policies")?;
+    let approval_names = validate_named_answers(&answers.approvals, "approvals")?;
+
+    let mut event_names = BTreeSet::new();
+    if let Some(events) = &answers.events {
+        for (event_index, event) in events.items.iter().enumerate() {
+            require_non_empty(&event.name, &format!("events.items[{event_index}].name"))?;
+            require_non_empty(
+                &event.record,
+                &format!("events.items[{event_index}].record"),
+            )?;
+            validate_choice(
+                event.kind.as_deref(),
+                &["domain", "integration"],
+                &format!("events.items[{event_index}].kind"),
+            )?;
+            if !record_fields.is_empty() && !record_fields.contains_key(&event.record) {
+                return Err(format!(
+                    "events.items[{event_index}].record points to unknown record `{}`",
+                    event.record
+                ));
+            }
+            if !event_names.insert(event.name.clone()) {
+                return Err(format!(
+                    "events.items[{event_index}].name duplicates event `{}`",
+                    event.name
+                ));
+            }
+            for (field_index, field) in event.emits.iter().enumerate() {
+                require_non_empty(
+                    &field.name,
+                    &format!("events.items[{event_index}].emits[{field_index}].name"),
+                )?;
+                require_non_empty(
+                    &field.type_name,
+                    &format!("events.items[{event_index}].emits[{field_index}].type"),
+                )?;
+            }
+        }
+    }
+
+    if let Some(projections) = &answers.projections {
+        let mut projection_names = BTreeSet::new();
+        for (projection_index, projection) in projections.items.iter().enumerate() {
+            require_non_empty(
+                &projection.name,
+                &format!("projections.items[{projection_index}].name"),
+            )?;
+            validate_choice(
+                projection.mode.as_deref(),
+                &["current-state", "audit-trail"],
+                &format!("projections.items[{projection_index}].mode"),
+            )?;
+            if !record_fields.is_empty() && !record_fields.contains_key(&projection.record) {
+                return Err(format!(
+                    "projections.items[{projection_index}].record points to unknown record `{}`",
+                    projection.record
+                ));
+            }
+            if !event_names.is_empty() && !event_names.contains(&projection.source_event) {
+                return Err(format!(
+                    "projections.items[{projection_index}].source_event points to unknown event `{}`",
+                    projection.source_event
+                ));
+            }
+            if !projection_names.insert(projection.name.clone()) {
+                return Err(format!(
+                    "projections.items[{projection_index}].name duplicates projection `{}`",
+                    projection.name
+                ));
+            }
+        }
+    }
+
+    for (requirement_index, requirement) in answers.provider_requirements.iter().enumerate() {
+        validate_provider_requirement_answer(
+            requirement,
+            &format!("provider_requirements[{requirement_index}]"),
+        )?;
+    }
+
+    if let Some(migrations) = &answers.migrations {
+        let mut migration_names = BTreeSet::new();
+        for (migration_index, migration) in migrations.items.iter().enumerate() {
+            require_non_empty(
+                &migration.name,
+                &format!("migrations.items[{migration_index}].name"),
+            )?;
+            validate_choice(
+                migration.compatibility.as_deref(),
+                &["additive", "backward-compatible", "breaking"],
+                &format!("migrations.items[{migration_index}].compatibility"),
+            )?;
+            if !migration_names.insert(migration.name.clone()) {
+                return Err(format!(
+                    "migrations.items[{migration_index}].name duplicates migration `{}`",
+                    migration.name
+                ));
+            }
+        }
+    }
+
+    if let Some(agent_endpoints) = &answers.agent_endpoints {
+        let mut endpoint_ids = BTreeSet::new();
+        for (endpoint_index, endpoint) in agent_endpoints.items.iter().enumerate() {
+            require_non_empty(
+                &endpoint.id,
+                &format!("agent_endpoints.items[{endpoint_index}].id"),
+            )?;
+            require_non_empty(
+                &endpoint.title,
+                &format!("agent_endpoints.items[{endpoint_index}].title"),
+            )?;
+            require_non_empty(
+                &endpoint.intent,
+                &format!("agent_endpoints.items[{endpoint_index}].intent"),
+            )?;
+            if !endpoint_ids.insert(endpoint.id.clone()) {
+                return Err(format!(
+                    "agent_endpoints.items[{endpoint_index}].id duplicates endpoint `{}`",
+                    endpoint.id
+                ));
+            }
+            validate_endpoint_fields(
+                &endpoint.inputs,
+                &format!("agent_endpoints.items[{endpoint_index}].inputs"),
+            )?;
+            validate_endpoint_fields(
+                &endpoint.outputs,
+                &format!("agent_endpoints.items[{endpoint_index}].outputs"),
+            )?;
+            for (requirement_index, requirement) in
+                endpoint.provider_requirements.iter().enumerate()
+            {
+                validate_provider_requirement_answer(
+                    requirement,
+                    &format!(
+                        "agent_endpoints.items[{endpoint_index}].provider_requirements[{requirement_index}]"
+                    ),
+                )?;
+            }
+            if let Some(emits) = &endpoint.emits {
+                require_non_empty(
+                    &emits.event,
+                    &format!("agent_endpoints.items[{endpoint_index}].emits.event"),
+                )?;
+                require_non_empty(
+                    &emits.stream,
+                    &format!("agent_endpoints.items[{endpoint_index}].emits.stream"),
+                )?;
+                if !event_names.is_empty() && !event_names.contains(&emits.event) {
+                    return Err(format!(
+                        "agent_endpoints.items[{endpoint_index}].emits.event points to unknown event `{}`",
+                        emits.event
+                    ));
+                }
+            }
+            validate_declared_references(
+                &endpoint.backing.actions,
+                &action_names,
+                &format!("agent_endpoints.items[{endpoint_index}].backing.actions"),
+            )?;
+            validate_declared_references(
+                &endpoint.backing.events,
+                &event_names,
+                &format!("agent_endpoints.items[{endpoint_index}].backing.events"),
+            )?;
+            validate_declared_references(
+                &endpoint.backing.policies,
+                &policy_names,
+                &format!("agent_endpoints.items[{endpoint_index}].backing.policies"),
+            )?;
+            validate_declared_references(
+                &endpoint.backing.approvals,
+                &approval_names,
+                &format!("agent_endpoints.items[{endpoint_index}].backing.approvals"),
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn require_non_empty(value: &str, path: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!("field `{path}` is required"));
+    }
+    Ok(())
+}
+
+fn validate_named_answers(items: &[NamedAnswer], path: &str) -> Result<BTreeSet<String>, String> {
+    let mut names = BTreeSet::new();
+    for (index, item) in items.iter().enumerate() {
+        require_non_empty(&item.name, &format!("{path}[{index}].name"))?;
+        if !names.insert(item.name.clone()) {
+            return Err(format!("{path}[{index}].name duplicates `{}`", item.name));
+        }
+    }
+    Ok(names)
+}
+
+fn validate_endpoint_fields(fields: &[FieldAnswer], path: &str) -> Result<(), String> {
+    let mut names = BTreeSet::new();
+    for (index, field) in fields.iter().enumerate() {
+        require_non_empty(&field.name, &format!("{path}[{index}].name"))?;
+        require_non_empty(&field.type_name, &format!("{path}[{index}].type"))?;
+        validate_enum_values(&field.enum_values, &format!("{path}[{index}].enum_values"))?;
+        if !names.insert(field.name.clone()) {
+            return Err(format!(
+                "{path}[{index}].name duplicates field `{}`",
+                field.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_enum_values(values: &[String], path: &str) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for (index, value) in values.iter().enumerate() {
+        require_non_empty(value, &format!("{path}[{index}]"))?;
+        if !seen.insert(value.clone()) {
+            return Err(format!("{path}[{index}] duplicates enum value `{value}`"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_provider_requirement_answer(
+    requirement: &ProviderRequirementAnswer,
+    path: &str,
+) -> Result<(), String> {
+    require_non_empty(&requirement.category, &format!("{path}.category"))?;
+    let mut capabilities = BTreeSet::new();
+    for (index, capability) in requirement.capabilities.iter().enumerate() {
+        require_non_empty(capability, &format!("{path}.capabilities[{index}]"))?;
+        if !capabilities.insert(capability.clone()) {
+            return Err(format!(
+                "{path}.capabilities[{index}] duplicates capability `{capability}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_declared_references(
+    references: &[String],
+    declared: &BTreeSet<String>,
+    path: &str,
+) -> Result<(), String> {
+    if declared.is_empty() {
+        return Ok(());
+    }
+    for (index, reference) in references.iter().enumerate() {
+        if !declared.contains(reference) {
+            return Err(format!(
+                "{path}[{index}] points to undeclared item `{reference}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn normalize_text_list(values: Vec<String>) -> Vec<String> {
+    let mut normalized = values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized
 }
 
 fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, String> {
@@ -596,6 +1949,7 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
     }
     artifacts.sort();
     artifacts.dedup();
+    let agent_endpoint_values = resolve_agent_endpoint_answers(answers.agent_endpoints.as_ref());
 
     let resolved = ResolvedAnswers {
         schema_version: answers.schema_version.clone(),
@@ -627,6 +1981,30 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
             .unwrap_or_default(),
         default_source,
         external_ref_system,
+        record_items: answers
+            .records
+            .as_ref()
+            .map(|records| records.items.clone())
+            .unwrap_or_default(),
+        actions: answers.actions.clone(),
+        event_items: answers
+            .events
+            .as_ref()
+            .map(|events| events.items.clone())
+            .unwrap_or_default(),
+        projection_items: answers
+            .projections
+            .as_ref()
+            .map(|projections| projections.items.clone())
+            .unwrap_or_default(),
+        provider_requirements: answers.provider_requirements.clone(),
+        policies: answers.policies.clone(),
+        approvals: answers.approvals.clone(),
+        migration_items: answers
+            .migrations
+            .as_ref()
+            .map(|migrations| migrations.items.clone())
+            .unwrap_or_default(),
         events_enabled: answers
             .events
             .as_ref()
@@ -642,6 +2020,13 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
             .as_ref()
             .and_then(|migrations| migrations.compatibility.clone())
             .unwrap_or_else(|| "additive".to_string()),
+        agent_endpoints_enabled: agent_endpoint_values.enabled,
+        agent_endpoint_ids: agent_endpoint_values.ids,
+        agent_endpoint_default_risk: agent_endpoint_values.default_risk,
+        agent_endpoint_default_approval: agent_endpoint_values.default_approval,
+        agent_endpoint_exports: agent_endpoint_values.exports,
+        agent_endpoint_provider_category: agent_endpoint_values.provider_category,
+        agent_endpoint_items: agent_endpoint_values.items,
         include_agent_tools,
         artifacts,
     };
@@ -711,9 +2096,11 @@ fn resolve_update_answers(
     }
     artifacts.sort();
     artifacts.dedup();
+    let agent_endpoint_values =
+        resolve_agent_endpoint_update_answers(answers.agent_endpoints.as_ref(), &previous);
 
     Ok(ResolvedAnswers {
-        schema_version: previous.schema_version,
+        schema_version: answers.schema_version.clone(),
         flow: "update".to_string(),
         output_dir: previous.output_dir,
         locale: selected_locale(answers.locale.as_deref(), Some(previous.locale.as_str())),
@@ -747,6 +2134,70 @@ fn resolve_update_answers(
             .unwrap_or(previous.provider_hints),
         default_source,
         external_ref_system,
+        record_items: answers
+            .records
+            .as_ref()
+            .and_then(|records| {
+                if records.items.is_empty() {
+                    None
+                } else {
+                    Some(records.items.clone())
+                }
+            })
+            .unwrap_or(previous.record_items),
+        actions: if answers.actions.is_empty() {
+            previous.actions
+        } else {
+            answers.actions.clone()
+        },
+        event_items: answers
+            .events
+            .as_ref()
+            .and_then(|events| {
+                if events.items.is_empty() {
+                    None
+                } else {
+                    Some(events.items.clone())
+                }
+            })
+            .unwrap_or(previous.event_items),
+        projection_items: answers
+            .projections
+            .as_ref()
+            .and_then(|projections| {
+                if projections.items.is_empty() {
+                    None
+                } else {
+                    Some(projections.items.clone())
+                }
+            })
+            .unwrap_or(previous.projection_items),
+        provider_requirements: if answers.provider_requirements.is_empty() {
+            previous.provider_requirements
+        } else {
+            answers.provider_requirements.clone()
+        },
+        policies: if answers.policies.is_empty() {
+            previous.policies
+        } else {
+            answers.policies.clone()
+        },
+        approvals: if answers.approvals.is_empty() {
+            previous.approvals
+        } else {
+            answers.approvals.clone()
+        },
+        migration_items: answers
+            .migrations
+            .as_ref()
+            .and_then(|migrations| {
+                if migrations.items.is_empty() {
+                    None
+                } else {
+                    Some(migrations.items.clone())
+                }
+            })
+            .unwrap_or(previous.migration_items),
         events_enabled: answers
             .events
             .as_ref()
@@ -762,9 +2213,159 @@ fn resolve_update_answers(
             .as_ref()
             .and_then(|migrations| migrations.compatibility.clone())
             .unwrap_or(previous.compatibility_mode),
+        agent_endpoints_enabled: agent_endpoint_values.enabled,
+        agent_endpoint_ids: agent_endpoint_values.ids,
+        agent_endpoint_default_risk: agent_endpoint_values.default_risk,
+        agent_endpoint_default_approval: agent_endpoint_values.default_approval,
+        agent_endpoint_exports: agent_endpoint_values.exports,
+        agent_endpoint_provider_category: agent_endpoint_values.provider_category,
+        agent_endpoint_items: agent_endpoint_values.items,
         include_agent_tools,
         artifacts,
     })
+}
+
+struct ResolvedAgentEndpointAnswers {
+    enabled: bool,
+    ids: Vec<String>,
+    default_risk: String,
+    default_approval: String,
+    exports: Vec<String>,
+    provider_category: Option<String>,
+    items: Vec<AgentEndpointItemAnswer>,
+}
+
+fn resolve_agent_endpoint_answers(
+    answers: Option<&AgentEndpointAnswers>,
+) -> ResolvedAgentEndpointAnswers {
+    let enabled = answers
+        .and_then(|answers| answers.enabled)
+        .unwrap_or_else(|| answers.is_some_and(|answers| !answers.items.is_empty()));
+    let ids = if enabled {
+        normalize_text_list(
+            answers
+                .and_then(|answers| answers.ids.clone())
+                .unwrap_or_default(),
+        )
+    } else {
+        Vec::new()
+    };
+    let exports = if enabled {
+        normalize_text_list(
+            answers
+                .and_then(|answers| answers.exports.clone())
+                .unwrap_or_else(default_agent_endpoint_exports),
+        )
+    } else {
+        Vec::new()
+    };
+
+    ResolvedAgentEndpointAnswers {
+        enabled,
+        ids,
+        default_risk: answers
+            .and_then(|answers| answers.default_risk.clone())
+            .unwrap_or_else(|| "medium".to_string()),
+        default_approval: answers
+            .and_then(|answers| answers.default_approval.clone())
+            .unwrap_or_else(|| "policy-driven".to_string()),
+        exports,
+        provider_category: answers
+            .and_then(|answers| answers.provider_category.clone())
+            .map(|value| value.trim().to_string())
+            .filter(|value| enabled && !value.is_empty()),
+        items: if enabled {
+            answers
+                .map(|answers| answers.items.clone())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        },
+    }
+}
+
+fn resolve_agent_endpoint_update_answers(
+    answers: Option<&AgentEndpointAnswers>,
+    previous: &ResolvedAnswers,
+) -> ResolvedAgentEndpointAnswers {
+    let Some(answers) = answers else {
+        return ResolvedAgentEndpointAnswers {
+            enabled: previous.agent_endpoints_enabled,
+            ids: previous.agent_endpoint_ids.clone(),
+            default_risk: previous.agent_endpoint_default_risk.clone(),
+            default_approval: previous.agent_endpoint_default_approval.clone(),
+            exports: previous.agent_endpoint_exports.clone(),
+            provider_category: previous.agent_endpoint_provider_category.clone(),
+            items: previous.agent_endpoint_items.clone(),
+        };
+    };
+
+    let enabled = answers.enabled.unwrap_or(previous.agent_endpoints_enabled);
+    ResolvedAgentEndpointAnswers {
+        enabled,
+        ids: if enabled {
+            answers
+                .ids
+                .clone()
+                .map(normalize_text_list)
+                .unwrap_or_else(|| previous.agent_endpoint_ids.clone())
+        } else {
+            Vec::new()
+        },
+        default_risk: answers
+            .default_risk
+            .clone()
+            .unwrap_or_else(|| previous.agent_endpoint_default_risk.clone()),
+        default_approval: answers
+            .default_approval
+            .clone()
+            .unwrap_or_else(|| previous.agent_endpoint_default_approval.clone()),
+        exports: if enabled {
+            answers
+                .exports
+                .clone()
+                .map(normalize_text_list)
+                .unwrap_or_else(|| previous.agent_endpoint_exports.clone())
+        } else {
+            Vec::new()
+        },
+        provider_category: answers
+            .provider_category
+            .clone()
+            .map(|value| value.trim().to_string())
+            .filter(|value| enabled && !value.is_empty())
+            .or_else(|| {
+                if enabled {
+                    previous.agent_endpoint_provider_category.clone()
+                } else {
+                    None
+                }
+            }),
+        items: if enabled {
+            if answers.items.is_empty() {
+                previous.agent_endpoint_items.clone()
+            } else {
+                answers.items.clone()
+            }
+        } else {
+            Vec::new()
+        },
+    }
+}
+
+fn default_agent_endpoint_exports() -> Vec<String> {
+    ["openapi", "arazzo", "mcp", "llms_txt"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
+fn default_agent_endpoint_risk() -> String {
+    "medium".to_string()
+}
+
+fn default_agent_endpoint_approval() -> String {
+    "policy-driven".to_string()
 }
 
 fn normalize_artifacts(artifacts: Vec<String>) -> Result<Vec<String>, String> {
@@ -874,6 +2475,10 @@ fn write_generated_block(path: &Path, generated_yaml: &str) -> Result<bool, Stri
 }
 
 fn render_package_yaml(resolved: &ResolvedAnswers) -> String {
+    if has_rich_domain_answers(resolved) {
+        return render_rich_package_yaml(resolved);
+    }
+
     let record_name = format!("{}Record", to_pascal_case(&resolved.package_name));
     let mut lines = vec![
         format!("package:"),
@@ -952,6 +2557,13 @@ fn render_package_yaml(resolved: &ResolvedAnswers) -> String {
         lines.push("    capabilities:".to_string());
         lines.push("      - lookup".to_string());
     }
+    if resolved.agent_endpoints_enabled
+        && let Some(category) = &resolved.agent_endpoint_provider_category
+    {
+        lines.push(format!("  - category: {category}"));
+        lines.push("    capabilities:".to_string());
+        lines.push("      - agent-endpoint-handoff".to_string());
+    }
 
     lines.push("migrations:".to_string());
     lines.push(format!("  - name: {}-compatibility", resolved.package_name));
@@ -969,7 +2581,614 @@ fn render_package_yaml(resolved: &ResolvedAnswers) -> String {
         lines.push("    projection_updates: []".to_string());
     }
 
+    if resolved.agent_endpoints_enabled {
+        lines.push("agent_endpoints:".to_string());
+        for id in &resolved.agent_endpoint_ids {
+            let title = title_from_identifier(id);
+            lines.push(format!("  - id: {id}"));
+            lines.push(format!("    title: {title}"));
+            lines.push(format!(
+                "    intent: Request the generated `{id}` business action through downstream agent handoff metadata."
+            ));
+            lines.push("    inputs:".to_string());
+            lines.push("      - name: record_id".to_string());
+            lines.push("        type: string".to_string());
+            lines.push("        required: true".to_string());
+            lines.push("    outputs:".to_string());
+            lines.push("      - name: status".to_string());
+            lines.push("        type: string".to_string());
+            lines.push("    side_effects:".to_string());
+            lines.push(format!("      - agent.{id}.request"));
+            lines.push(format!(
+                "    risk: {}",
+                resolved.agent_endpoint_default_risk
+            ));
+            lines.push(format!(
+                "    approval: {}",
+                resolved.agent_endpoint_default_approval
+            ));
+            if let Some(category) = &resolved.agent_endpoint_provider_category {
+                lines.push("    provider_requirements:".to_string());
+                lines.push(format!("      - category: {category}"));
+                lines.push("        capabilities:".to_string());
+                lines.push("          - agent-endpoint-handoff".to_string());
+            }
+            lines.push("    agent_visibility:".to_string());
+            lines.push(format!(
+                "      openapi: {}",
+                resolved
+                    .agent_endpoint_exports
+                    .iter()
+                    .any(|item| item == "openapi")
+            ));
+            lines.push(format!(
+                "      arazzo: {}",
+                resolved
+                    .agent_endpoint_exports
+                    .iter()
+                    .any(|item| item == "arazzo")
+            ));
+            lines.push(format!(
+                "      mcp: {}",
+                resolved
+                    .agent_endpoint_exports
+                    .iter()
+                    .any(|item| item == "mcp")
+            ));
+            lines.push(format!(
+                "      llms_txt: {}",
+                resolved
+                    .agent_endpoint_exports
+                    .iter()
+                    .any(|item| item == "llms_txt")
+            ));
+            lines.push("    examples:".to_string());
+            lines.push(format!("      - name: {id}-example"));
+            lines.push(format!("        summary: Example request for {title}."));
+            lines.push("        input:".to_string());
+            lines.push("          record_id: record-123".to_string());
+            lines.push("        expected_output:".to_string());
+            lines.push("          status: accepted".to_string());
+        }
+    } else {
+        lines.push("agent_endpoints: []".to_string());
+    }
+
     lines.join("\n") + "\n"
+}
+
+fn has_rich_domain_answers(resolved: &ResolvedAnswers) -> bool {
+    !resolved.record_items.is_empty()
+        || !resolved.actions.is_empty()
+        || !resolved.event_items.is_empty()
+        || !resolved.projection_items.is_empty()
+        || !resolved.provider_requirements.is_empty()
+        || !resolved.policies.is_empty()
+        || !resolved.approvals.is_empty()
+        || !resolved.migration_items.is_empty()
+        || !resolved.agent_endpoint_items.is_empty()
+}
+
+fn render_rich_package_yaml(resolved: &ResolvedAnswers) -> String {
+    let mut lines = vec![
+        "package:".to_string(),
+        format!("  name: {}", yaml_scalar_string(&resolved.package_name)),
+        format!(
+            "  version: {}",
+            yaml_scalar_string(&resolved.package_version)
+        ),
+    ];
+
+    render_records(resolved, &mut lines);
+    render_actions(&resolved.actions, &mut lines);
+    render_events(resolved, &mut lines);
+    render_projections(resolved, &mut lines);
+    render_provider_requirements(resolved, &mut lines);
+    render_named_section("policies", &resolved.policies, &mut lines);
+    render_named_section("approvals", &resolved.approvals, &mut lines);
+    render_migrations(resolved, &mut lines);
+    render_agent_endpoints(resolved, &mut lines);
+
+    lines.join("\n") + "\n"
+}
+
+fn render_records(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if resolved.record_items.is_empty() {
+        lines.push("records: []".to_string());
+        return;
+    }
+
+    lines.push("records:".to_string());
+    for record in &resolved.record_items {
+        lines.push(format!("  - name: {}", yaml_scalar_string(&record.name)));
+        let source = record
+            .source
+            .as_deref()
+            .unwrap_or(resolved.default_source.as_str());
+        lines.push(format!("    source: {}", yaml_scalar_string(source)));
+        let external_ref = record.external_ref.as_ref();
+        if let Some(external_ref) = external_ref {
+            lines.push("    external_ref:".to_string());
+            lines.push(format!(
+                "      system: {}",
+                yaml_scalar_string(&external_ref.system)
+            ));
+            lines.push(format!(
+                "      key: {}",
+                yaml_scalar_string(&external_ref.key)
+            ));
+            lines.push(format!(
+                "      authoritative: {}",
+                external_ref.authoritative
+            ));
+        } else if matches!(source, "external" | "hybrid") {
+            lines.push("    external_ref:".to_string());
+            lines.push(format!(
+                "      system: {}",
+                yaml_scalar_string(
+                    resolved
+                        .external_ref_system
+                        .as_deref()
+                        .unwrap_or("external-system")
+                )
+            ));
+            lines.push("      key: record_id".to_string());
+            lines.push("      authoritative: true".to_string());
+        }
+        render_schema_fields("    fields", &record.fields, lines, false);
+    }
+}
+
+fn render_actions(actions: &[NamedAnswer], lines: &mut Vec<String>) {
+    render_named_section("actions", actions, lines);
+}
+
+fn render_named_section(section: &str, items: &[NamedAnswer], lines: &mut Vec<String>) {
+    if items.is_empty() {
+        lines.push(format!("{section}: []"));
+        return;
+    }
+
+    lines.push(format!("{section}:"));
+    for item in items {
+        lines.push(format!("  - name: {}", yaml_scalar_string(&item.name)));
+    }
+}
+
+fn render_events(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if !resolved.events_enabled || resolved.event_items.is_empty() {
+        lines.push("events: []".to_string());
+        return;
+    }
+
+    lines.push("events:".to_string());
+    for event in &resolved.event_items {
+        lines.push(format!("  - name: {}", yaml_scalar_string(&event.name)));
+        lines.push(format!("    record: {}", yaml_scalar_string(&event.record)));
+        lines.push(format!(
+            "    kind: {}",
+            yaml_scalar_string(event.kind.as_deref().unwrap_or("domain"))
+        ));
+        if event.emits.is_empty() {
+            lines.push("    emits: []".to_string());
+        } else {
+            lines.push("    emits:".to_string());
+            for field in &event.emits {
+                lines.push(format!("      - name: {}", yaml_scalar_string(&field.name)));
+                lines.push(format!(
+                    "        type: {}",
+                    yaml_scalar_string(&field.type_name)
+                ));
+            }
+        }
+    }
+}
+
+fn render_projections(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if resolved.projection_items.is_empty() {
+        lines.push("projections: []".to_string());
+        return;
+    }
+
+    lines.push("projections:".to_string());
+    for projection in &resolved.projection_items {
+        lines.push(format!(
+            "  - name: {}",
+            yaml_scalar_string(&projection.name)
+        ));
+        lines.push(format!(
+            "    record: {}",
+            yaml_scalar_string(&projection.record)
+        ));
+        lines.push(format!(
+            "    source_event: {}",
+            yaml_scalar_string(&projection.source_event)
+        ));
+        lines.push(format!(
+            "    mode: {}",
+            yaml_scalar_string(
+                projection
+                    .mode
+                    .as_deref()
+                    .unwrap_or(resolved.projection_mode.as_str())
+            )
+        ));
+    }
+}
+
+fn render_provider_requirements(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if resolved.provider_requirements.is_empty() {
+        lines.push("provider_requirements:".to_string());
+        lines.push(format!(
+            "  - category: {}",
+            yaml_scalar_string(&resolved.storage_category)
+        ));
+        lines.push("    capabilities:".to_string());
+        lines.push("      - event-log".to_string());
+        lines.push("      - projections".to_string());
+        return;
+    }
+
+    lines.push("provider_requirements:".to_string());
+    for requirement in &resolved.provider_requirements {
+        render_provider_requirement("  -", requirement, lines);
+    }
+}
+
+fn render_provider_requirement(
+    list_prefix: &str,
+    requirement: &ProviderRequirementAnswer,
+    lines: &mut Vec<String>,
+) {
+    lines.push(format!(
+        "{list_prefix} category: {}",
+        yaml_scalar_string(&requirement.category)
+    ));
+    if requirement.capabilities.is_empty() {
+        lines.push("    capabilities: []".to_string());
+    } else {
+        lines.push("    capabilities:".to_string());
+        for capability in &requirement.capabilities {
+            lines.push(format!("      - {}", yaml_scalar_string(capability)));
+        }
+    }
+}
+
+fn render_migrations(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if resolved.migration_items.is_empty() {
+        lines.push("migrations:".to_string());
+        lines.push(format!(
+            "  - name: {}",
+            yaml_scalar_string(&format!("{}-compatibility", resolved.package_name))
+        ));
+        lines.push(format!(
+            "    compatibility: {}",
+            yaml_scalar_string(&resolved.compatibility_mode)
+        ));
+        lines.push("    projection_updates: []".to_string());
+        return;
+    }
+
+    lines.push("migrations:".to_string());
+    for migration in &resolved.migration_items {
+        lines.push(format!("  - name: {}", yaml_scalar_string(&migration.name)));
+        lines.push(format!(
+            "    compatibility: {}",
+            yaml_scalar_string(
+                migration
+                    .compatibility
+                    .as_deref()
+                    .unwrap_or(resolved.compatibility_mode.as_str())
+            )
+        ));
+        render_string_list(
+            "    projection_updates",
+            &migration.projection_updates,
+            lines,
+        );
+        if migration.backfills.is_empty() {
+            lines.push("    backfills: []".to_string());
+        } else {
+            lines.push("    backfills:".to_string());
+            for backfill in &migration.backfills {
+                lines.push(format!(
+                    "      - record: {}",
+                    yaml_scalar_string(&backfill.record)
+                ));
+                lines.push(format!(
+                    "        field: {}",
+                    yaml_scalar_string(&backfill.field)
+                ));
+                lines.push("        default:".to_string());
+                render_json_value(&backfill.default, 10, lines);
+            }
+        }
+        if let Some(idempotence_key) = &migration.idempotence_key {
+            lines.push(format!(
+                "    idempotence_key: {}",
+                yaml_scalar_string(idempotence_key)
+            ));
+        }
+        if let Some(notes) = &migration.notes {
+            lines.push(format!("    notes: {}", yaml_scalar_string(notes)));
+        }
+    }
+}
+
+fn render_agent_endpoints(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if !resolved.agent_endpoints_enabled || resolved.agent_endpoint_items.is_empty() {
+        lines.push("agent_endpoints: []".to_string());
+        return;
+    }
+
+    lines.push("agent_endpoints:".to_string());
+    for endpoint in &resolved.agent_endpoint_items {
+        lines.push(format!("  - id: {}", yaml_scalar_string(&endpoint.id)));
+        lines.push(format!(
+            "    title: {}",
+            yaml_scalar_string(&endpoint.title)
+        ));
+        lines.push(format!(
+            "    intent: {}",
+            yaml_scalar_string(&endpoint.intent)
+        ));
+        if let Some(description) = &endpoint.description {
+            lines.push(format!(
+                "    description: {}",
+                yaml_scalar_string(description)
+            ));
+        }
+        render_schema_fields("    inputs", &endpoint.inputs, lines, true);
+        render_schema_fields("    outputs", &endpoint.outputs, lines, false);
+        render_string_list("    side_effects", &endpoint.side_effects, lines);
+        if let Some(emits) = &endpoint.emits {
+            lines.push("    emits:".to_string());
+            lines.push(format!("      event: {}", yaml_scalar_string(&emits.event)));
+            lines.push(format!(
+                "      stream: {}",
+                yaml_scalar_string(&emits.stream)
+            ));
+            lines.push("      payload:".to_string());
+            render_json_value(&emits.payload, 8, lines);
+        }
+        lines.push(format!(
+            "    risk: {}",
+            yaml_scalar_string(
+                endpoint
+                    .risk
+                    .as_deref()
+                    .unwrap_or(resolved.agent_endpoint_default_risk.as_str())
+            )
+        ));
+        lines.push(format!(
+            "    approval: {}",
+            yaml_scalar_string(
+                endpoint
+                    .approval
+                    .as_deref()
+                    .unwrap_or(resolved.agent_endpoint_default_approval.as_str())
+            )
+        ));
+        if !endpoint.provider_requirements.is_empty() {
+            lines.push("    provider_requirements:".to_string());
+            for requirement in &endpoint.provider_requirements {
+                lines.push(format!(
+                    "      - category: {}",
+                    yaml_scalar_string(&requirement.category)
+                ));
+                if requirement.capabilities.is_empty() {
+                    lines.push("        capabilities: []".to_string());
+                } else {
+                    lines.push("        capabilities:".to_string());
+                    for capability in &requirement.capabilities {
+                        lines.push(format!("          - {}", yaml_scalar_string(capability)));
+                    }
+                }
+            }
+        }
+        render_endpoint_backing(&endpoint.backing, lines);
+        if let Some(visibility) = &endpoint.agent_visibility {
+            lines.push("    agent_visibility:".to_string());
+            lines.push(format!(
+                "      openapi: {}",
+                visibility.openapi.unwrap_or(true)
+            ));
+            lines.push(format!(
+                "      arazzo: {}",
+                visibility.arazzo.unwrap_or(true)
+            ));
+            lines.push(format!("      mcp: {}", visibility.mcp.unwrap_or(true)));
+            lines.push(format!(
+                "      llms_txt: {}",
+                visibility.llms_txt.unwrap_or(true)
+            ));
+        }
+        if !endpoint.examples.is_empty() {
+            lines.push("    examples:".to_string());
+            for example in &endpoint.examples {
+                lines.push(format!(
+                    "      - name: {}",
+                    yaml_scalar_string(&example.name)
+                ));
+                lines.push(format!(
+                    "        summary: {}",
+                    yaml_scalar_string(&example.summary)
+                ));
+                lines.push("        input:".to_string());
+                render_json_value(&example.input, 10, lines);
+                lines.push("        expected_output:".to_string());
+                render_json_value(&example.expected_output, 10, lines);
+            }
+        }
+    }
+}
+
+fn render_schema_fields(
+    section: &str,
+    fields: &[FieldAnswer],
+    lines: &mut Vec<String>,
+    include_endpoint_properties: bool,
+) {
+    if fields.is_empty() {
+        lines.push(format!("{section}: []"));
+        return;
+    }
+
+    lines.push(format!("{section}:"));
+    for field in fields {
+        lines.push(format!("      - name: {}", yaml_scalar_string(&field.name)));
+        lines.push(format!(
+            "        type: {}",
+            yaml_scalar_string(&field.type_name)
+        ));
+        if let Some(authority) = &field.authority {
+            lines.push(format!(
+                "        authority: {}",
+                yaml_scalar_string(authority)
+            ));
+        }
+        if let Some(required) = field.required {
+            lines.push(format!("        required: {required}"));
+        }
+        if let Some(sensitive) = field.sensitive {
+            lines.push(format!("        sensitive: {sensitive}"));
+        }
+        if !field.enum_values.is_empty() {
+            render_string_list("        enum_values", &field.enum_values, lines);
+        }
+        if let Some(reference) = &field.references {
+            lines.push("        references:".to_string());
+            lines.push(format!(
+                "          record: {}",
+                yaml_scalar_string(&reference.record)
+            ));
+            lines.push(format!(
+                "          field: {}",
+                yaml_scalar_string(&reference.field)
+            ));
+        }
+        if include_endpoint_properties && let Some(description) = &field.description {
+            lines.push(format!(
+                "        description: {}",
+                yaml_scalar_string(description)
+            ));
+        }
+    }
+}
+
+fn render_endpoint_backing(backing: &AgentEndpointBackingAnswer, lines: &mut Vec<String>) {
+    if backing.actions.is_empty()
+        && backing.events.is_empty()
+        && backing.flows.is_empty()
+        && backing.policies.is_empty()
+        && backing.approvals.is_empty()
+    {
+        return;
+    }
+
+    lines.push("    backing:".to_string());
+    render_string_list("      actions", &backing.actions, lines);
+    render_string_list("      events", &backing.events, lines);
+    if !backing.flows.is_empty() {
+        render_string_list("      flows", &backing.flows, lines);
+    }
+    render_string_list("      policies", &backing.policies, lines);
+    render_string_list("      approvals", &backing.approvals, lines);
+}
+
+fn render_string_list(section: &str, values: &[String], lines: &mut Vec<String>) {
+    if values.is_empty() {
+        lines.push(format!("{section}: []"));
+    } else {
+        lines.push(format!("{section}:"));
+        for value in values {
+            lines.push(format!(
+                "{}- {}",
+                " ".repeat(section.len() - section.trim_start().len() + 2),
+                yaml_scalar_string(value)
+            ));
+        }
+    }
+}
+
+fn render_json_value(value: &serde_json::Value, indent: usize, lines: &mut Vec<String>) {
+    let spaces = " ".repeat(indent);
+    match value {
+        serde_json::Value::Object(map) => {
+            if map.is_empty() {
+                lines.push(format!("{spaces}{{}}"));
+            } else {
+                for (key, value) in map {
+                    match value {
+                        serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                            lines.push(format!("{spaces}{}:", yaml_key(key)));
+                            render_json_value(value, indent + 2, lines);
+                        }
+                        _ => lines.push(format!(
+                            "{spaces}{}: {}",
+                            yaml_key(key),
+                            yaml_scalar_value(value)
+                        )),
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(values) => {
+            if values.is_empty() {
+                lines.push(format!("{spaces}[]"));
+            } else {
+                for value in values {
+                    match value {
+                        serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                            lines.push(format!("{spaces}-"));
+                            render_json_value(value, indent + 2, lines);
+                        }
+                        _ => lines.push(format!("{spaces}- {}", yaml_scalar_value(value))),
+                    }
+                }
+            }
+        }
+        _ => lines.push(format!("{spaces}{}", yaml_scalar_value(value))),
+    }
+}
+
+fn yaml_scalar_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::String(value) => yaml_scalar_string(value),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
+        }
+    }
+}
+
+fn yaml_key(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+    {
+        value.to_string()
+    } else {
+        yaml_scalar_string(value)
+    }
+}
+
+fn yaml_scalar_string(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '{' | '}'))
+        && !matches!(
+            value,
+            "true" | "false" | "null" | "yes" | "no" | "on" | "off"
+        )
+    {
+        value.to_string()
+    } else {
+        serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+    }
 }
 
 fn build_launcher_handoff_manifest(
@@ -1092,6 +3311,9 @@ fn build_provider_handoff_manifest(
     if let Some(category) = &resolved.external_ref_category {
         optional_capabilities.push(category.clone());
     }
+    if let Some(category) = &resolved.agent_endpoint_provider_category {
+        optional_capabilities.push(category.clone());
+    }
     optional_capabilities.push("evidence-store".to_string());
     map.insert(
         "optional_capability_categories",
@@ -1114,6 +3336,11 @@ fn build_provider_handoff_manifest(
                 "name": "evidence",
                 "category": "evidence-store",
                 "required": false,
+            },
+            {
+                "name": "agent_endpoint_handoff",
+                "category": resolved.agent_endpoint_provider_category,
+                "required": resolved.agent_endpoints_enabled,
             }
         ]),
     );
@@ -1333,6 +3560,86 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
                 "choices": ["additive", "backward-compatible", "breaking"]
             },
             {
+                "id": "agent_endpoints_enabled",
+                "type": "boolean",
+                "title": "Expose agentic endpoints",
+                "title_i18n": { "key": "wizard.questions.agent_endpoints_enabled.label" },
+                "description": "Generate agent endpoint declarations in sorla.yaml.",
+                "required": true,
+                "default_value": "false"
+            },
+            {
+                "id": "agent_endpoint_ids",
+                "type": "string",
+                "title": "Endpoint identifiers",
+                "title_i18n": { "key": "wizard.questions.agent_endpoint_ids.label" },
+                "description": "Comma-separated endpoint IDs, such as create_customer_contact.",
+                "required": true,
+                "visible_if": {
+                    "op": "eq",
+                    "left": { "op": "answer", "path": "agent_endpoints_enabled" },
+                    "right": { "op": "literal", "value": true }
+                }
+            },
+            {
+                "id": "agent_endpoint_default_risk",
+                "type": "enum",
+                "title": "Default endpoint risk",
+                "title_i18n": { "key": "wizard.questions.agent_endpoint_default_risk.label" },
+                "description": "Risk level for generated agent endpoints.",
+                "required": true,
+                "default_value": "medium",
+                "choices": ["low", "medium", "high"],
+                "visible_if": {
+                    "op": "eq",
+                    "left": { "op": "answer", "path": "agent_endpoints_enabled" },
+                    "right": { "op": "literal", "value": true }
+                }
+            },
+            {
+                "id": "agent_endpoint_default_approval",
+                "type": "enum",
+                "title": "Default approval behavior",
+                "title_i18n": { "key": "wizard.questions.agent_endpoint_default_approval.label" },
+                "description": "Approval behavior for generated agent endpoints.",
+                "required": true,
+                "default_value": "policy-driven",
+                "choices": ["none", "optional", "required", "policy-driven"],
+                "visible_if": {
+                    "op": "eq",
+                    "left": { "op": "answer", "path": "agent_endpoints_enabled" },
+                    "right": { "op": "literal", "value": true }
+                }
+            },
+            {
+                "id": "agent_endpoint_exports",
+                "type": "string",
+                "title": "Agent-facing export targets",
+                "title_i18n": { "key": "wizard.questions.agent_endpoint_exports.label" },
+                "description": "Comma-separated export targets: openapi, arazzo, mcp, llms_txt.",
+                "required": true,
+                "default_value": "openapi,arazzo,mcp,llms_txt",
+                "visible_if": {
+                    "op": "eq",
+                    "left": { "op": "answer", "path": "agent_endpoints_enabled" },
+                    "right": { "op": "literal", "value": true }
+                }
+            },
+            {
+                "id": "agent_endpoint_provider_category",
+                "type": "string",
+                "title": "Default provider category",
+                "title_i18n": { "key": "wizard.questions.agent_endpoint_provider_category.label" },
+                "description": "Abstract provider category for downstream agent endpoint handoff.",
+                "required": false,
+                "default_value": "api-gateway",
+                "visible_if": {
+                    "op": "eq",
+                    "left": { "op": "answer", "path": "agent_endpoints_enabled" },
+                    "right": { "op": "literal", "value": true }
+                }
+            },
+            {
                 "id": "include_agent_tools",
                 "type": "boolean",
                 "title": "Include agent tools",
@@ -1346,13 +3653,17 @@ fn build_interactive_qa_spec(locale: &str) -> serde_json::Value {
 }
 
 fn load_interactive_i18n(locale: &str) -> Option<ResolvedI18nMap> {
-    let raw = embedded_i18n::locale_json(locale).or_else(|| embedded_i18n::locale_json("en"))?;
+    let raw = included_locale_json(locale).or_else(|| included_locale_json("en"))?;
     let map = serde_json::from_str::<BTreeMap<String, String>>(raw).ok()?;
     let mut resolved = ResolvedI18nMap::new();
     for (key, value) in map {
         resolved.insert(key, value);
     }
     Some(resolved)
+}
+
+fn included_locale_json(locale: &str) -> Option<&'static str> {
+    embedded_i18n::locale_json(locale)
 }
 
 fn prompt_interactive_answer(
@@ -1519,24 +3830,65 @@ fn answers_document_from_qa_answers(answers: serde_json::Value) -> Result<Answer
             external_ref_category,
             hints: None,
         }),
+        actions: Vec::new(),
         records: Some(RecordAnswers {
             default_source: Some(default_source),
             external_ref_system,
+            items: Vec::new(),
         }),
         events: Some(EventAnswers {
             enabled: Some(get_required_bool(object, "events_enabled")?),
+            items: Vec::new(),
         }),
         projections: Some(ProjectionAnswers {
             mode: Some(get_required_string(object, "projection_mode")?),
+            items: Vec::new(),
         }),
+        provider_requirements: Vec::new(),
+        policies: Vec::new(),
+        approvals: Vec::new(),
         migrations: Some(MigrationAnswers {
             compatibility: Some(get_required_string(object, "compatibility_mode")?),
+            items: Vec::new(),
+        }),
+        agent_endpoints: Some(AgentEndpointAnswers {
+            enabled: Some(get_required_bool(object, "agent_endpoints_enabled")?),
+            ids: object
+                .get("agent_endpoint_ids")
+                .and_then(serde_json::Value::as_str)
+                .map(split_csv_answer),
+            default_risk: object
+                .get("agent_endpoint_default_risk")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            default_approval: object
+                .get("agent_endpoint_default_approval")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            exports: object
+                .get("agent_endpoint_exports")
+                .and_then(serde_json::Value::as_str)
+                .map(split_csv_answer),
+            provider_category: object
+                .get("agent_endpoint_provider_category")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .filter(|value| !value.trim().is_empty()),
+            items: Vec::new(),
         }),
         output: Some(OutputAnswers {
             include_agent_tools: Some(get_required_bool(object, "include_agent_tools")?),
             artifacts: None,
         }),
     })
+}
+
+fn split_csv_answer(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect()
 }
 
 fn get_required_string(
@@ -1641,6 +3993,7 @@ fn write_artifact_file(
         let provider_categories = [
             Some(resolved.storage_category.clone()),
             resolved.external_ref_category.clone(),
+            resolved.agent_endpoint_provider_category.clone(),
         ]
         .into_iter()
         .flatten()
@@ -1649,6 +4002,7 @@ fn write_artifact_file(
             "package": resolved.package_name,
             "locale": resolved.locale,
             "provider_categories": provider_categories,
+            "agent_endpoints": resolved.agent_endpoint_ids,
         });
         let bytes = serde_json::to_vec_pretty(&payload).map_err(|err| err.to_string())?;
         fs::write(path, bytes)
@@ -1714,12 +4068,25 @@ fn to_pascal_case(input: &str) -> String {
         .join("")
 }
 
+fn title_from_identifier(input: &str) -> String {
+    input
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.to_ascii_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub fn default_schema() -> WizardSchema {
+    default_schema_for_locale(&selected_locale(None, None))
+}
+
+fn default_schema_for_locale(locale: &str) -> WizardSchema {
     WizardSchema {
-        schema_version: "0.4",
-        wizard_version: "0.4",
+        schema_version: "0.5",
+        wizard_version: "0.5",
         package_version: "0.1.0",
-        locale: selected_locale(None, None),
+        locale: locale.to_string(),
         fallback_locale: "en",
         supported_modes: vec![SchemaFlow::Create, SchemaFlow::Update],
         provider_repo: "greentic-sorla-providers",
@@ -1965,6 +4332,136 @@ pub fn default_schema() -> WizardSchema {
                 }],
             },
             WizardSection {
+                id: "agent-endpoints",
+                title_key: "wizard.sections.agent_endpoints.title",
+                description_key: "wizard.sections.agent_endpoints.description",
+                flows: vec![SchemaFlow::Create, SchemaFlow::Update],
+                questions: vec![
+                    WizardQuestion {
+                        id: "agent_endpoints.enabled",
+                        label_key: "wizard.questions.agent_endpoints_enabled.label",
+                        help_key: Some("wizard.questions.agent_endpoints_enabled.help"),
+                        kind: WizardQuestionKind::Boolean,
+                        required: true,
+                        default_value: Some("false"),
+                        choices: vec![],
+                        visibility: None,
+                    },
+                    WizardQuestion {
+                        id: "agent_endpoints.ids",
+                        label_key: "wizard.questions.agent_endpoint_ids.label",
+                        help_key: Some("wizard.questions.agent_endpoint_ids.help"),
+                        kind: WizardQuestionKind::TextList,
+                        required: false,
+                        default_value: None,
+                        choices: vec![],
+                        visibility: Some(SchemaVisibility {
+                            depends_on: "agent_endpoints.enabled",
+                            equals: "true",
+                        }),
+                    },
+                    WizardQuestion {
+                        id: "agent_endpoints.default_risk",
+                        label_key: "wizard.questions.agent_endpoint_default_risk.label",
+                        help_key: Some("wizard.questions.agent_endpoint_default_risk.help"),
+                        kind: WizardQuestionKind::SingleSelect,
+                        required: true,
+                        default_value: Some("medium"),
+                        choices: vec![
+                            WizardChoice {
+                                value: "low",
+                                label_key: "wizard.choices.agent_endpoint_risk.low",
+                            },
+                            WizardChoice {
+                                value: "medium",
+                                label_key: "wizard.choices.agent_endpoint_risk.medium",
+                            },
+                            WizardChoice {
+                                value: "high",
+                                label_key: "wizard.choices.agent_endpoint_risk.high",
+                            },
+                        ],
+                        visibility: Some(SchemaVisibility {
+                            depends_on: "agent_endpoints.enabled",
+                            equals: "true",
+                        }),
+                    },
+                    WizardQuestion {
+                        id: "agent_endpoints.default_approval",
+                        label_key: "wizard.questions.agent_endpoint_default_approval.label",
+                        help_key: Some("wizard.questions.agent_endpoint_default_approval.help"),
+                        kind: WizardQuestionKind::SingleSelect,
+                        required: true,
+                        default_value: Some("policy-driven"),
+                        choices: vec![
+                            WizardChoice {
+                                value: "none",
+                                label_key: "wizard.choices.agent_endpoint_approval.none",
+                            },
+                            WizardChoice {
+                                value: "optional",
+                                label_key: "wizard.choices.agent_endpoint_approval.optional",
+                            },
+                            WizardChoice {
+                                value: "required",
+                                label_key: "wizard.choices.agent_endpoint_approval.required",
+                            },
+                            WizardChoice {
+                                value: "policy-driven",
+                                label_key: "wizard.choices.agent_endpoint_approval.policy_driven",
+                            },
+                        ],
+                        visibility: Some(SchemaVisibility {
+                            depends_on: "agent_endpoints.enabled",
+                            equals: "true",
+                        }),
+                    },
+                    WizardQuestion {
+                        id: "agent_endpoints.exports",
+                        label_key: "wizard.questions.agent_endpoint_exports.label",
+                        help_key: Some("wizard.questions.agent_endpoint_exports.help"),
+                        kind: WizardQuestionKind::MultiSelect,
+                        required: true,
+                        default_value: Some("openapi,arazzo,mcp,llms_txt"),
+                        choices: vec![
+                            WizardChoice {
+                                value: "openapi",
+                                label_key: "wizard.choices.agent_endpoint_export.openapi",
+                            },
+                            WizardChoice {
+                                value: "arazzo",
+                                label_key: "wizard.choices.agent_endpoint_export.arazzo",
+                            },
+                            WizardChoice {
+                                value: "mcp",
+                                label_key: "wizard.choices.agent_endpoint_export.mcp",
+                            },
+                            WizardChoice {
+                                value: "llms_txt",
+                                label_key: "wizard.choices.agent_endpoint_export.llms_txt",
+                            },
+                        ],
+                        visibility: Some(SchemaVisibility {
+                            depends_on: "agent_endpoints.enabled",
+                            equals: "true",
+                        }),
+                    },
+                    WizardQuestion {
+                        id: "agent_endpoints.provider_category",
+                        label_key: "wizard.questions.agent_endpoint_provider_category.label",
+                        help_key: Some("wizard.questions.agent_endpoint_provider_category.help"),
+                        kind: WizardQuestionKind::Text,
+                        required: false,
+                        default_value: Some("api-gateway"),
+                        choices: vec![],
+                        visibility: Some(SchemaVisibility {
+                            depends_on: "agent_endpoints.enabled",
+                            equals: "true",
+                        }),
+                    },
+                ],
+            },
+            WizardSection {
                 id: "output-preferences",
                 title_key: "wizard.sections.output.title",
                 description_key: "wizard.sections.output.description",
@@ -2062,12 +4559,73 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn public_help_is_wizard_first() {
+    fn public_help_includes_wizard_and_pack_surface() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("wizard"));
         assert!(help.contains("--schema"));
         assert!(help.contains("--answers"));
+        assert!(help.contains("--pack-out"));
+        assert!(help.contains("pack"));
+        assert!(help.contains("--out"));
         assert!(!help.contains("__inspect-product-shape"));
+    }
+
+    #[test]
+    fn pack_metadata_schema_helpers_are_deterministic() {
+        for (schema, expected_id) in [
+            (sorx_validation_schema_json(), SORX_VALIDATION_SCHEMA),
+            (
+                sorx_exposure_policy_schema_json(),
+                SORX_EXPOSURE_POLICY_SCHEMA,
+            ),
+            (sorx_compatibility_schema_json(), SORX_COMPATIBILITY_SCHEMA),
+        ] {
+            let first = serde_json::to_string_pretty(&schema).expect("schema serializes");
+            let second = serde_json::to_string_pretty(&schema).expect("schema serializes again");
+            assert_eq!(first, second);
+            assert_eq!(schema["$id"], expected_id);
+        }
+    }
+
+    #[test]
+    fn pack_validation_inspection_json_is_compact() {
+        let dir = unique_temp_dir();
+        let pack_path = dir.join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: pack_path.clone(),
+        })
+        .expect("pack builds");
+        let inspection = inspect_sorla_gtpack(&pack_path).expect("pack inspects");
+        let validation = validation_inspection_json(&inspection);
+
+        assert_eq!(validation["schema"], SORX_VALIDATION_SCHEMA);
+        assert_eq!(validation["package"]["name"], "landlord-tenant-sor");
+        assert_eq!(validation["validation"]["suite_count"], 4);
+        assert_eq!(
+            validation["exposure"]["default_visibility"],
+            serde_json::json!("private")
+        );
+        assert_eq!(
+            validation["compatibility"]["state_mode"],
+            serde_json::json!("isolated_required")
+        );
+    }
+
+    #[test]
+    fn pack_metadata_subcommands_parse() {
+        Cli::try_parse_from(["greentic-sorla", "pack", "schema", "validation"])
+            .expect("validation schema command parses");
+        Cli::try_parse_from(["greentic-sorla", "pack", "schema", "exposure-policy"])
+            .expect("exposure schema command parses");
+        Cli::try_parse_from(["greentic-sorla", "pack", "schema", "compatibility"])
+            .expect("compatibility schema command parses");
+        Cli::try_parse_from(["greentic-sorla", "pack", "validation-inspect", "x.gtpack"])
+            .expect("validation-inspect command parses");
+        Cli::try_parse_from(["greentic-sorla", "pack", "validation-doctor", "x.gtpack"])
+            .expect("validation-doctor command parses");
     }
 
     #[test]
@@ -2087,6 +4645,46 @@ mod tests {
                 .iter()
                 .any(|section| section.id == "output-preferences")
         );
+        let agent_section = schema
+            .sections
+            .iter()
+            .find(|section| section.id == "agent-endpoints")
+            .expect("schema should include agent endpoints section");
+        assert!(agent_section.flows.contains(&SchemaFlow::Create));
+        assert!(agent_section.flows.contains(&SchemaFlow::Update));
+        assert!(agent_section.questions.iter().any(|question| {
+            question.id == "agent_endpoints.ids"
+                && question.visibility
+                    == Some(SchemaVisibility {
+                        depends_on: "agent_endpoints.enabled",
+                        equals: "true",
+                    })
+        }));
+    }
+
+    #[test]
+    fn schema_references_existing_english_i18n_keys() {
+        let i18n_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("i18n/en.json");
+        let raw = fs::read_to_string(i18n_path).expect("English i18n file should be readable");
+        let keys: BTreeMap<String, String> =
+            serde_json::from_str(&raw).expect("English i18n should parse");
+        let schema = default_schema();
+
+        for section in &schema.sections {
+            assert!(keys.contains_key(section.title_key));
+            assert!(keys.contains_key(section.description_key));
+            for question in &section.questions {
+                assert!(keys.contains_key(question.label_key));
+                if let Some(help_key) = question.help_key {
+                    assert!(keys.contains_key(help_key));
+                }
+                for choice in &question.choices {
+                    assert!(keys.contains_key(choice.label_key));
+                }
+            }
+        }
     }
 
     #[test]
@@ -2103,6 +4701,43 @@ mod tests {
     }
 
     #[test]
+    fn wizard_schema_accepts_explicit_locale() {
+        let cli = Cli::try_parse_from(["greentic-sorla", "wizard", "--locale", "es", "--schema"])
+            .expect("wizard schema should accept explicit locale");
+        let Commands::Wizard(args) = cli.command else {
+            panic!("expected wizard command");
+        };
+
+        let schema = default_schema_for_locale(&selected_locale(args.locale.as_deref(), None));
+        assert_eq!(schema.locale, "es");
+    }
+
+    #[test]
+    fn localized_help_accepts_locale_after_help_flag() {
+        let root_help = localized_help_for_args(&[
+            OsString::from("greentic-sorla"),
+            OsString::from("--help"),
+            OsString::from("--locale"),
+            OsString::from("de"),
+        ])
+        .expect("root help should localize");
+        assert!(root_help.contains("SoRLa-Wizard"));
+        assert!(root_help.contains("Schema generieren oder Antwortdokumente anwenden."));
+
+        let wizard_help = localized_help_for_args(&[
+            OsString::from("greentic-sorla"),
+            OsString::from("wizard"),
+            OsString::from("--help"),
+            OsString::from("--locale"),
+            OsString::from("de"),
+        ])
+        .expect("wizard help should localize");
+        assert!(wizard_help.contains("Schema generieren oder Antwortdokumente anwenden."));
+        assert!(wizard_help.contains("Paketname"));
+        assert!(wizard_help.contains("Kategorie des Speicher-Providers"));
+    }
+
+    #[test]
     fn embedded_i18n_catalogs_are_available_without_filesystem_lookups() {
         let english = load_interactive_i18n("en").expect("embedded en locale should load");
         assert_eq!(
@@ -2115,6 +4750,24 @@ mod tests {
             spanish.get("wizard.title").map(String::as_str),
             Some("Asistente de SoRLa")
         );
+        assert_eq!(
+            spanish.get("wizard.flow.label").map(String::as_str),
+            Some("Flujo del asistente")
+        );
+    }
+
+    #[test]
+    fn bundled_i18n_catalogs_cover_supported_locales() {
+        let raw_locales = included_locale_json("locales").expect("locales list is bundled");
+        let locales: Vec<String> =
+            serde_json::from_str(raw_locales).expect("locales list should parse");
+
+        for locale in locales {
+            let raw = included_locale_json(&locale)
+                .unwrap_or_else(|| panic!("locale `{locale}` should be bundled"));
+            serde_json::from_str::<BTreeMap<String, String>>(raw)
+                .unwrap_or_else(|err| panic!("bundled locale `{locale}` should parse: {err}"));
+        }
     }
 
     #[test]
@@ -2220,6 +4873,323 @@ mod tests {
     }
 
     #[test]
+    fn wizard_answers_can_generate_gtpack_without_repo_fixture() {
+        let dir = unique_temp_dir();
+        let answers_path = dir.join("create-pack.json");
+        let output_dir = dir.join("workspace");
+        fs::create_dir_all(&output_dir).unwrap();
+
+        fs::write(
+            &answers_path,
+            format!(
+                r#"{{
+  "schema_version": "0.4",
+  "flow": "create",
+  "output_dir": "{}",
+  "package": {{
+    "name": "landlord-tenant-sor",
+    "version": "0.1.0"
+  }},
+  "records": {{
+    "default_source": "native"
+  }},
+  "events": {{
+    "enabled": true
+  }},
+  "agent_endpoints": {{
+    "enabled": true,
+    "ids": ["create_tenant"],
+    "default_risk": "medium",
+    "default_approval": "policy-driven",
+    "exports": ["openapi", "arazzo", "mcp", "llms_txt"],
+    "provider_category": "storage"
+  }}
+}}"#,
+                output_dir.display()
+            ),
+        )
+        .unwrap();
+
+        run([
+            "greentic-sorla",
+            "wizard",
+            "--answers",
+            answers_path.to_str().unwrap(),
+            "--pack-out",
+            "landlord-tenant-sor.gtpack",
+        ])
+        .unwrap();
+
+        let pack_path = output_dir.join("landlord-tenant-sor.gtpack");
+        assert!(pack_path.exists());
+        doctor_sorla_gtpack(&pack_path).expect("wizard-generated pack should doctor");
+        let inspection = inspect_sorla_gtpack(&pack_path).expect("wizard pack should inspect");
+        assert_eq!(inspection.name, "landlord-tenant-sor");
+        assert_eq!(inspection.extension, "greentic.sorx.runtime.v1");
+
+        let validation_manifest_path = output_dir
+            .join(".greentic-sorla")
+            .join("generated")
+            .join("assets")
+            .join("sorx")
+            .join("tests")
+            .join("test-manifest.json");
+        let validation_manifest = fs::read_to_string(validation_manifest_path)
+            .expect("wizard should write generated validation manifest");
+        let validation: serde_json::Value =
+            serde_json::from_str(&validation_manifest).expect("validation manifest is JSON");
+        assert_eq!(validation["schema"], "greentic.sorx.validation.v1");
+        assert_eq!(validation["package"]["name"], "landlord-tenant-sor");
+        assert!(
+            validation["promotion_requires"]
+                .as_array()
+                .expect("promotion requirements")
+                .iter()
+                .any(|suite| suite == "contract")
+        );
+    }
+
+    #[test]
+    fn landlord_tenant_pack_example_answers_generate_gtpack() {
+        let dir = unique_temp_dir();
+        let answers_path = dir.join("landlord-tenant-pack.json");
+        let output_dir = dir.join("workspace");
+        fs::create_dir_all(&output_dir).unwrap();
+        let example_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("examples")
+            .join("landlord-tenant")
+            .join("answers.json");
+        let example = fs::read_to_string(example_path).expect("example answers should read");
+        let patched = example.replace(
+            r#""output_dir": "examples/landlord-tenant""#,
+            &format!(r#""output_dir": "{}""#, output_dir.display()),
+        );
+        fs::write(&answers_path, patched).unwrap();
+
+        run([
+            "greentic-sorla",
+            "wizard",
+            "--answers",
+            answers_path.to_str().unwrap(),
+            "--pack-out",
+            "landlord-tenant-sor.gtpack",
+        ])
+        .unwrap();
+
+        let pack_path = output_dir.join("landlord-tenant-sor.gtpack");
+        doctor_sorla_gtpack(&pack_path).expect("example pack should doctor");
+        let inspection = inspect_sorla_gtpack(&pack_path).expect("example pack should inspect");
+        assert_eq!(inspection.name, "landlord-tenant-sor");
+        let package_yaml = fs::read_to_string(output_dir.join("sorla.yaml")).unwrap();
+        assert!(package_yaml.contains("name: Landlord"));
+        assert!(package_yaml.contains("name: MaintenanceRequest"));
+        assert!(package_yaml.contains("id: create_tenant"));
+        assert!(package_yaml.contains("event: TenantCreated"));
+        assert!(!package_yaml.contains("LandlordTenantSorRecord"));
+        assert_eq!(
+            inspection
+                .optional_artifacts
+                .get("assets/sorla/mcp-tools.json"),
+            Some(&true)
+        );
+    }
+
+    #[test]
+    fn rich_answers_validate_cross_references_with_answer_paths() {
+        let dir = unique_temp_dir();
+        let answers_path = dir.join("invalid-rich.json");
+        let output_dir = dir.join("workspace");
+        fs::write(
+            &answers_path,
+            format!(
+                r#"{{
+  "schema_version": "0.5",
+  "flow": "create",
+  "output_dir": "{}",
+  "package": {{
+    "name": "invalid-rich",
+    "version": "0.1.0"
+  }},
+  "records": {{
+    "default_source": "native",
+    "items": [
+      {{
+        "name": "Tenant",
+        "fields": [
+          {{
+            "name": "landlord_id",
+            "type": "string",
+            "references": {{ "record": "Landlord", "field": "id" }}
+          }}
+        ]
+      }}
+    ]
+  }}
+}}"#,
+                output_dir.display()
+            ),
+        )
+        .unwrap();
+
+        let error = run([
+            "greentic-sorla",
+            "wizard",
+            "--answers",
+            answers_path.to_str().unwrap(),
+        ])
+        .expect_err("unknown record reference should fail");
+
+        assert!(error.contains("records.items[0].fields[0].references.record"));
+        assert!(error.contains("Landlord"));
+    }
+
+    #[test]
+    fn validation_pack_example_answers_generate_gtpacks() {
+        for (file_name, output_dir_literal, pack_name, pack_version) in [
+            (
+                "minimal_validation_pack.json",
+                "target/greentic-sorla-minimal-validation-pack-example",
+                "minimal-validation-sor",
+                "0.1.0",
+            ),
+            (
+                "landlord_tenant_validation_pack.json",
+                "target/greentic-sorla-landlord-tenant-validation-pack-example",
+                "landlord-tenant-sor",
+                "0.1.0",
+            ),
+            (
+                "landlord_tenant_exported_candidate_pack.json",
+                "target/greentic-sorla-landlord-tenant-exported-candidate-pack-example",
+                "landlord-tenant-sor",
+                "0.1.0",
+            ),
+        ] {
+            let dir = unique_temp_dir();
+            let answers_path = dir.join(file_name);
+            let output_dir = dir.join("workspace");
+            fs::create_dir_all(&output_dir).unwrap();
+            let example_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("examples")
+                .join("answers")
+                .join(file_name);
+            let example = fs::read_to_string(example_path).expect("example answers should read");
+            let patched = example.replace(
+                &format!(r#""output_dir": "{output_dir_literal}""#),
+                &format!(r#""output_dir": "{}""#, output_dir.display()),
+            );
+            fs::write(&answers_path, patched).unwrap();
+
+            let pack_filename = format!("{pack_name}.gtpack");
+            run([
+                "greentic-sorla",
+                "wizard",
+                "--answers",
+                answers_path.to_str().unwrap(),
+                "--pack-out",
+                &pack_filename,
+            ])
+            .unwrap();
+
+            let pack_path = output_dir.join(pack_filename);
+            doctor_sorla_gtpack(&pack_path).expect("validation example pack should doctor");
+            let inspection =
+                inspect_sorla_gtpack(&pack_path).expect("validation example should inspect");
+            assert_eq!(inspection.name, pack_name);
+            assert_eq!(inspection.version, pack_version);
+            assert!(inspection.validation.is_some());
+            assert!(inspection.exposure_policy.is_some());
+            assert!(inspection.compatibility.is_some());
+        }
+    }
+
+    #[test]
+    fn wizard_schema_rejects_pack_out() {
+        let err = run([
+            "greentic-sorla",
+            "wizard",
+            "--schema",
+            "--pack-out",
+            "schema.gtpack",
+        ])
+        .expect_err("schema mode should reject pack-out");
+
+        assert!(err.contains("`--pack-out` can only be used"));
+    }
+
+    #[test]
+    fn create_flow_generates_agent_endpoints_from_answers() {
+        let dir = unique_temp_dir();
+        let answers_path = dir.join("create-agent.json");
+        let output_dir = dir.join("workspace");
+        fs::create_dir_all(&output_dir).unwrap();
+
+        fs::write(
+            &answers_path,
+            format!(
+                r#"{{
+  "schema_version": "0.4",
+  "flow": "create",
+  "output_dir": "{}",
+  "package": {{
+    "name": "lead-capture",
+    "version": "0.2.0"
+  }},
+  "agent_endpoints": {{
+    "enabled": true,
+    "ids": ["create_customer_contact", "request_partner_followup"],
+    "default_risk": "medium",
+    "default_approval": "policy-driven",
+    "exports": ["openapi", "mcp"],
+    "provider_category": "api-gateway"
+  }}
+}}"#,
+                output_dir.display()
+            ),
+        )
+        .unwrap();
+
+        run([
+            "greentic-sorla",
+            "wizard",
+            "--answers",
+            answers_path.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let package_yaml = fs::read_to_string(output_dir.join("sorla.yaml")).unwrap();
+        assert!(package_yaml.contains("agent_endpoints:"));
+        assert!(package_yaml.contains("id: create_customer_contact"));
+        assert!(package_yaml.contains("id: request_partner_followup"));
+        assert!(package_yaml.contains("category: api-gateway"));
+        assert!(package_yaml.contains("openapi: true"));
+        assert!(package_yaml.contains("arazzo: false"));
+        assert!(package_yaml.contains("mcp: true"));
+        assert!(package_yaml.contains("llms_txt: false"));
+        serde_yaml::from_str::<serde_yaml::Value>(&package_yaml)
+            .expect("generated agent endpoint YAML should be valid YAML");
+
+        let lock = fs::read_to_string(
+            output_dir
+                .join(".greentic-sorla")
+                .join("generated")
+                .join(LOCK_FILENAME),
+        )
+        .unwrap();
+        assert!(lock.contains("\"agent_endpoints_enabled\": true"));
+
+        let provider_manifest = fs::read_to_string(
+            output_dir
+                .join(".greentic-sorla")
+                .join("generated")
+                .join("provider-requirements.json"),
+        )
+        .unwrap();
+        assert!(provider_manifest.contains("\"agent_endpoint_handoff\""));
+    }
+
+    #[test]
     fn interactive_wizard_uses_qa_and_reuses_answers_pipeline() {
         let dir = unique_temp_dir();
         let output_dir = dir.join("interactive-workspace");
@@ -2240,11 +5210,17 @@ mod tests {
             "events_enabled" => Ok(serde_json::json!(true)),
             "projection_mode" => Ok(serde_json::json!("current-state")),
             "compatibility_mode" => Ok(serde_json::json!("additive")),
+            "agent_endpoints_enabled" => Ok(serde_json::json!(false)),
+            "agent_endpoint_ids" => Ok(serde_json::json!("")),
+            "agent_endpoint_default_risk" => Ok(serde_json::json!("medium")),
+            "agent_endpoint_default_approval" => Ok(serde_json::json!("policy-driven")),
+            "agent_endpoint_exports" => Ok(serde_json::json!("openapi,arazzo,mcp,llms_txt")),
+            "agent_endpoint_provider_category" => Ok(serde_json::json!("api-gateway")),
             "include_agent_tools" => Ok(serde_json::json!(true)),
             other => panic!("unexpected interactive question: {other}"),
         };
 
-        let summary = run_interactive_wizard_with_provider("fr", &mut provider).unwrap();
+        let summary = run_interactive_wizard_with_provider("fr", &mut provider, None).unwrap();
         assert_eq!(summary.mode, "create");
         assert_eq!(summary.package_name, "qa-demo");
         assert_eq!(summary.locale, "fr");

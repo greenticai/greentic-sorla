@@ -1,0 +1,22 @@
+[package]
+name = "greentic-sorla-e2e"
+version = "0.1.9"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/greenticai/greentic-sorla"
+homepage = "https://github.com/greenticai/greentic-sorla"
+documentation = "https://docs.rs/greentic-sorla"
+keywords = ["greentic", "sorla", "wizard", "compiler"]
+categories = ["development-tools", "command-line-utilities"]
+description = "End-to-end scenarios for Greentic SoRLa."
+readme = "README.md"
+publish = false
+
+[dependencies]
+greentic-sorla-ir = { version = "0.1.9", path = "../greentic-sorla-ir" }
+greentic-sorla-lang = { version = "0.1.9", path = "../greentic-sorla-lang" }
+greentic-sorla-pack = { version = "0.1.9", path = "../greentic-sorla-pack" }
+provider-foundationdb = { path = "../../../greentic-sorla-providers/providers/provider-foundationdb" }
+sorla-provider-core = { path = "../../../greentic-sorla-providers/crates/sorla-provider-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

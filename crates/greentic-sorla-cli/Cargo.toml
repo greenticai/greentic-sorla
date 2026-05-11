@@ -11,14 +11,15 @@ keywords.workspace = true
 categories.workspace = true
 description = "Wizard-first CLI for Greentic SoRLa."
 readme = "README.md"
-include = ["src/**", "benches/**", "tests/**", "examples/**", "Cargo.toml", "README.md"]
+include = ["src/**", "i18n/**", "benches/**", "tests/**", "examples/**", "build.rs", "Cargo.toml", "README.md"]
 
 [lib]
 name = "greentic_sorla_cli"
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }-v{ version }.tar.gz"
-bin-dir = "{ name }-{ target }-v{ version }/{ bin }{ binary-ext }"
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-v{ version }-{ target }{ archive-suffix }"
+bin-dir = "{ name }-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
 
 [[bin]]
 name = "greentic-sorla"
@@ -31,9 +32,11 @@ harness = false
 [dependencies]
 ciborium.workspace = true
 clap.workspace = true
+greentic-sorla-pack.workspace = true
 greentic-qa-lib.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
+serde_yaml.workspace = true

@@ -1,7 +1,41 @@
 # Handoff Metadata
 
-PR-06 made the generated wizard output more structured without introducing
-concrete provider bindings into `greentic-sorla`.
+PR-06 made the generated wizard output more gtpack-ready without introducing
+concrete provider bindings into `greentic-sorla`. PR-11 adds the deterministic
+`.gtpack` handoff command.
+
+## gtpack Handoff
+
+Create a handoff pack from wizard answers with:
+
+```bash
+greentic-sorla wizard --answers examples/landlord-tenant/answers.json \
+  --pack-out landlord-tenant-sor.gtpack
+```
+
+For a concrete starting point, see
+`examples/landlord-tenant/answers.json`. It declares the real landlord/tenant
+domain in the answer document and generates the visible `sorla.yaml` plus
+`examples/landlord-tenant/landlord-tenant-sor.gtpack`.
+
+Or package an existing generated SoRLa file:
+
+```bash
+greentic-sorla pack ./sorla.yaml \
+  --name landlord-tenant-sor \
+  --version 0.1.0 \
+  --out landlord-tenant-sor.gtpack
+```
+
+Validate and inspect it with:
+
+```bash
+greentic-sorla pack doctor examples/landlord-tenant/landlord-tenant-sor.gtpack
+greentic-sorla pack inspect examples/landlord-tenant/landlord-tenant-sor.gtpack
+```
+
+See `docs/sorla-gtpack.md` for the pack contents, Sorx extension metadata,
+determinism rules, and ownership boundary.
 
 Those generated files should not be interpreted as final pack or bundle
 assembly. `gtc` remains the owner of final assembly. The metadata here is

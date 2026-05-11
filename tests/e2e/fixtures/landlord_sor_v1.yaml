@@ -1,0 +1,392 @@
+package:
+  name: landlord-tenant-sor
+  version: 0.1.0
+records:
+  - name: Landlord
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: full_name
+        type: string
+      - name: email
+        type: string
+  - name: Property
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: landlord_id
+        type: string
+        references:
+          record: Landlord
+          field: id
+      - name: address
+        type: string
+  - name: Unit
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: property_id
+        type: string
+        references:
+          record: Property
+          field: id
+      - name: unit_number
+        type: string
+      - name: rent_amount
+        type: decimal
+      - name: status
+        type: string
+  - name: Tenant
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: full_name
+        type: string
+      - name: email
+        type: string
+      - name: phone
+        type: string
+  - name: Tenancy
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: tenant_id
+        type: string
+        references:
+          record: Tenant
+          field: id
+      - name: unit_id
+        type: string
+        references:
+          record: Unit
+          field: id
+      - name: start_date
+        type: date
+      - name: end_date
+        type: date
+      - name: status
+        type: string
+  - name: Payment
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: tenancy_id
+        type: string
+        references:
+          record: Tenancy
+          field: id
+      - name: amount
+        type: decimal
+      - name: paid_on
+        type: date
+      - name: status
+        type: string
+  - name: MaintenanceRequest
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: unit_id
+        type: string
+        references:
+          record: Unit
+          field: id
+      - name: tenant_id
+        type: string
+        references:
+          record: Tenant
+          field: id
+      - name: summary
+        type: string
+      - name: status
+        type: string
+actions:
+  - name: CreateTenant
+  - name: AssignTenantToUnit
+  - name: RecordRentPayment
+  - name: AddMaintenanceRequest
+  - name: ListActiveTenants
+  - name: UpdateTenantContactPreference
+events:
+  - name: LandlordCreated
+    record: Landlord
+    kind: domain
+    emits:
+      - name: id
+        type: string
+      - name: full_name
+        type: string
+  - name: PropertyCreated
+    record: Property
+    kind: domain
+    emits:
+      - name: id
+        type: string
+      - name: landlord_id
+        type: string
+  - name: UnitCreated
+    record: Unit
+    kind: domain
+    emits:
+      - name: id
+        type: string
+      - name: property_id
+        type: string
+  - name: TenantCreated
+    record: Tenant
+    kind: domain
+    emits:
+      - name: id
+        type: string
+      - name: full_name
+        type: string
+      - name: email
+        type: string
+  - name: TenantContactPreferenceUpdated
+    record: Tenant
+    kind: domain
+    emits:
+      - name: tenant_id
+        type: string
+      - name: preferred_contact_method
+        type: string
+  - name: TenancyCreated
+    record: Tenancy
+    kind: domain
+    emits:
+      - name: id
+        type: string
+      - name: tenant_id
+        type: string
+      - name: unit_id
+        type: string
+  - name: PaymentRecorded
+    record: Payment
+    kind: domain
+    emits:
+      - name: id
+        type: string
+      - name: tenancy_id
+        type: string
+      - name: amount
+        type: decimal
+  - name: MaintenanceRequestCreated
+    record: MaintenanceRequest
+    kind: domain
+    emits:
+      - name: id
+        type: string
+      - name: unit_id
+        type: string
+      - name: summary
+        type: string
+projections:
+  - name: LandlordPortfolio
+    record: Landlord
+    source_event: LandlordCreated
+    mode: current-state
+  - name: ActiveTenants
+    record: Tenant
+    source_event: TenancyCreated
+    mode: current-state
+  - name: MaintenanceBoard
+    record: MaintenanceRequest
+    source_event: MaintenanceRequestCreated
+    mode: current-state
+provider_requirements:
+  - category: storage
+    capabilities:
+      - event-log
+      - projections
+  - category: event-store
+    capabilities:
+      - append
+      - read-stream
+policies:
+  - name: TenancyWritePolicy
+approvals:
+  - name: LandlordRecordApproval
+agent_endpoints:
+  - id: create_tenant
+    title: Create tenant
+    intent: Create a tenant record from structured agent input.
+    inputs:
+      - name: full_name
+        type: string
+        required: true
+      - name: email
+        type: string
+        required: true
+        sensitive: true
+      - name: phone
+        type: string
+        required: false
+    outputs:
+      - name: tenant_id
+        type: string
+    side_effects:
+      - event.TenantCreated
+    emits:
+      event: TenantCreated
+      stream: "landlord-tenant-sor/{landlord_id}"
+      payload:
+        id: "$generated.tenant_id"
+        full_name: "$input.full_name"
+        email: "$input.email"
+        phone: "$input.phone"
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - CreateTenant
+      events:
+        - TenantCreated
+      policies:
+        - TenancyWritePolicy
+      approvals:
+        - LandlordRecordApproval
+  - id: assign_tenant_to_unit
+    title: Assign tenant to unit
+    intent: Create an active tenancy for a tenant and rental unit.
+    inputs:
+      - name: tenant_id
+        type: string
+        required: true
+      - name: unit_id
+        type: string
+        required: true
+      - name: start_date
+        type: date
+        required: true
+    outputs:
+      - name: tenancy_id
+        type: string
+    side_effects:
+      - event.TenancyCreated
+    emits:
+      event: TenancyCreated
+      stream: "landlord-tenant-sor/{tenant_id}"
+      payload:
+        id: "$generated.tenancy_id"
+        tenant_id: "$input.tenant_id"
+        unit_id: "$input.unit_id"
+        start_date: "$input.start_date"
+        status: active
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - AssignTenantToUnit
+      events:
+        - TenancyCreated
+      policies:
+        - TenancyWritePolicy
+  - id: record_rent_payment
+    title: Record rent payment
+    intent: Record a rent payment against an active tenancy.
+    inputs:
+      - name: tenant_id
+        type: string
+        required: true
+      - name: amount
+        type: decimal
+        required: true
+    outputs:
+      - name: payment_id
+        type: string
+    side_effects:
+      - event.PaymentRecorded
+    emits:
+      event: PaymentRecorded
+      stream: "landlord-tenant-sor/{tenant_id}"
+      payload:
+        id: "$generated.payment_id"
+        tenant_id: "$input.tenant_id"
+        amount: "$input.amount"
+    risk: low
+    approval: optional
+    backing:
+      actions:
+        - RecordRentPayment
+      events:
+        - PaymentRecorded
+  - id: add_maintenance_request
+    title: Add maintenance request
+    intent: Add a maintenance request for a rental unit.
+    inputs:
+      - name: unit_id
+        type: string
+        required: true
+      - name: summary
+        type: string
+        required: true
+    outputs:
+      - name: maintenance_request_id
+        type: string
+    side_effects:
+      - event.MaintenanceRequestCreated
+    emits:
+      event: MaintenanceRequestCreated
+      stream: "landlord-tenant-sor/{unit_id}"
+      payload:
+        id: "$generated.maintenance_request_id"
+        unit_id: "$input.unit_id"
+        summary: "$input.summary"
+    risk: low
+    approval: optional
+    backing:
+      actions:
+        - AddMaintenanceRequest
+      events:
+        - MaintenanceRequestCreated
+  - id: list_active_tenants
+    title: List active tenants
+    intent: Show all active tenants for a landlord.
+    inputs:
+      - name: landlord_id
+        type: string
+        required: true
+    outputs:
+      - name: active_tenants
+        type: array
+    side_effects: []
+    risk: low
+    approval: none
+    backing:
+      actions:
+        - ListActiveTenants
+  - id: update_tenant_contact_preference
+    title: Update tenant contact preference
+    intent: Update a tenant preferred contact method after schema migration.
+    inputs:
+      - name: tenant_id
+        type: string
+        required: true
+      - name: preferred_contact_method
+        type: string
+        required: true
+        enum_values:
+          - email
+          - phone
+    outputs:
+      - name: tenant_id
+        type: string
+    side_effects:
+      - event.TenantContactPreferenceUpdated
+    emits:
+      event: TenantContactPreferenceUpdated
+      stream: "landlord-tenant-sor/{tenant_id}"
+      payload:
+        tenant_id: "$input.tenant_id"
+        preferred_contact_method: "$input.preferred_contact_method"
+    risk: low
+    approval: optional
+    backing:
+      actions:
+        - UpdateTenantContactPreference

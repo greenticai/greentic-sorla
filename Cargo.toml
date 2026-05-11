@@ -5,6 +5,18 @@ members = [
     "crates/greentic-sorla-lang",
     "crates/greentic-sorla-pack",
     "crates/greentic-sorla-wizard",
+    "xtask",
+]
+exclude = [
+    "crates/greentic-sorla-e2e",
+]
+default-members = [
+    "crates/greentic-sorla-cli",
+    "crates/greentic-sorla-ir",
+    "crates/greentic-sorla-lang",
+    "crates/greentic-sorla-pack",
+    "crates/greentic-sorla-wizard",
+    "xtask",
 ]
 resolver = "2"
 
@@ -31,6 +43,10 @@ categories = [
 ciborium = "0.2"
 criterion = "0.8"
 greentic-qa-lib = ">=1.1.0-dev, <1.2.0-0"
+greentic-sorla-cli = { package = "greentic-sorla", version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-cli" }
+greentic-sorla-ir = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-ir" }
+greentic-sorla-lang = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-lang" }
+greentic-sorla-pack = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-pack" }
 serde_json = "1"
 serde_yaml = "0.9"
 sha2 = "0.11"

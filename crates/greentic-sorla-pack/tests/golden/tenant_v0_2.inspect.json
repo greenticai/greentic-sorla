@@ -70,7 +70,8 @@
       "compatibility": "additive",
       "projection_updates": [
         "TenantCurrentState"
-      ]
+      ],
+      "backfills": []
     }
   ],
   "provider_contract": {
@@ -89,5 +90,6 @@
         ]
       }
     ]
-  }
+  },
+  "agent_endpoints": []
 }

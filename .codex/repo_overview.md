@@ -10,9 +10,13 @@
 | PR-04 | Wizard schema generation | verified | `wizard --schema` now emits a deterministic create/update schema with i18n keys, tests, and docs. |
 | PR-05 | Answers-driven wizard execution | verified | `wizard --answers` now validates, creates, updates, preserves user content outside generated blocks, and writes deterministic artifacts. |
 | PR-06 | i18n-ready wizard and gtpack-ready packaging | verified | Wizard schema/answers now carry locale fallback semantics and generate gtpack-ready package, provider, and locale metadata manifests. |
-| PR-07 | Extension-first architecture docs | implemented | Repo docs and Codex guidance now describe `greentic-sorla` as a `gtc` extension-layer product and delegate final assembly ownership to `gtc`. |
-| PR-08 | Extension handoff refactor | implemented | CLI-generated manifests now declare themselves as `gtc` launcher-handoff metadata, and `greentic-sorla-pack` now exposes handoff-first APIs while keeping legacy compatibility aliases. |
-| PR-09 | Naming migration | implemented | `handoff` is now the canonical integration term, source-authoring `package` language remains stable, and canonical launcher-handoff aliases are written alongside legacy package-manifest names. |
+| PR-07 | Agent endpoint fixtures, docs, and local checks | verified | Realistic agent endpoint golden fixture, authoring docs, and pack-level end-to-end fixture assertions are implemented. |
+| PR-08 | `gtc` agent endpoint handoff contract docs | verified | Downstream handoff contract docs define artifact names, schema expectations, validation guidance, and ownership boundaries. |
+| PR-09 | Landlord/tenant FoundationDB e2e | verified | Non-publishable e2e harness, fixtures, xtask command, docs, script, and manual/nightly workflow validate a landlord/tenant SoR through the sibling FoundationDB provider. |
+| PR-10 | Executable SoRLa migrations and agent operations | verified | Field relationships, migration backfills/idempotence keys, agent operation emits, structured result/error contract, executable contract artifact, docs, fixtures, and e2e harness consumption are implemented. |
+| PR-07a | Extension-first architecture docs | implemented | Repo docs and Codex guidance now describe `greentic-sorla` as a `gtc` extension-layer product and delegate final assembly ownership to `gtc`. |
+| PR-08a | Extension handoff refactor | implemented | CLI-generated manifests now declare themselves as `gtc` launcher-handoff metadata, and `greentic-sorla-pack` now exposes handoff-first APIs while keeping legacy compatibility aliases. |
+| PR-09a | Naming migration | implemented | `handoff` is now the canonical integration term, source-authoring `package` language remains stable, and canonical launcher-handoff aliases are written alongside legacy package-manifest names. |
 
 ## 1. High-Level Purpose
 
@@ -21,6 +25,12 @@
 The current implementation now includes the verified PR-01 scaffold, PR-02 language semantics, the PR-03 canonical IR/artifact slice, the PR-04 wizard schema contract, and a working PR-05 answers execution path. The CLI can now create or update a minimal SoRLa package layout deterministically and refresh wizard-owned artifacts while preserving user-authored content outside generated regions.
 
 PR-06 is now implemented in the active CLI path: locale selection/fallback and generated metadata are part of the wizard-owned output under `.greentic-sorla/generated/`.
+
+PR-07 through PR-08 add agent endpoint authoring, canonical IR, handoff artifacts, exporter fragments, golden fixtures, and downstream `gtc` handoff contract documentation.
+
+PR-09 adds a repeatable landlord/tenant FoundationDB provider e2e scenario in this repository. The e2e uses the sibling `greentic-sorla-providers` workspace as an integration dependency while keeping provider implementations out of `greentic-sorla`.
+
+PR-10 promotes the e2e scenario assumptions into first-class SoRLa contracts: record field references, executable migration backfills, idempotence keys, mutating agent endpoint emit plans, a structured operation result/error contract, and an `executable-contract.json` pack artifact.
 
 The wizard entrypoint now also supports an interactive local mode backed by `greentic-qa-lib` when `--answers` is not provided, while still routing the collected answers through the same deterministic answers application pipeline.
 
@@ -36,7 +46,8 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Path:** `Cargo.toml`
   - **Role:** Virtual workspace and shared metadata definition.
   - **Key functionality:**
-    - Defines the five-crate SoRLa workspace layout.
+    - Defines the main SoRLa workspace layout.
+    - Uses `default-members` so normal cargo commands stay self-contained while the provider-backed e2e crate remains opt-in.
     - Shares package metadata and common dependencies across crates.
   - **Key dependencies / integration points:** consumed by cargo metadata, CI, packaging, and publish workflows.
 
@@ -58,9 +69,12 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Role:** Language-facing AST and parser crate.
   - **Key functionality:**
     - Defines v0.2 package AST nodes for records, events, projections, migrations, provider requirements, and external references.
+    - Defines executable AST nodes for field `references`, migration `backfills`/`idempotence_key`, and agent endpoint `emits` plans.
+    - Defines agent endpoint AST nodes for inputs, outputs, risk, approval, backing references, visibility, provider requirements, examples, and operation emits.
     - Parses YAML-authored packages using parser-validated `source: native|external|hybrid`.
     - Applies additive v0.1 compatibility by defaulting omitted `source` to `native` and surfacing warnings.
     - Enforces field-level authority rules for hybrid records and requires `external_ref` for external/hybrid sources.
+    - Validates record/event/projection references, migration backfills, agent endpoint identity, duplicate inputs/outputs, risk/approval constraints, provider requirements, backing references, and `$input.<name>` emit payload templates.
 
 - Component: `crates/greentic-sorla-ir`
   - **Path:** `crates/greentic-sorla-ir`
@@ -68,6 +82,8 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Key functionality:**
     - Lowers parsed SoRLa packages into a deterministic, versioned IR.
     - Separates business records, events, projections, compatibility data, external sources, and provider contract requirements.
+    - Lowers field references, migration backfills/idempotence keys, and agent endpoint emits into canonical IR.
+    - Lowers agent endpoints into canonical IR and includes them in canonical hashes and agent-tool views.
     - Provides canonical CBOR serialization, inspectable JSON rendering, and hash derivation from canonical serialized form.
 
 - Component: `crates/greentic-sorla-pack`
@@ -78,7 +94,18 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
     - Exposes `HandoffManifest`, `scaffold_handoff_manifest`, and `build_handoff_artifacts_from_yaml` as the primary API while preserving `PackageManifest`, `scaffold_manifest`, and `build_artifacts_from_yaml` aliases.
     - Emits canonical `launcher-handoff.cbor` plus legacy-compatible `package-manifest.cbor`, along with split CBOR artifacts such as `model.cbor`, `events.cbor`, `projections.cbor`, `external-sources.cbor`, and `provider-contract.cbor`.
     - Produces inspectable JSON and `agent-tools.json` views for tests and downstream tooling.
+    - Emits agent endpoint handoff artifacts including `agent-gateway.json`, `agent-endpoints.ir.cbor`, OpenAPI overlay YAML, Arazzo workflows, `mcp-tools.json`, and `llms.txt.fragment`.
+    - Emits `executable-contract.json` with relationships, migrations, agent operation emits, and operation result/error schema keyed by the canonical IR hash.
   - **Key dependencies / integration points:** documented as producing source artifacts and handoff-oriented metadata rather than final packs or bundles.
+
+- Component: `crates/greentic-sorla-e2e`
+  - **Path:** `crates/greentic-sorla-e2e`
+  - **Role:** Opt-in, non-publishable end-to-end scenario harness.
+  - **Key functionality:**
+    - Validates the landlord/tenant SoR scenario from YAML fixtures through parser, IR, pack artifacts, FoundationDB provider events/projections, v1-to-v2 migration, and deterministic agent operations.
+    - Reads migration backfills and agent operation emits from canonical IR instead of duplicating those assumptions in the harness.
+    - Depends on the sibling `../greentic-sorla-providers` workspace for the FoundationDB provider.
+    - Is included in the workspace lockfile but excluded from `default-members` so normal local checks do not require the sibling provider repo.
 
 - Component: `crates/greentic-sorla-wizard`
   - **Path:** `crates/greentic-sorla-wizard`
@@ -96,8 +123,16 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
     - Runs `cargo fmt`, `cargo clippy`, `cargo test`, `cargo build`, `cargo doc`.
     - Validates required metadata for each publishable crate discovered via `cargo metadata`.
     - Runs `cargo package` and `cargo publish --dry-run` for each publishable crate.
-    - Optionally runs i18n `status`/`validate` checks when translator tool is available.
+    - Validates i18n JSON syntax.
+    - Runs i18n `status`/`validate` as advisory by default when translator tooling is available, and as strict failures when `I18N_STRICT=true`.
   - **Key dependencies / integration points:** used by CI/release jobs and local development.
+
+- Component: `xtask`
+  - **Path:** `xtask`
+  - **Role:** Repository task runner.
+  - **Key functionality:**
+    - Provides `cargo xtask e2e landlord-tenant --provider foundationdb [--smoke]`.
+    - Invokes the opt-in e2e crate through its manifest path so provider-backed tests are explicit.
 
 - Component: `.github/workflows/ci.yml`
   - **Path:** `.github/workflows/ci.yml`
@@ -125,6 +160,11 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Role:** nightly coverage gate.
   - **Key functionality:** installs needed tooling (via `cargo-binstall`), runs `greentic-dev coverage`, enforces `coverage-policy.json`.
 
+- Component: `.github/workflows/landlord-tenant-e2e.yml`
+  - **Path:** `.github/workflows/landlord-tenant-e2e.yml`
+  - **Role:** Manual/nightly provider-backed e2e workflow.
+  - **Key functionality:** checks out `greentic-sorla` and sibling `greentic-sorla-providers`, then runs `cargo xtask e2e landlord-tenant --provider foundationdb` with optional smoke mode.
+
 - Component: `benches/perf.rs`
   - **Path:** `crates/greentic-sorla-cli/benches/perf.rs`
   - **Role:** criterion benchmark harness.
@@ -148,12 +188,27 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
 - Component: `docs/spec/v0.2.md`
   - **Path:** `docs/spec/v0.2.md`
   - **Role:** SoRLa v0.2 language notes.
-  - **Key functionality:** documents `source`, `external_ref`, field-level authority for hybrid records, events, projections, provider requirements, and compatibility-oriented migrations.
+  - **Key functionality:** documents `source`, `external_ref`, field-level authority for hybrid records, events, projections, provider requirements, and compatibility-oriented migrations with executable backfills.
+
+- Component: `docs/spec/executable-contracts.md`
+  - **Path:** `docs/spec/executable-contracts.md`
+  - **Role:** Executable SoRLa contract documentation.
+  - **Key functionality:** documents field `references`, migration `backfills`/`idempotence_key`, agent endpoint `emits`, and the `greentic.sorla.executable-contract.v1` pack artifact.
 
 - Component: `docs/artifacts.md`
   - **Path:** `docs/artifacts.md`
   - **Role:** Artifact contract documentation.
-  - **Key functionality:** documents canonical ordering/hash rules and frames the current emitted artifact set as extension-friendly source artifacts rather than final packs/bundles.
+  - **Key functionality:** documents canonical ordering/hash rules, the current emitted artifact set, the executable contract artifact, and frames the current emitted artifact set as extension-friendly source artifacts rather than final packs/bundles.
+
+- Component: `docs/agent-endpoints.md`, `docs/agent-endpoint-handoff-contract.md`
+  - **Path:** `docs/`
+  - **Role:** Agent endpoint authoring and downstream handoff documentation.
+  - **Key functionality:** documents agent endpoint fields, safety metadata, exporter artifacts, and the `greentic-sorla`/`gtc`/provider ownership boundary.
+
+- Component: `docs/landlord-tenant-e2e.md`
+  - **Path:** `docs/landlord-tenant-e2e.md`
+  - **Role:** Provider-backed e2e scenario documentation.
+  - **Key functionality:** explains how to run the landlord/tenant FoundationDB scenario, what provider mode is tested, how schema migration is validated, and how deterministic agent operations are mapped.
 
 - Component: `docs/wizard.md`
   - **Path:** `docs/wizard.md`
@@ -180,6 +235,11 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Role:** Golden fixture coverage for PR-03.
   - **Key functionality:** fixture YAML and expected inspect JSON verify deterministic lowering and artifact generation.
 
+- Component: `tests/e2e/fixtures`
+  - **Path:** `tests/e2e/fixtures`
+  - **Role:** Real-world e2e fixture inputs.
+  - **Key functionality:** includes landlord/tenant v1 and v2 SoRLa schemas plus realistic seed data used by the FoundationDB provider e2e harness.
+
 - Component: `tools/i18n.sh`
   - **Path:** `tools/i18n.sh`
   - **Role:** repository i18n helper.
@@ -189,7 +249,7 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
 - Component: `i18n/en.json`, `i18n/locales.json`, `i18n/*.json`
   - **Path:** `i18n/`
   - **Role:** locale source and translations.
-  - **Key functionality:** English source includes a small live key set; all listed locales currently contain fallback English copies and are structurally complete.
+  - **Key functionality:** English source is canonical; all listed locale files are JSON-parseable, while translation completeness is tracked by advisory/strict i18n checks.
 
 - Component: `coverage-policy.json`
   - **Path:** `coverage-policy.json`
@@ -235,11 +295,19 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
 
 - Location: `crates/greentic-sorla-lang`
   - **Status:** implemented
-  - **Short description:** PR-02 landed concrete AST and parser support, but IR lowering and richer fixture coverage still belong to later milestones.
+  - **Short description:** PR-02 and PR-07/08 landed concrete AST, parser, and agent endpoint support.
 
 - Location: `crates/greentic-sorla-ir`, `crates/greentic-sorla-pack`
   - **Status:** implemented
-  - **Short description:** PR-03 landed deterministic lowering, artifact emission, canonical hashing, and golden fixture coverage.
+  - **Short description:** PR-03 and PR-07/08 landed deterministic lowering, artifact emission, canonical hashing, agent endpoint handoff artifacts, and golden fixture coverage.
+
+- Location: `crates/greentic-sorla-e2e`
+  - **Status:** implemented / opt-in
+  - **Short description:** PR-09 landlord/tenant scenario validates SoRLa fixtures, provider-backed event/projection behavior, migration idempotence, and deterministic agent operations through `cargo xtask e2e landlord-tenant --provider foundationdb`.
+
+- Location: `.codex/PR-10-executable-sorla-migrations-and-agent-ops.md`
+  - **Status:** planned
+  - **Short description:** follow-up PR needed because PR-09 still implements relationship validation, migration backfills, and agent operation dispatch in the e2e harness rather than as first-class SoRLa executable contracts.
 
 - Location: `i18n/*.json`
   - **Status:** partial
@@ -260,16 +328,20 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Likely cause / nature of issue:** coverage thresholds have not yet been tightened for meaningful enforcement.
 
 - Location: `local_check` i18n validation
-  - **Evidence:** i18n validate/status are skipped when `greentic-i18n-translator` is unavailable.
-  - **Likely cause / nature of issue:** optional tooling dependency is not mandatory in every local environment.
+  - **Evidence:** i18n validate/status are advisory unless `I18N_STRICT=true`; JSON syntax is still enforced.
+  - **Likely cause / nature of issue:** translation completeness requires external translation lifecycle work and should not block ordinary code checks by default.
 
 - Location: `crates/greentic-sorla-cli/src/lib.rs`
   - **Evidence:** interactive wizard mode currently covers the core create/update path, but not every optional list-style schema field such as provider hints or custom artifact lists.
   - **Likely cause / nature of issue:** the initial `greentic-qa-lib` integration is intentionally narrow so it can reuse the existing deterministic answers pipeline safely.
 
 - Location: milestone status vs implementation depth
-  - **Evidence:** PR-05 through PR-06 still have decision notes in `.codex/`, while PR-01 through PR-04 are implemented and verified in code today.
-  - **Likely cause / nature of issue:** roadmap intent was created before concrete code milestones were added to the repo state.
+  - **Evidence:** PR-01 through PR-09 now have implementation or verification artifacts in code/docs; PR-10 is a planned follow-up.
+  - **Likely cause / nature of issue:** roadmap intent is being tracked as `.codex/PR-*.md` briefs alongside implementation.
+
+- Location: `crates/greentic-sorla-e2e`
+  - **Evidence:** the scenario validates migrations and agent operations through harness logic instead of executable SoRLa migration/operation contracts.
+  - **Likely cause / nature of issue:** SoRLa currently describes migrations and agent endpoints as metadata, not as an executable operation-plan language.
 
 - Location: `crates/greentic-sorla-cli/src/lib.rs`, `crates/greentic-sorla-wizard/src/lib.rs`
   - **Evidence:** the wizard crate now reuses the CLI schema, but separate schema types still exist across the two crates.

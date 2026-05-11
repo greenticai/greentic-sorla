@@ -3,18 +3,99 @@ name: Release Binaries
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional vX.Y.Z tag to release when dispatching from a branch."
+        required: false
+        type: string
+  workflow_run:
+    workflows: ["Tag on Version Bump"]
+    types: [completed]
 
 permissions:
   contents: write
   packages: write
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  dispatch_tag_release:
+    name: Dispatch release on version tag
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref_type != 'tag')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Dispatch release workflow on tag ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          requested_tag="${{ github.event.inputs.tag || '' }}"
+          previous_version=""
+          version_changed="false"
+          if [[ -n "${requested_tag}" ]]; then
+            if [[ "${requested_tag}" == v* ]]; then
+              tag="${requested_tag}"
+            else
+              tag="v${requested_tag}"
+            fi
+          else
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)"
+            if [[ -z "${version}" ]]; then
+              echo "Could not read workspace package version from Cargo.toml." >&2
+              exit 1
+            fi
+            tag="v${version}"
+            if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+              previous_version="$(git show HEAD^:Cargo.toml | sed -n 's/^version = "\(.*\)"/\1/p' | head -n1 || true)"
+            fi
+            if [[ -n "${previous_version}" && "${version}" != "${previous_version}" ]]; then
+              version_changed="true"
+            fi
+            echo "Current version: ${version}; previous version: ${previous_version:-unknown}; version changed: ${version_changed}"
+          fi
+
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            if [[ "${{ github.event_name }}" == "workflow_run" && "${version_changed}" != "true" ]]; then
+              echo "No ${tag} tag exists for this push; skipping release dispatch."
+              exit 0
+            fi
+            echo "Expected release tag ${tag} was not found on origin." >&2
+            echo "Push the tag or rerun Tag on Version Bump before dispatching this workflow from a branch." >&2
+            exit 1
+          fi
+
+          git fetch --force --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}"
+          tag_sha="$(git rev-list -n1 "${tag}")"
+          expected_sha="${{ github.event.workflow_run.head_sha || github.sha }}"
+          if [[ "${{ github.event_name }}" == "workflow_run" && "${tag_sha}" != "${expected_sha}" ]]; then
+            if [[ "${version_changed}" != "true" ]]; then
+              echo "Tag ${tag} points at ${tag_sha}, but this push is ${expected_sha}; skipping release dispatch."
+              exit 0
+            fi
+            echo "Tag ${tag} points at ${tag_sha}, but this version bump push is ${expected_sha}." >&2
+            echo "The release tag must point at the version bump commit before binaries can be generated." >&2
+            exit 1
+          fi
+
+          gh workflow run release-binaries.yml --ref "${tag}"
+
   release:
+    if: github.ref_type == 'tag'
+    needs: [release_validation]
     uses: greenticai/.github/.github/workflows/release-binaries.yml@main
     with:
       package: greentic-sorla
@@ -22,14 +103,55 @@ jobs:
       extra-files: |
         README.md
         LICENSE
+        packs/sorla/landlord-tenant/landloard-tenant-sor.gtpack
     secrets: inherit
 
+  release_validation:
+    if: github.ref_type == 'tag'
+    name: Validate SORX metadata before release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Build validation-enabled fixture pack
+        run: |
+          set -euo pipefail
+          tmp_dir="$(mktemp -d -t greentic-sorla-release-validation.XXXXXX)"
+          pack_path="${tmp_dir}/landlord-tenant-sor.gtpack"
+
+          cargo run -p greentic-sorla -- pack schema validation >"${tmp_dir}/validation.schema.json"
+          cargo run -p greentic-sorla -- pack schema exposure-policy >"${tmp_dir}/exposure-policy.schema.json"
+          cargo run -p greentic-sorla -- pack schema compatibility >"${tmp_dir}/compatibility.schema.json"
+
+          jq -e '."$id" == "greentic.sorx.validation.v1"' "${tmp_dir}/validation.schema.json" >/dev/null
+          jq -e '."$id" == "greentic.sorx.exposure-policy.v1"' "${tmp_dir}/exposure-policy.schema.json" >/dev/null
+          jq -e '."$id" == "greentic.sorx.compatibility.v1"' "${tmp_dir}/compatibility.schema.json" >/dev/null
+
+          cargo run -p greentic-sorla -- pack tests/e2e/fixtures/landlord_sor_v1.yaml \
+            --name landlord-tenant-sor \
+            --version 0.1.0 \
+            --out "${pack_path}"
+          cargo run -p greentic-sorla -- pack doctor "${pack_path}"
+          cargo run -p greentic-sorla -- pack inspect "${pack_path}" >"${tmp_dir}/inspect.json"
+          cargo run -p greentic-sorla -- pack validation-inspect "${pack_path}" >"${tmp_dir}/validation-inspect.json"
+
+          jq -e '.assets | index("assets/sorx/tests/test-manifest.json")' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.assets | index("assets/sorx/exposure-policy.json")' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.assets | index("assets/sorx/compatibility.json")' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.validation.schema == "greentic.sorx.validation.v1"' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.exposure_policy.default_visibility != "public_candidate"' "${tmp_dir}/inspect.json" >/dev/null
+          jq -e '.compatibility.state_mode == "isolated_required"' "${tmp_dir}/validation-inspect.json" >/dev/null
+
   publish_crates:
+    if: github.ref_type == 'tag'
     name: Publish to crates.io
     needs: [release]
     permissions:
       contents: read
     uses: greenticai/.github/.github/workflows/crates-publish.yml@main
     with:
-      crates: "greentic-sorla"
+      crates: "greentic-sorla-lang greentic-sorla-ir greentic-sorla-pack greentic-sorla"
     secrets: inherit

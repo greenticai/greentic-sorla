@@ -1,0 +1,58 @@
+{
+  "schema": "greentic.agent-gateway.handoff.v1",
+  "package": {
+    "name": "website-lead-capture",
+    "version": "0.2.0",
+    "ir_version": "0.1",
+    "ir_hash": "__IR_HASH__"
+  },
+  "endpoints": [
+    {
+      "id": "create_customer_contact",
+      "title": "Create customer contact",
+      "intent": "Capture a customer enquiry and create or update the CRM contact.",
+      "risk": "medium",
+      "approval": "policy-driven",
+      "inputs": [
+        "company_name",
+        "company_size",
+        "email",
+        "problem_to_solve"
+      ],
+      "outputs": [
+        "contact_id"
+      ],
+      "side_effects": [
+        "crm.contact.upsert",
+        "event.ContactCaptured"
+      ],
+      "exports": {
+        "openapi": true,
+        "arazzo": true,
+        "mcp": true,
+        "llms_txt": true
+      }
+    }
+  ],
+  "provider_contract": {
+    "categories": [
+      {
+        "category": "crm",
+        "capabilities": [
+          "contacts.read",
+          "contacts.write"
+        ]
+      }
+    ]
+  },
+  "exports": {
+    "agent_gateway_json": true,
+    "openapi_overlay": true,
+    "arazzo": true,
+    "mcp_tools": true,
+    "llms_txt": true
+  },
+  "notes": [
+    "This is handoff metadata for downstream assembly, not final runtime gateway behavior."
+  ]
+}

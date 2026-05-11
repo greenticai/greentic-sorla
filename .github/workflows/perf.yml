@@ -17,4 +17,4 @@ jobs:
       - name: Run tests (including perf guards)
         run: cargo test --all --all-features
       - name: Run benchmarks (smoke)
-        run: cargo bench -p greentic-sorla-cli --bench perf -- --sample-size 10
+        run: cargo bench -p greentic-sorla --bench perf -- --sample-size 10

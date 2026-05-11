@@ -1,0 +1,49 @@
+name: Landlord Tenant E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider to use for the e2e scenario.
+        default: foundationdb
+        required: true
+      scenario:
+        description: E2E scenario to run.
+        default: landlord-tenant
+        required: true
+      smoke:
+        description: Run the smaller smoke scenario.
+        default: "false"
+        required: false
+  schedule:
+    - cron: "17 3 * * *"
+
+jobs:
+  landlord-tenant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout greentic-sorla
+        uses: actions/checkout@v5
+        with:
+          path: greentic-sorla
+
+      - name: Checkout greentic-sorla-providers
+        uses: actions/checkout@v5
+        with:
+          repository: greenticai/greentic-sorla-providers
+          path: greentic-sorla-providers
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run landlord tenant e2e
+        working-directory: greentic-sorla
+        run: |
+          smoke="${{ github.event.inputs.smoke || 'false' }}"
+          scenario="${{ github.event.inputs.scenario || 'landlord-tenant' }}"
+          provider="${{ github.event.inputs.provider || 'foundationdb' }}"
+          args=()
+          if [ "$smoke" = "true" ]; then
+            args+=(--smoke)
+          fi
+          cargo xtask e2e "$scenario" --provider "$provider" "${args[@]}"

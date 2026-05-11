@@ -1,0 +1,82 @@
+{
+  "landlords": [
+    {
+      "id": "landlord-1",
+      "full_name": "Maya Green",
+      "email": "maya.landlord@example.com"
+    }
+  ],
+  "properties": [
+    {
+      "id": "property-1",
+      "landlord_id": "landlord-1",
+      "address": "18 Station Road, Bristol"
+    }
+  ],
+  "units": [
+    {
+      "id": "unit-1a",
+      "property_id": "property-1",
+      "unit_number": "1A",
+      "rent_amount": 1150,
+      "status": "occupied"
+    },
+    {
+      "id": "unit-2b",
+      "property_id": "property-1",
+      "unit_number": "2B",
+      "rent_amount": 1250,
+      "status": "vacant"
+    }
+  ],
+  "tenants": [
+    {
+      "id": "tenant-alice",
+      "full_name": "Alice Morgan",
+      "email": "alice@example.com",
+      "phone": "+44 7700 900001"
+    },
+    {
+      "id": "tenant-omar",
+      "full_name": "Omar Patel",
+      "email": "omar@example.com",
+      "phone": "+44 7700 900002"
+    }
+  ],
+  "tenancies": [
+    {
+      "id": "tenancy-active-1",
+      "tenant_id": "tenant-alice",
+      "unit_id": "unit-1a",
+      "start_date": "2025-09-01",
+      "end_date": null,
+      "status": "active"
+    },
+    {
+      "id": "tenancy-previous-1",
+      "tenant_id": "tenant-omar",
+      "unit_id": "unit-2b",
+      "start_date": "2024-04-01",
+      "end_date": "2025-03-31",
+      "status": "ended"
+    }
+  ],
+  "payments": [
+    {
+      "id": "payment-1",
+      "tenancy_id": "tenancy-active-1",
+      "amount": 1150,
+      "paid_on": "2026-05-01",
+      "status": "paid"
+    }
+  ],
+  "maintenance_requests": [
+    {
+      "id": "maintenance-1",
+      "unit_id": "unit-1a",
+      "tenant_id": "tenant-alice",
+      "summary": "Kitchen tap leaking",
+      "status": "open"
+    }
+  ]
+}

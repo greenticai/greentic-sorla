@@ -75,11 +75,24 @@ those IDs as the deterministic control plane for create and update flows.
 - partial update documents
 - deterministic regeneration of wizard-owned content
 
+Schema `0.5` also supports rich domain declarations in answers documents. A
+create answer can provide concrete `records.items`, `actions`, `events.items`,
+`projections.items`, `provider_requirements`, `policies`, `approvals`,
+`migrations.items`, and typed `agent_endpoints.items`. When these sections are
+present, the generated `sorla.yaml` is rendered from the declared domain model
+instead of the older generic scaffold. Existing `0.4` minimal answers continue
+to work and still produce the scaffold shape.
+
 Interactive mode is intentionally just a frontend over that same model:
 
 - `greentic-sorla wizard` asks for the core answers interactively
 - collected answers are converted into an `AnswersDocument`
 - the normal `apply_answers` path performs validation and file generation
+
+Add `--pack-out <file.gtpack>` to either `wizard --answers <file>` or the
+interactive wizard to build a deterministic `.gtpack` from the generated
+`sorla.yaml` in the same run. The pack uses the resolved package name and
+version from the wizard answers.
 
 ## Generated Ownership
 
@@ -92,6 +105,7 @@ Interactive mode is intentionally just a frontend over that same model:
 - `.greentic-sorla/generated/provider-requirements.json`
 - `.greentic-sorla/generated/locale-manifest.json`
 - selected generated artifacts under `.greentic-sorla/generated/`
+- the requested `.gtpack` when `--pack-out` is supplied
 
 The package source file uses explicit generated block markers. Updates replace
 only the generated block and preserve user-authored content outside it.
@@ -124,3 +138,5 @@ Sample answer documents live in:
 
 - `crates/greentic-sorla-cli/examples/answers/create_minimal.json`
 - `crates/greentic-sorla-cli/examples/answers/update_minimal.json`
+- `crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json`
+- `examples/landlord-tenant/answers.json`

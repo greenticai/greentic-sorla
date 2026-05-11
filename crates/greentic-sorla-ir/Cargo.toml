@@ -13,18 +13,9 @@ description = "Canonical IR scaffolding for Greentic SoRLa."
 readme = "README.md"
 publish = false
 
-[dependencies.ciborium]
-workspace = true
-
-[dependencies.greentic-sorla-lang]
-version = ">=1.1.0-dev, <1.2.0-0"
-path = "../greentic-sorla-lang"
-
-[dependencies.serde]
-workspace = true
-
-[dependencies.serde_json]
-workspace = true
-
-[dependencies.sha2]
-workspace = true
+[dependencies]
+ciborium.workspace = true
+greentic-sorla-lang.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

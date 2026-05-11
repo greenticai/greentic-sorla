@@ -1,0 +1,184 @@
+{
+  "ir_version": {
+    "major": 0,
+    "minor": 1
+  },
+  "package": {
+    "name": "website-lead-capture",
+    "version": "0.2.0"
+  },
+  "records": [
+    {
+      "name": "Contact",
+      "source": "hybrid",
+      "fields": [
+        {
+          "name": "company_size",
+          "type_name": "string",
+          "authority": "local"
+        },
+        {
+          "name": "contact_persona",
+          "type_name": "string",
+          "authority": "external"
+        },
+        {
+          "name": "email",
+          "type_name": "string",
+          "authority": "external"
+        },
+        {
+          "name": "problem_to_solve",
+          "type_name": "string",
+          "authority": "local"
+        }
+      ],
+      "external_source": "hubspot"
+    }
+  ],
+  "events": [
+    {
+      "name": "ContactCaptured",
+      "record": "Contact",
+      "kind": "integration",
+      "emits": [
+        {
+          "name": "contact_persona",
+          "type_name": "string"
+        },
+        {
+          "name": "email",
+          "type_name": "string"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "name": "SendConfirmation"
+    },
+    {
+      "name": "UpsertContact"
+    }
+  ],
+  "policies": [
+    {
+      "name": "CustomerContactPolicy"
+    }
+  ],
+  "approvals": [
+    {
+      "name": "ReviewHighRiskContact"
+    }
+  ],
+  "views": [],
+  "flows": [],
+  "projections": [],
+  "external_sources": [
+    {
+      "record": "Contact",
+      "system": "hubspot",
+      "key": "email",
+      "authoritative": true
+    }
+  ],
+  "compatibility": [],
+  "provider_contract": {
+    "categories": []
+  },
+  "agent_endpoints": [
+    {
+      "id": "create_customer_contact",
+      "title": "Create customer contact",
+      "intent": "Capture a customer enquiry and create or update the CRM contact.",
+      "inputs": [
+        {
+          "name": "company_name",
+          "type_name": "string",
+          "required": true,
+          "enum_values": [],
+          "sensitive": false
+        },
+        {
+          "name": "company_size",
+          "type_name": "string",
+          "required": false,
+          "enum_values": [],
+          "sensitive": false
+        },
+        {
+          "name": "email",
+          "type_name": "string",
+          "required": true,
+          "enum_values": [],
+          "sensitive": true
+        },
+        {
+          "name": "problem_to_solve",
+          "type_name": "string",
+          "required": true,
+          "enum_values": [],
+          "sensitive": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "contact_id",
+          "type_name": "string"
+        }
+      ],
+      "side_effects": [
+        "crm.contact.upsert",
+        "event.ContactCaptured"
+      ],
+      "risk": "medium",
+      "approval": "policy-driven",
+      "provider_requirements": [
+        {
+          "category": "crm",
+          "capabilities": [
+            "contacts.read",
+            "contacts.write"
+          ]
+        }
+      ],
+      "backing": {
+        "actions": [
+          "SendConfirmation",
+          "UpsertContact"
+        ],
+        "events": [
+          "ContactCaptured"
+        ],
+        "flows": [],
+        "policies": [
+          "CustomerContactPolicy"
+        ],
+        "approvals": [
+          "ReviewHighRiskContact"
+        ]
+      },
+      "agent_visibility": {
+        "openapi": true,
+        "arazzo": true,
+        "mcp": true,
+        "llms_txt": true
+      },
+      "examples": [
+        {
+          "name": "customer-lead",
+          "summary": "Capture an inbound website lead.",
+          "input": {
+            "company_name": "Example Co",
+            "company_size": "enterprise",
+            "email": "buyer@example.com",
+            "problem_to_solve": "Improve qualification speed"
+          },
+          "expected_output": {
+            "contact_id": "contact-123"
+          }
+        }
+      ]
+    }
+  ]
+}
