@@ -11,6 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 description = "Package and artifact scaffolding for Greentic SoRLa."
 readme = "README.md"
+publish = false
 
 [dependencies]
 ciborium.workspace = true
