@@ -25,6 +25,7 @@ jobs:
       - name: Install required binaries
         run: |
           cargo binstall -y --force cargo-llvm-cov
+          cargo binstall -y --force cargo-nextest
           cargo binstall -y --force greentic-dev
 
       - uses: Swatinem/rust-cache@v2
