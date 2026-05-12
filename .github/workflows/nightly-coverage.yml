@@ -16,10 +16,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.95.0
-        with:
-          toolchain: 1.95.0
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-binstall
         uses: taiki-e/install-action@v2
@@ -28,8 +24,10 @@ jobs:
 
       - name: Install required binaries
         run: |
-          cargo binstall -y cargo-llvm-cov
-          cargo binstall -y greentic-dev
+          cargo binstall -y --force cargo-llvm-cov
+          cargo binstall -y --force greentic-dev
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Run coverage and enforce policy
         run: |
