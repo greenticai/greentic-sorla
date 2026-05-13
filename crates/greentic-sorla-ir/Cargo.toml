@@ -11,7 +11,6 @@ keywords.workspace = true
 categories.workspace = true
 description = "Canonical IR scaffolding for Greentic SoRLa."
 readme = "README.md"
-publish = false
 
 [dependencies]
 ciborium.workspace = true
