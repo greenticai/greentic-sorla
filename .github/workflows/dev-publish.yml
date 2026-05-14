@@ -37,7 +37,7 @@ jobs:
     uses: greenticai/.github/.github/workflows/dev-publish.yml@main
     with:
       version: ${{ needs.dev-prepare.outputs.version }}
-      crates: "greentic-sorla"
+      crates: "greentic-sorla-lang greentic-sorla-ir greentic-sorla-pack greentic-sorla"
       binary-version: ${{ needs.dev-prepare.outputs.binary-version }}
       binary-crates: "greentic-sorla"
       dual-role-binary-crates: "greentic-sorla"
