@@ -17,6 +17,28 @@
 | PR-07a | Extension-first architecture docs | implemented | Repo docs and Codex guidance now describe `greentic-sorla` as a `gtc` extension-layer product and delegate final assembly ownership to `gtc`. |
 | PR-08a | Extension handoff refactor | implemented | CLI-generated manifests now declare themselves as `gtc` launcher-handoff metadata, and `greentic-sorla-pack` now exposes handoff-first APIs while keeping legacy compatibility aliases. |
 | PR-09a | Naming migration | implemented | `handoff` is now the canonical integration term, source-authoring `package` language remains stable, and canonical launcher-handoff aliases are written alongside legacy package-manifest names. |
+| Ontology PR-01 | Generic ontology authoring model | verified | Optional `ontology` authoring, static validation, canonical IR lowering, wizard answers/schema support, docs, and landlord/tenant example coverage are implemented. |
+| Ontology PR-02 | Deterministic ontology gtpack artifacts | verified | Ontology-enabled packs now emit graph JSON, canonical ontology IR CBOR, schema JSON, manifest extension metadata, inspect summaries, validation-inspect summaries, and doctor tamper checks. |
+| Ontology PR-03 | Semantic aliases and entity linking | verified | Optional `semantic_aliases` and `entity_linking` declarations now validate against ontology concepts/relationships, lower deterministically into ontology IR/graph artifacts, and render from wizard answers. |
+| Ontology PR-04 | Generic retrieval bindings | verified | Optional `retrieval_bindings` declarations now validate ontology-scoped evidence provider requirements and traversal filters, lower into canonical IR, emit JSON/CBOR pack assets, and inspect/doctor cleanly. |
+| Ontology PR-05 | Production ontology validation suite | verified | SORX validation manifests now include deterministic ontology/retrieval validation suites, promotion gating for exported packs, provider compatibility checks for retrieval providers, and schema rejection of obsolete suite-level fields. |
+| Ontology PR-06 | Deterministic ontology handoff scenario | verified | Added the provider-agnostic `examples/ontology-business` answers fixture, retrieval-binding answers support, deterministic pack round-trip test, smoke script, and scenario docs. |
+| Ontology PR-07 | Production ontology hardening and compatibility | verified | Added ontology/retrieval schema commands, expanded local checks with schema and ontology smoke coverage, and documented production readiness, security, and compatibility rules. |
+| Designer PR-08 | Split CLI from reusable libraries | implemented | Reusable authoring/facade boundaries now exist without duplicating the existing lang/IR/pack crates. |
+| Designer PR-09 | Publish stable Sorla library API | implemented | `greentic-sorla-lib` exposes deterministic library APIs for Designer/tooling reuse. |
+| Designer PR-10 | WASM-friendly library profile | implemented | The facade is structured for the Designer extension profile with guarded WASM compatibility checks. |
+| Designer PR-11 | Sorla Designer extension crate | implemented | `greentic-sorla-designer-extension` provides the current deterministic JSON adapter boundary. |
+| Designer PR-12 | Designer prompting and knowledge | implemented | Designer prompting and knowledge helpers now reuse the public facade model shape and credential hygiene checks. |
+| Designer PR-13 | Designer `.gtpack` artifact output | implemented | The extension can return deterministic `.gtpack` compatibility output while documenting unsupported WASM ZIP emission boundaries. |
+| Designer PR-14 | Overall Designer prompt to Sorla `.gtpack` e2e | implemented | The final e2e harness covers the SoRLa-local prompt-to-pack flow and keeps Sorx/Designer validation as documented cross-repo/manual coverage. |
+| Designer PR-15 | Designer node types from SoRLa agent endpoints | implemented | Packs now emit `assets/sorla/designer-node-types.json`, expose inspect summaries, and doctor-check node types against canonical agent endpoints and contract hashes. |
+| Designer PR-16 | Designer extension node type contributions | implemented | The Designer extension now lists generated endpoint node types and can produce locked generic flow-node JSON from a selected node type. |
+| Designer PR-17 | SoRLa-local Designer node type e2e | implemented | Added focused e2e coverage for the SoRLa-owned node-type-to-locked-endpoint-ref path without cross-repo runtime dependencies. |
+| Designer PR-18 | Designer node type security hardening | implemented | Doctor and extension tests now harden generated locked endpoint metadata, required mappings, and free-text runtime selection boundaries. |
+| Designer PR-19 | Agent endpoint action catalog view | implemented | Packs now emit a deterministic design-time `agent-endpoint-action-catalog.json` view derived from canonical agent endpoints. |
+| Designer PR-20 | Endpoint contract hash and lock hardening | implemented | Designer node type and action catalog endpoint refs now enforce canonical `sha256:<64 lowercase hex>` hashes and pack lock coverage. |
+| Designer PR-21 | Designer node type metadata polish | implemented | Node type generation now includes stable field labels, widgets, optional aliases, and search context while preserving v1 compatibility. |
+| Designer PR-22 | Designer extension locked endpoint node UX | implemented | The extension can resolve node types by exact ID, endpoint ID, or label, emits richer locked metadata, and returns selection diagnostics. |
 
 ## 1. High-Level Purpose
 
@@ -40,6 +62,22 @@ PR-08 now carries that boundary into implementation: generated manifest JSON exp
 
 PR-09 standardizes naming around that boundary: SoRLa source authoring still uses `package`, but extension-integration outputs now use `handoff` as the canonical term, with migration aliases and documentation kept in place for compatibility.
 
+Ontology PR-01 adds a first-class provider-agnostic ontology authoring model. SoRLa now validates ontology concepts, relationships, inheritance, record/field backing, sensitivity markers, policy hooks, and provider requirement hints, then lowers the model into deterministic canonical IR while keeping existing record-first workflows compatible.
+
+Ontology PR-02 carries that model through the existing `.gtpack` compatibility path. Ontology-enabled packs now include deterministic `assets/sorla/ontology.graph.json`, `assets/sorla/ontology.ir.cbor`, and `assets/sorla/ontology.schema.json` assets discovered through `pack.cbor` extension metadata, with doctor/inspect coverage but no new final bundle assembly ownership.
+
+Ontology PR-03 adds optional semantic aliases and entity-linking declarations. Aliases normalize by trimming, whitespace collapsing, and lowercase conversion; duplicate aliases for the same target are de-duplicated with warnings while cross-target collisions are rejected. Entity-linking strategies validate target concepts, backed record fields, URL-safe strategy IDs, sensitivity, and confidence bounds, then flow into ontology IR and graph handoff artifacts.
+
+Ontology PR-04 adds optional retrieval bindings for ontology-scoped evidence. Retrieval providers reuse abstract provider categories/capabilities, scopes validate ontology concepts/relationships and traversal depth, and pack output includes deterministic `retrieval-bindings.json` plus canonical `retrieval-bindings.ir.cbor` when bindings are present.
+
+Ontology PR-05 extends the embedded SORX validation contract. Ontology-enabled exported packs now carry a required `ontology` promotion suite, retrieval-enabled exported packs carry a required `retrieval` suite, private-only ontology packs keep ontology checks optional, and retrieval provider requirements are folded into existing provider-capability validation metadata without executing providers in this repo.
+
+Ontology PR-06 adds a deterministic business-domain handoff scenario. The example answers generate ontology, semantic aliases, entity-linking, retrieval bindings, agent endpoints, validation metadata, doctor/inspect summaries, and byte-identical `.gtpack` output across repeated temp-directory runs.
+
+Ontology PR-07 hardens that surface for production use. The CLI can emit SoRLa-owned ontology and retrieval binding schemas, local checks now verify those schema commands and the ontology handoff smoke, and docs capture compatibility, security, determinism, and extension-first ownership boundaries.
+
+Designer PR-08 through PR-22 added the reusable library APIs, stable facade, WASM-friendly profile, Designer extension adapter crate, prompting/knowledge helpers, deterministic `.gtpack` compatibility output, prompt-to-pack e2e coverage, generated Designer node type metadata from SoRLa agent endpoints, extension tools that turn those node types into locked generic flow-node JSON, a SoRLa-local node-type-to-locked-endpoint e2e, security hardening of the generated metadata path, a deterministic agent-endpoint action catalog view, endpoint hash/lock hardening, node metadata polish, and extension UX improvements. The line builds on existing agent endpoint, executable contract, and Designer adapter boundaries rather than assuming a separate Business Action Catalog or vendored Designer SDK/WIT, preserving current crate boundaries and the extension-first ownership rule.
+
 ## 2. Main Components and Functionality
 
 - Component: workspace root
@@ -60,6 +98,9 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
     - Emits a deterministic create/update wizard schema with stable section/question IDs, defaults, visibility rules, and artifact preferences.
     - Runs an interactive `greentic-qa-lib` frontend when `wizard` is invoked without `--answers`, then converts those answers into the existing `AnswersDocument` flow.
     - Validates answers documents, resolves create/update defaults including locale fallback, writes `sorla.yaml` with generated-region ownership boundaries, and syncs wizard-owned generated artifacts under `.greentic-sorla/generated/`.
+    - Accepts optional ontology answers and renders them into generated SoRLa YAML while preserving old answer files.
+    - Accepts optional retrieval binding answers and renders them into generated SoRLa YAML alongside ontology, semantic aliases, and entity-linking sections.
+    - Exposes `pack schema ontology` and `pack schema retrieval-bindings` for SoRLa-owned schema inspection alongside the SORX validation/exposure/compatibility schema commands.
     - Generates canonical `launcher-handoff.json` plus legacy-compatible `package-manifest.json`, alongside provider and locale handoff metadata, so extension naming can migrate without breaking existing consumers.
     - Includes placeholder perf/concurrency harness files.
   - **Key dependencies / integration points:** intentionally stays self-contained for schema emission so the publishable CLI package can still pass crates.io dry-run checks; production composition is documented in terms of `gtc` extension launch and handoff.
@@ -69,18 +110,27 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Role:** Language-facing AST and parser crate.
   - **Key functionality:**
     - Defines v0.2 package AST nodes for records, events, projections, migrations, provider requirements, and external references.
+    - Defines optional ontology AST nodes for concepts, relationships, cardinality, constraints, sensitivity, policy hooks, and provider requirement hints.
+    - Defines optional semantic alias and entity-linking AST nodes that map user/document/provider language to ontology concepts without provider credentials or runtime matching.
+    - Defines optional retrieval binding AST nodes for abstract evidence providers, ontology scopes, entity-scope filters, traversal rules, and retrieval permission modes.
     - Defines executable AST nodes for field `references`, migration `backfills`/`idempotence_key`, and agent endpoint `emits` plans.
     - Defines agent endpoint AST nodes for inputs, outputs, risk, approval, backing references, visibility, provider requirements, examples, and operation emits.
     - Parses YAML-authored packages using parser-validated `source: native|external|hybrid`.
     - Applies additive v0.1 compatibility by defaulting omitted `source` to `native` and surfacing warnings.
     - Enforces field-level authority rules for hybrid records and requires `external_ref` for external/hybrid sources.
     - Validates record/event/projection references, migration backfills, agent endpoint identity, duplicate inputs/outputs, risk/approval constraints, provider requirements, backing references, and `$input.<name>` emit payload templates.
+    - Validates ontology schema version, unique URL-safe IDs, concept references, acyclic inheritance, backing records/fields, and unknown-field rejection.
+    - Validates semantic aliases, deterministic alias normalization/collision behavior, entity-linking strategy IDs, confidence bounds, and backing-record target fields.
+    - Validates retrieval binding schema, provider IDs/capabilities, scope/provider references, ontology target references, traversal directions, and bounded traversal depths.
 
 - Component: `crates/greentic-sorla-ir`
   - **Path:** `crates/greentic-sorla-ir`
   - **Role:** Canonical IR and lowering crate.
   - **Key functionality:**
     - Lowers parsed SoRLa packages into a deterministic, versioned IR.
+    - Lowers optional ontology metadata into deterministic canonical IR with sorted concepts, relationships, constraints, provider requirements, and inheritance parents.
+    - Lowers semantic aliases and entity-linking strategies into the ontology IR with normalized sorted aliases and sorted strategy IDs.
+    - Lowers retrieval bindings into canonical IR with sorted providers, capabilities, scopes, and traversal rules.
     - Separates business records, events, projections, compatibility data, external sources, and provider contract requirements.
     - Lowers field references, migration backfills/idempotence keys, and agent endpoint emits into canonical IR.
     - Lowers agent endpoints into canonical IR and includes them in canonical hashes and agent-tool views.
@@ -96,6 +146,14 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
     - Produces inspectable JSON and `agent-tools.json` views for tests and downstream tooling.
     - Emits agent endpoint handoff artifacts including `agent-gateway.json`, `agent-endpoints.ir.cbor`, OpenAPI overlay YAML, Arazzo workflows, `mcp-tools.json`, and `llms.txt.fragment`.
     - Emits `executable-contract.json` with relationships, migrations, agent operation emits, and operation result/error schema keyed by the canonical IR hash.
+    - Emits optional ontology handoff artifacts into `.gtpack` archives: deterministic graph JSON, canonical ontology IR CBOR, and JSON schema assets referenced by `greentic.sorla.ontology.v1` extension metadata.
+    - Emits optional retrieval binding handoff artifacts into `.gtpack` archives: `retrieval-bindings.json` and `retrieval-bindings.ir.cbor`, referenced by `greentic.sorla.retrieval-bindings.v1` extension metadata.
+    - Exposes deterministic JSON schema helpers for ontology and retrieval binding metadata.
+    - Generates deterministic SORX validation suites for ontology static checks, ontology relationships, semantic aliases, entity-linking declarations, retrieval bindings, provider capabilities, and security policy gates.
+    - Requires ontology/retrieval validation suites for exported packs via `promotion_requires`, while allowing private-only ontology suites to remain optional metadata.
+    - Validates ontology pack integrity in `pack doctor`, including manifest paths, lock coverage, IR hash matching, graph/IR consistency, aliases, entity-linking strategies, backing record/field references, and secret scanning.
+    - Validates retrieval binding pack integrity in `pack doctor`, including manifest paths, lock coverage, and JSON/CBOR/model consistency.
+    - Rejects obsolete suite-level validation fields such as `kind` and `required_for_public_exposure`; test kind remains a per-test field.
   - **Key dependencies / integration points:** documented as producing source artifacts and handoff-oriented metadata rather than final packs or bundles.
 
 - Component: `crates/greentic-sorla-e2e`
@@ -125,6 +183,8 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
     - Runs `cargo package` and `cargo publish --dry-run` for each publishable crate.
     - Validates i18n JSON syntax.
     - Runs i18n `status`/`validate` as advisory by default when translator tooling is available, and as strict failures when `I18N_STRICT=true`.
+    - Runs schema command checks for validation, exposure policy, compatibility, ontology, and retrieval bindings.
+    - Runs the ontology handoff smoke scenario to verify deterministic ontology-business pack generation, doctor, inspect, validation-inspect, and credential/path hygiene.
   - **Key dependencies / integration points:** used by CI/release jobs and local development.
 
 - Component: `xtask`
@@ -179,6 +239,41 @@ PR-09 standardizes naming around that boundary: SoRLa source authoring still use
   - **Path:** `crates/greentic-sorla-cli/tests/perf_timeout.rs`
   - **Role:** timing guardrail test.
   - **Key functionality:** placeholder timeout workload targets wizard schema generation.
+
+- Component: `docs/ontology.md`
+  - **Path:** `docs/ontology.md`
+  - **Role:** Ontology authoring documentation.
+  - **Key functionality:** documents the optional provider-agnostic ontology model, validation rules, semantic aliases, entity-linking declarations, wizard answer support, deterministic `.gtpack` ontology artifacts, SORX validation metadata, and the runtime boundary that leaves graph traversal/provider execution downstream.
+
+- Component: `docs/entity-linking.md`
+  - **Path:** `docs/entity-linking.md`
+  - **Role:** Semantic alias and entity-linking documentation.
+  - **Key functionality:** documents alias normalization/collision rules, entity-linking strategy validation, confidence/sensitivity handling, and the provider-agnostic downstream handoff boundary.
+
+- Component: `docs/retrieval-bindings.md`
+  - **Path:** `docs/retrieval-bindings.md`
+  - **Role:** Retrieval binding documentation.
+  - **Key functionality:** documents ontology-scoped evidence provider declarations, traversal filters, validation rules, pack assets, and the no-runtime-execution boundary.
+
+- Component: `examples/ontology-business`
+  - **Path:** `examples/ontology-business/answers.json`
+  - **Role:** Deterministic ontology handoff scenario fixture.
+  - **Key functionality:** exercises rich wizard answers for generic business ontology concepts, semantic aliases, entity-linking, retrieval bindings, actions, events, projections, provider requirements, policies, approvals, migrations, and agent endpoints without external services or concrete provider credentials.
+
+- Component: `scripts/e2e/ontology-handoff-smoke.sh`
+  - **Path:** `scripts/e2e/ontology-handoff-smoke.sh`
+  - **Role:** Local deterministic ontology handoff smoke test.
+  - **Key functionality:** generates the ontology business pack twice in temporary directories, checks byte-identical output, runs doctor/inspect/validation-inspect, verifies ontology/retrieval summaries, and scans generated handoff metadata for path/credential leakage.
+
+- Component: `docs/ontology-handoff-scenario.md`
+  - **Path:** `docs/ontology-handoff-scenario.md`
+  - **Role:** Scenario documentation.
+  - **Key functionality:** documents the SoRLa-owned ontology handoff scenario, one-command smoke path, and downstream Sorx/`gtc` runtime boundary.
+
+- Component: `docs/ontology-production-readiness.md`, `docs/ontology-security.md`, `docs/ontology-compatibility.md`
+  - **Path:** `docs/`
+  - **Role:** Production ontology hardening documentation.
+  - **Key functionality:** documents schema versioning, determinism gates, static security checks, compatibility behavior, and the boundary that keeps runtime execution in downstream Sorx/`gtc`/provider systems.
 
 - Component: `docs/architecture.md`, `docs/product-shape.md`, `docs/extensions-with-gtc.md`
   - **Path:** `docs/`

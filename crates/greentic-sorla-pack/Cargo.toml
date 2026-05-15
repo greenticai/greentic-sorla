@@ -12,6 +12,10 @@ categories.workspace = true
 description = "Package and artifact scaffolding for Greentic SoRLa."
 readme = "README.md"
 
+[features]
+default = ["pack-zip"]
+pack-zip = ["dep:zip"]
+
 [dependencies]
 ciborium.workspace = true
 greentic-sorla-lang.workspace = true
@@ -21,7 +25,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
 sha2.workspace = true
-zip = "8.6"
+zip = { version = "8.6", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

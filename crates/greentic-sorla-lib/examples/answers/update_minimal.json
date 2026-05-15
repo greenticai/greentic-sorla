@@ -1,0 +1,12 @@
+{
+  "schema_version": "0.4",
+  "flow": "update",
+  "output_dir": "./demo-package",
+  "projections": {
+    "mode": "audit-trail"
+  },
+  "output": {
+    "include_agent_tools": false,
+    "artifacts": ["model.cbor", "events.cbor"]
+  }
+}

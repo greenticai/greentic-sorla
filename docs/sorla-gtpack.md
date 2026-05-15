@@ -14,6 +14,16 @@ greentic-sorla wizard --answers examples/landlord-tenant/answers.json \
 The wizard uses the generated package name and version as the pack identity. It
 does not depend on repository test fixtures.
 
+The CLI delegates pack generation, doctor, and inspect behavior through the
+reusable SoRLa library/pack crates. Designer extensions and tests should use
+those library APIs directly when they need deterministic artifact output without
+spawning the binary.
+
+The Sorla Designer extension exposes a `generate_gtpack` tool. In WASM builds it
+returns deterministic pack-entry metadata and a diagnostic asking the host to
+perform native ZIP packaging. Native tooling can still call
+`greentic-sorla-lib::build_gtpack_bytes` to produce `.gtpack` bytes directly.
+
 This repository includes a starter answer document at
 `examples/landlord-tenant/answers.json`. It is a schema `0.5` rich answer
 document with concrete landlord/tenant records, events, projections, actions,
@@ -38,6 +48,8 @@ greentic-sorla pack doctor examples/landlord-tenant/landlord-tenant-sor.gtpack
 greentic-sorla pack inspect examples/landlord-tenant/landlord-tenant-sor.gtpack
 greentic-sorla pack validation-inspect examples/landlord-tenant/landlord-tenant-sor.gtpack
 greentic-sorla pack schema validation
+greentic-sorla pack schema ontology
+greentic-sorla pack schema retrieval-bindings
 ```
 
 ## Contract Boundary
@@ -86,14 +98,72 @@ Agent endpoint exports are included when endpoint visibility enables them:
 - `assets/sorla/agent-workflows.arazzo.yaml`
 - `assets/sorla/mcp-tools.json`
 - `assets/sorla/llms.txt.fragment`
+- `assets/sorla/designer-node-types.json`
+- `assets/sorla/agent-endpoint-action-catalog.json`
 
 The landlord/tenant pack example enables the full set.
+
+`designer-node-types.json` uses the
+`greentic.sorla.designer-node-types.v1` schema. It derives node labels, input
+schemas, output schemas, safety metadata, backing references, and locked
+`endpoint_ref` values from canonical SoRLa agent endpoints. Pack doctor verifies
+that every node type points at a known endpoint, that its contract hash matches
+the canonical IR, that the component binding uses the expected operation, and
+that the asset is covered by `pack.lock.cbor`.
+
+`agent-endpoint-action-catalog.json` uses the
+`greentic.sorla.agent-endpoint-action-catalog.v1` schema. It is a design-time
+catalog view over canonical agent endpoints, not a second runtime action source
+of truth. Pack doctor verifies the schema, package metadata, endpoint IDs,
+`sha256:<64 lowercase hex chars>` contract hash format, canonical hash
+consistency, required input schema coverage, and `pack.lock.cbor` coverage.
+
+When the source package declares `ontology:
+greentic.sorla.ontology.v1`, the pack also includes deterministic ontology
+handoff assets:
+
+- `assets/sorla/ontology.graph.json`
+- `assets/sorla/ontology.ir.cbor`
+- `assets/sorla/ontology.schema.json`
+
+These files are source material for downstream Sorx, `gtc`, retrieval,
+OpenAPI/MCP enrichment, and bundle assembly. They do not make
+`greentic-sorla` responsible for graph traversal, provider binding, runtime
+authorization, or final bundle ownership.
+
+When the source package declares `retrieval_bindings:
+greentic.sorla.retrieval-bindings.v1`, the pack also includes:
+
+- `assets/sorla/retrieval-bindings.json`
+- `assets/sorla/retrieval-bindings.ir.cbor`
+
+These describe ontology-scoped evidence provider requirements and traversal
+filters as handoff metadata only.
 
 ## Sorx Extension
 
 `pack.cbor` declares the Sorx-compatible extension
 `greentic.sorx.runtime.v1`. The extension references SoRLa assets and Sorx
 startup assets by relative paths inside the pack.
+
+Ontology-enabled packs declare `greentic.sorla.ontology.v1` under the Sorx
+extension's SoRLa metadata and point to the ontology graph JSON, canonical
+ontology IR CBOR, and JSON schema assets. Consumers should use those manifest
+paths instead of guessing filenames.
+
+Retrieval-enabled packs similarly declare `greentic.sorla.retrieval-bindings.v1`
+under SoRLa extension metadata and point to the JSON and canonical CBOR
+retrieval binding assets.
+
+Packs with agent endpoints also declare
+`greentic.sorla.designer-node-types.v1` under SoRLa extension metadata and point
+to `assets/sorla/designer-node-types.json`. Consumers should read this manifest
+path instead of guessing the filename.
+
+The same SoRLa extension metadata declares
+`greentic.sorla.agent-endpoint-action-catalog.v1` and points to
+`assets/sorla/agent-endpoint-action-catalog.json` when agent endpoints are
+present.
 
 Startup assets ask for runtime/environment-specific values only, such as tenant
 ID, bind addresses, provider kind/config reference, approval policy, and audit
@@ -125,8 +195,17 @@ Validation-enabled packs carry a deterministic validation manifest at
 The validation manifest describes suites that downstream SORX tooling can
 execute before promoting a deployed pack version. The metadata may cover static
 handoff checks, agent endpoint contracts, provider capability requirements,
-security policy checks, tenant isolation checks, and migration compatibility
-checks.
+security policy checks, ontology metadata checks, retrieval binding checks,
+tenant isolation checks, and migration compatibility checks.
+
+When ontology assets are present, exported packs include a required `ontology`
+suite in `promotion_requires`. Private-only packs may include the same ontology
+suite as optional metadata for downstream tooling. Retrieval-enabled exported
+packs likewise include a required `retrieval` suite, and retrieval provider
+requirements are folded into the existing `provider-capability` validation
+suite. The validation manifest remains metadata only: it declares checks for
+downstream SORX and does not execute traversal, retrieval, provider calls, or
+public exposure inside SoRLa.
 
 `greentic-sorla` owns deterministic metadata generation, pack inclusion, and
 static doctor/inspect checks for validation and exposure metadata. It does not
@@ -168,7 +247,19 @@ lock writer should be replaced with that API.
 references are present, `model.cbor` parses, endpoint handoff metadata references
 known endpoints, MCP tools reference known endpoints, startup schema includes the
 required runtime answer paths, lock metadata matches archive contents, and common
-secret markers are absent.
+secret markers are absent. It also validates the embedded SORX validation
+manifest shape, including the ontology/retrieval test kind vocabulary and the
+absence of obsolete suite-level fields such as `kind` or
+`required_for_public_exposure`.
+
+For ontology-enabled packs, doctor also checks that manifest paths are relative
+archive asset paths, ontology files exist, lock metadata covers them, graph and
+IR hashes match, graph concepts/relationships/constraints match the canonical
+ontology IR, and referenced backing records and fields exist in `model.cbor`.
+
+For retrieval-enabled packs, doctor checks that retrieval binding assets exist,
+are covered by lock metadata, and match the canonical retrieval binding IR in
+`model.cbor`.
 
 `greentic-sorx` can later consume this pack as an application/runtime input and
 perform provider resolution, server startup, MCP exposure, policy enforcement,
@@ -177,3 +268,9 @@ and bundle assembly outside this repository.
 For GHCR publish events, concurrent version deployment, public exposure gates,
 certification reports, and alias promotion expectations, see
 `docs/sorx-deployment-handoff.md`.
+
+For a local deterministic ontology-enabled handoff scenario, see
+`docs/ontology-handoff-scenario.md`.
+
+For production hardening notes, see `docs/ontology-production-readiness.md`,
+`docs/ontology-security.md`, and `docs/ontology-compatibility.md`.

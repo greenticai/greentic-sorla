@@ -131,9 +131,51 @@ endpoint inputs.
 - `agent-workflows.arazzo.yaml`
 - `mcp-tools.json`
 - `llms.txt.fragment`
+- `designer-node-types.json`
+- `agent-endpoint-action-catalog.json`
 
 These outputs are handoff artifacts. They describe what downstream tooling can
 assemble; they do not contain provider credentials or runtime URLs.
+
+## Designer Node Types
+
+When a package declares agent endpoints, the pack also emits
+`assets/sorla/designer-node-types.json` using the
+`greentic.sorla.designer-node-types.v1` schema. Each node type is derived from
+one canonical agent endpoint and includes:
+
+- a stable `sorla.agent-endpoint.<endpoint-id>` node type ID
+- generic component binding metadata
+- a locked `endpoint_ref` with endpoint ID, package name, package version, and
+  canonical contract hash
+- input and output schemas derived from endpoint inputs and outputs
+- risk, approval, side-effect, export, provider requirement, and backing
+  metadata
+
+Designer labels and UI fields are design-time metadata only. Runtime execution
+must use the locked endpoint reference rather than free-text action selection.
+
+## Agent Endpoint Action Catalog
+
+When a package declares agent endpoints, the pack also emits
+`assets/sorla/agent-endpoint-action-catalog.json` using the
+`greentic.sorla.agent-endpoint-action-catalog.v1` schema. This is a compact,
+deterministic design-time view over `CanonicalIr.agent_endpoints` for search,
+prompt assistance, and selection UX.
+
+Each catalog action carries the same locked endpoint reference convention as
+Designer node types:
+
+- endpoint ID
+- package name
+- package version
+- `sha256:<canonical-ir-hash>` contract hash
+
+Labels, aliases, tags, descriptions, and intent text in the catalog are not
+runtime identity. This repo does not introduce a separate Business Action
+Catalog IR or runtime action registry; downstream systems must continue to bind
+execution through the locked endpoint reference and perform their own runtime
+checks.
 
 ## How `gtc` Should Consume Outputs Later
 

@@ -1,6 +1,7 @@
 use greentic_sorla_lang::ast::{
-    AgentEndpointApprovalMode, AgentEndpointRisk, CompatibilityMode, EventKind, FieldAuthority,
-    Package, ProjectionMode, ProviderRequirement, RecordSource,
+    AgentEndpointApprovalMode, AgentEndpointRisk, CardinalityValue, CompatibilityMode, ConceptKind,
+    ConfidenceScore, EventKind, FieldAuthority, Package, ProjectionMode, ProviderRequirement,
+    RecordSource,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -26,6 +27,10 @@ impl IrVersion {
 pub struct CanonicalIr {
     pub ir_version: IrVersion,
     pub package: PackageIr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ontology: Option<OntologyModelIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retrieval_bindings: Option<RetrievalBindingsIr>,
     pub records: Vec<RecordIr>,
     pub events: Vec<EventIr>,
     pub actions: Vec<NamedItemIr>,
@@ -38,6 +43,202 @@ pub struct CanonicalIr {
     pub compatibility: Vec<CompatibilityIr>,
     pub provider_contract: ProviderContractIr,
     pub agent_endpoints: Vec<AgentEndpointIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OntologyModelIr {
+    pub schema: String,
+    pub concepts: Vec<ConceptDefinitionIr>,
+    pub relationships: Vec<RelationshipDefinitionIr>,
+    pub constraints: Vec<OntologyConstraintIr>,
+    pub semantic_aliases: SemanticAliasesIr,
+    pub entity_linking: EntityLinkingIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConceptKindIr {
+    Abstract,
+    Entity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptDefinitionIr {
+    pub id: String,
+    pub kind: ConceptKindIr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub extends: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backing: Option<OntologyBackingIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivity: Option<OntologySensitivityIr>,
+    pub policy_hooks: Vec<OntologyPolicyHookIr>,
+    pub provider_requirements: Vec<ProviderRequirementIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipDefinitionIr {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub from: String,
+    pub to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cardinality: Option<RelationshipCardinalityIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backing: Option<OntologyBackingIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivity: Option<OntologySensitivityIr>,
+    pub policy_hooks: Vec<OntologyPolicyHookIr>,
+    pub provider_requirements: Vec<ProviderRequirementIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipCardinalityIr {
+    pub from: CardinalityValueIr,
+    pub to: CardinalityValueIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CardinalityValueIr {
+    One,
+    Many,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OntologyBackingIr {
+    pub record: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_field: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_field: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OntologyConstraintIr {
+    pub id: String,
+    pub applies_to: OntologyConstraintTargetIr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires_policy: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OntologyConstraintTargetIr {
+    pub concept: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OntologySensitivityIr {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub classification: Option<String>,
+    pub pii: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OntologyPolicyHookIr {
+    pub policy: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SemanticAliasesIr {
+    pub concepts: BTreeMap<String, Vec<String>>,
+    pub relationships: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct EntityLinkingIr {
+    pub strategies: Vec<EntityLinkingStrategyIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityLinkingStrategyIr {
+    pub id: String,
+    pub applies_to: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(rename = "match")]
+    pub match_fields: EntityLinkingMatchIr,
+    pub confidence: ConfidenceScore,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivity: Option<OntologySensitivityIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityLinkingMatchIr {
+    pub source_field: String,
+    pub target_field: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetrievalBindingsIr {
+    pub schema: String,
+    pub providers: Vec<RetrievalProviderRequirementIr>,
+    pub scopes: Vec<RetrievalScopeIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetrievalProviderRequirementIr {
+    pub id: String,
+    pub category: String,
+    pub required_capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetrievalScopeIr {
+    pub id: String,
+    pub applies_to: RetrievalScopeTargetIr,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<RetrievalFilterIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission: Option<RetrievalPermissionModeIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetrievalScopeTargetIr {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concept: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetrievalFilterIr {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_scope: Option<EntityScopeIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntityScopeIr {
+    pub include_self: bool,
+    pub include_related: Vec<RelationshipTraversalRuleIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipTraversalRuleIr {
+    pub relationship: String,
+    pub direction: RelationshipTraversalDirectionIr,
+    pub max_depth: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RelationshipTraversalDirectionIr {
+    Incoming,
+    Outgoing,
+    Both,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RetrievalPermissionModeIr {
+    Inherit,
+    PublicMetadataOnly,
+    RequiresPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -392,6 +593,8 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
             name: package.package.name.clone(),
             version: package.package.version.clone(),
         },
+        ontology: lower_ontology(package),
+        retrieval_bindings: lower_retrieval_bindings(package),
         records,
         events,
         actions: sorted_named_items(
@@ -437,6 +640,287 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         },
         agent_endpoints,
     }
+}
+
+fn lower_retrieval_bindings(package: &Package) -> Option<RetrievalBindingsIr> {
+    let bindings = package.retrieval_bindings.as_ref()?;
+    let mut providers = bindings
+        .providers
+        .iter()
+        .map(|provider| {
+            let mut required_capabilities = provider.required_capabilities.clone();
+            required_capabilities.sort();
+            required_capabilities.dedup();
+            RetrievalProviderRequirementIr {
+                id: provider.id.clone(),
+                category: provider.category.clone(),
+                required_capabilities,
+            }
+        })
+        .collect::<Vec<_>>();
+    providers.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut scopes = bindings
+        .scopes
+        .iter()
+        .map(|scope| RetrievalScopeIr {
+            id: scope.id.clone(),
+            applies_to: RetrievalScopeTargetIr {
+                concept: scope.applies_to.concept.clone(),
+                relationship: scope.applies_to.relationship.clone(),
+            },
+            provider: scope.provider.clone(),
+            filters: scope.filters.as_ref().map(|filters| RetrievalFilterIr {
+                entity_scope: filters.entity_scope.as_ref().map(|entity_scope| {
+                    let mut include_related = entity_scope
+                        .include_related
+                        .iter()
+                        .map(|rule| RelationshipTraversalRuleIr {
+                            relationship: rule.relationship.clone(),
+                            direction: match rule.direction {
+                                greentic_sorla_lang::ast::RelationshipTraversalDirection::Incoming => {
+                                    RelationshipTraversalDirectionIr::Incoming
+                                }
+                                greentic_sorla_lang::ast::RelationshipTraversalDirection::Outgoing => {
+                                    RelationshipTraversalDirectionIr::Outgoing
+                                }
+                                greentic_sorla_lang::ast::RelationshipTraversalDirection::Both => {
+                                    RelationshipTraversalDirectionIr::Both
+                                }
+                            },
+                            max_depth: rule.max_depth,
+                        })
+                        .collect::<Vec<_>>();
+                    include_related.sort_by(|left, right| {
+                        left.relationship
+                            .cmp(&right.relationship)
+                            .then_with(|| left.max_depth.cmp(&right.max_depth))
+                    });
+                    EntityScopeIr {
+                        include_self: entity_scope.include_self,
+                        include_related,
+                    }
+                }),
+            }),
+            permission: scope.permission.as_ref().map(|permission| match permission {
+                greentic_sorla_lang::ast::RetrievalPermissionMode::Inherit => {
+                    RetrievalPermissionModeIr::Inherit
+                }
+                greentic_sorla_lang::ast::RetrievalPermissionMode::PublicMetadataOnly => {
+                    RetrievalPermissionModeIr::PublicMetadataOnly
+                }
+                greentic_sorla_lang::ast::RetrievalPermissionMode::RequiresPolicy => {
+                    RetrievalPermissionModeIr::RequiresPolicy
+                }
+            }),
+        })
+        .collect::<Vec<_>>();
+    scopes.sort_by(|left, right| left.id.cmp(&right.id));
+
+    Some(RetrievalBindingsIr {
+        schema: bindings.schema.clone(),
+        providers,
+        scopes,
+    })
+}
+
+fn lower_ontology(package: &Package) -> Option<OntologyModelIr> {
+    let ontology = package.ontology.as_ref()?;
+
+    let mut concepts: Vec<ConceptDefinitionIr> = ontology
+        .concepts
+        .iter()
+        .map(|concept| {
+            let mut extends = concept.extends.clone();
+            extends.sort();
+            extends.dedup();
+
+            ConceptDefinitionIr {
+                id: concept.id.clone(),
+                kind: match concept.kind {
+                    ConceptKind::Abstract => ConceptKindIr::Abstract,
+                    ConceptKind::Entity => ConceptKindIr::Entity,
+                },
+                description: concept.description.clone(),
+                extends,
+                backing: concept.backed_by.as_ref().map(lower_ontology_backing),
+                sensitivity: concept.sensitivity.as_ref().map(|sensitivity| {
+                    OntologySensitivityIr {
+                        classification: sensitivity.classification.clone(),
+                        pii: sensitivity.pii,
+                    }
+                }),
+                policy_hooks: sorted_ontology_policy_hooks(&concept.policy_hooks),
+                provider_requirements: sorted_ontology_provider_requirements(
+                    &concept.provider_requirements,
+                ),
+            }
+        })
+        .collect();
+    concepts.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut relationships: Vec<RelationshipDefinitionIr> = ontology
+        .relationships
+        .iter()
+        .map(|relationship| RelationshipDefinitionIr {
+            id: relationship.id.clone(),
+            label: relationship.label.clone(),
+            from: relationship.from.clone(),
+            to: relationship.to.clone(),
+            cardinality: relationship.cardinality.as_ref().map(|cardinality| {
+                RelationshipCardinalityIr {
+                    from: lower_cardinality_value(&cardinality.from),
+                    to: lower_cardinality_value(&cardinality.to),
+                }
+            }),
+            backing: relationship.backed_by.as_ref().map(lower_ontology_backing),
+            sensitivity: relationship.sensitivity.as_ref().map(|sensitivity| {
+                OntologySensitivityIr {
+                    classification: sensitivity.classification.clone(),
+                    pii: sensitivity.pii,
+                }
+            }),
+            policy_hooks: sorted_ontology_policy_hooks(&relationship.policy_hooks),
+            provider_requirements: sorted_ontology_provider_requirements(
+                &relationship.provider_requirements,
+            ),
+        })
+        .collect();
+    relationships.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut constraints: Vec<OntologyConstraintIr> = ontology
+        .constraints
+        .iter()
+        .map(|constraint| OntologyConstraintIr {
+            id: constraint.id.clone(),
+            applies_to: OntologyConstraintTargetIr {
+                concept: constraint.applies_to.concept.clone(),
+            },
+            requires_policy: constraint.requires_policy.clone(),
+        })
+        .collect();
+    constraints.sort_by(|left, right| left.id.cmp(&right.id));
+
+    Some(OntologyModelIr {
+        schema: ontology.schema.clone(),
+        concepts,
+        relationships,
+        constraints,
+        semantic_aliases: lower_semantic_aliases(package),
+        entity_linking: lower_entity_linking(package),
+    })
+}
+
+fn lower_semantic_aliases(package: &Package) -> SemanticAliasesIr {
+    let Some(aliases) = &package.semantic_aliases else {
+        return SemanticAliasesIr::default();
+    };
+    SemanticAliasesIr {
+        concepts: sorted_alias_map(&aliases.concepts),
+        relationships: sorted_alias_map(&aliases.relationships),
+    }
+}
+
+fn sorted_alias_map(aliases: &BTreeMap<String, Vec<String>>) -> BTreeMap<String, Vec<String>> {
+    aliases
+        .iter()
+        .map(|(target, values)| {
+            let mut values = values
+                .iter()
+                .map(|alias| normalize_semantic_alias(alias))
+                .collect::<Vec<_>>();
+            values.sort();
+            values.dedup();
+            (target.clone(), values)
+        })
+        .collect()
+}
+
+fn normalize_semantic_alias(alias: &str) -> String {
+    alias
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn lower_entity_linking(package: &Package) -> EntityLinkingIr {
+    let Some(entity_linking) = &package.entity_linking else {
+        return EntityLinkingIr::default();
+    };
+    let mut strategies = entity_linking
+        .strategies
+        .iter()
+        .map(|strategy| EntityLinkingStrategyIr {
+            id: strategy.id.clone(),
+            applies_to: strategy.applies_to.clone(),
+            source_type: strategy.source_type.clone(),
+            match_fields: EntityLinkingMatchIr {
+                source_field: strategy.match_fields.source_field.clone(),
+                target_field: strategy.match_fields.target_field.clone(),
+            },
+            confidence: strategy.confidence,
+            sensitivity: strategy
+                .sensitivity
+                .as_ref()
+                .map(|sensitivity| OntologySensitivityIr {
+                    classification: sensitivity.classification.clone(),
+                    pii: sensitivity.pii,
+                }),
+        })
+        .collect::<Vec<_>>();
+    strategies.sort_by(|left, right| left.id.cmp(&right.id));
+    EntityLinkingIr { strategies }
+}
+
+fn lower_ontology_backing(
+    backing: &greentic_sorla_lang::ast::OntologyBacking,
+) -> OntologyBackingIr {
+    OntologyBackingIr {
+        record: backing.record.clone(),
+        from_field: backing.from_field.clone(),
+        to_field: backing.to_field.clone(),
+    }
+}
+
+fn lower_cardinality_value(value: &CardinalityValue) -> CardinalityValueIr {
+    match value {
+        CardinalityValue::One => CardinalityValueIr::One,
+        CardinalityValue::Many => CardinalityValueIr::Many,
+    }
+}
+
+fn sorted_ontology_policy_hooks(
+    hooks: &[greentic_sorla_lang::ast::OntologyPolicyHook],
+) -> Vec<OntologyPolicyHookIr> {
+    let mut hooks: Vec<OntologyPolicyHookIr> = hooks
+        .iter()
+        .map(|hook| OntologyPolicyHookIr {
+            policy: hook.policy.clone(),
+            reason: hook.reason.clone(),
+        })
+        .collect();
+    hooks.sort_by(|left, right| left.policy.cmp(&right.policy));
+    hooks
+}
+
+fn sorted_ontology_provider_requirements(
+    requirements: &[greentic_sorla_lang::ast::OntologyProviderRequirement],
+) -> Vec<ProviderRequirementIr> {
+    let mut requirements: Vec<ProviderRequirementIr> = requirements
+        .iter()
+        .map(|requirement| {
+            let mut capabilities = requirement.capabilities.clone();
+            capabilities.sort();
+            capabilities.dedup();
+            ProviderRequirementIr {
+                category: requirement.category.clone(),
+                capabilities,
+            }
+        })
+        .collect();
+    requirements.sort_by(|left, right| left.category.cmp(&right.category));
+    requirements
 }
 
 fn sorted_fields(record: &greentic_sorla_lang::ast::Record) -> Vec<FieldIr> {
@@ -909,5 +1393,144 @@ agent_endpoints:
             .expect("operation emit should lower");
         assert_eq!(emit.event, "TenantCreated");
         assert_eq!(emit.payload["full_name"], "$input.full_name");
+    }
+
+    #[test]
+    fn lowers_ontology_deterministically() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: ontology-demo
+  version: 0.1.0
+records:
+  - name: Customer
+    fields:
+      - name: id
+        type: string
+      - name: email
+        type: string
+  - name: Contract
+    fields:
+      - name: id
+        type: string
+  - name: CustomerContract
+    fields:
+      - name: customer_id
+        type: string
+      - name: contract_id
+        type: string
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+      extends:
+        - Party
+      backed_by:
+        record: Customer
+      sensitivity:
+        classification: confidential
+        pii: true
+    - id: Contract
+      kind: entity
+      backed_by:
+        record: Contract
+    - id: Party
+      kind: abstract
+  relationships:
+    - id: has_contract
+      from: Customer
+      to: Contract
+      cardinality:
+        from: one
+        to: many
+      backed_by:
+        record: CustomerContract
+        from_field: customer_id
+        to_field: contract_id
+    - id: governed_by
+      from: Contract
+      to: Customer
+  constraints:
+    - id: customer_policy
+      applies_to:
+        concept: Customer
+semantic_aliases:
+  concepts:
+    Customer:
+      - Client
+      - account holder
+      - client
+    Contract:
+      - subscription
+      - agreement
+  relationships:
+    has_contract:
+      - covered by
+      - agreement link
+entity_linking:
+  strategies:
+    - id: email_match
+      applies_to: Customer
+      match:
+        source_field: email
+        target_field: email
+      confidence: 0.95
+      sensitivity:
+        pii: true
+retrieval_bindings:
+  schema: greentic.sorla.retrieval-bindings.v1
+  providers:
+    - id: primary_evidence
+      category: evidence
+      required_capabilities:
+        - evidence.query
+        - entity.link
+  scopes:
+    - id: customer_evidence
+      applies_to:
+        concept: Customer
+      provider: primary_evidence
+      filters:
+        entity_scope:
+          include_self: true
+          include_related:
+            - relationship: has_contract
+              direction: outgoing
+              max_depth: 1
+"#,
+        )
+        .expect("ontology fixture should parse");
+
+        let first = lower_package(&parsed.package);
+        let second = lower_package(&parsed.package);
+        assert_eq!(first, second);
+        assert_eq!(canonical_hash_hex(&first), canonical_hash_hex(&second));
+
+        let ontology = first.ontology.expect("ontology should lower");
+        assert_eq!(ontology.concepts[0].id, "Contract");
+        assert_eq!(ontology.concepts[1].id, "Customer");
+        assert_eq!(ontology.concepts[1].extends, ["Party"]);
+        assert_eq!(ontology.relationships[0].id, "governed_by");
+        assert_eq!(ontology.relationships[1].id, "has_contract");
+        assert_eq!(
+            ontology.semantic_aliases.concepts["Customer"],
+            ["account holder", "client"]
+        );
+        assert_eq!(
+            ontology.semantic_aliases.relationships["has_contract"],
+            ["agreement link", "covered by"]
+        );
+        assert_eq!(ontology.entity_linking.strategies[0].id, "email_match");
+        assert_eq!(ontology.entity_linking.strategies[0].confidence.0, 950_000);
+        let retrieval = first
+            .retrieval_bindings
+            .expect("retrieval bindings should lower");
+        assert_eq!(retrieval.providers[0].id, "primary_evidence");
+        assert_eq!(
+            retrieval.providers[0].required_capabilities,
+            ["entity.link", "evidence.query"]
+        );
+        assert_eq!(retrieval.scopes[0].id, "customer_evidence");
     }
 }
