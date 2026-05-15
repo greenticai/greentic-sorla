@@ -153,5 +153,5 @@ jobs:
       contents: read
     uses: greenticai/.github/.github/workflows/crates-publish.yml@main
     with:
-      crates: "greentic-sorla-lang greentic-sorla-ir greentic-sorla-pack greentic-sorla"
+      crates: "greentic-sorla-lang greentic-sorla-ir greentic-sorla-pack greentic-sorla-lib greentic-sorla"
     secrets: inherit

@@ -32,9 +32,9 @@ run_publish_check() {
   fi
 
   cat "$log_file"
-  if grep -qE "no matching package named \`greentic-sorla-(lang|ir|pack)\` found" "$log_file"; then
+  if grep -qE "no matching package named \`greentic-sorla-(lang|ir|pack|lib)\` found" "$log_file"; then
     echo "[publish] advisory: skipping first-publish dry-run blocked by unpublished internal crate dependency."
-    echo "[publish] advisory: the release workflow publishes greentic-sorla-lang, greentic-sorla-ir, greentic-sorla-pack, then greentic-sorla."
+    echo "[publish] advisory: the release workflow publishes greentic-sorla-lang, greentic-sorla-ir, greentic-sorla-pack, greentic-sorla-lib, then greentic-sorla."
     rm -f "$log_file"
     return 0
   fi

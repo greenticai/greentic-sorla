@@ -1,6 +1,6 @@
 [package]
 name = "greentic-sorla-e2e"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/greenticai/greentic-sorla"
@@ -13,9 +13,9 @@ readme = "README.md"
 publish = false
 
 [dependencies]
-greentic-sorla-ir = { version = "0.1.9", path = "../greentic-sorla-ir" }
-greentic-sorla-lang = { version = "0.1.9", path = "../greentic-sorla-lang" }
-greentic-sorla-pack = { version = "0.1.9", path = "../greentic-sorla-pack" }
+greentic-sorla-ir = { version = "0.1.10", path = "../greentic-sorla-ir" }
+greentic-sorla-lang = { version = "0.1.10", path = "../greentic-sorla-lang" }
+greentic-sorla-pack = { version = "0.1.10", path = "../greentic-sorla-pack" }
 provider-foundationdb = { path = "../../../greentic-sorla-providers/providers/provider-foundationdb" }
 sorla-provider-core = { path = "../../../greentic-sorla-providers/crates/sorla-provider-core" }
 serde = { version = "1", features = ["derive"] }
