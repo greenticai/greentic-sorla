@@ -680,4 +680,578 @@ agent_endpoints:
             "{unknown_input}"
         );
     }
+
+    #[test]
+    fn parses_valid_ontology_model() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: ontology-demo
+  version: 0.1.0
+records:
+  - name: Customer
+    fields:
+      - name: id
+        type: string
+  - name: Contract
+    fields:
+      - name: id
+        type: string
+  - name: CustomerContract
+    fields:
+      - name: customer_id
+        type: string
+      - name: contract_id
+        type: string
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Party
+      kind: abstract
+    - id: Customer
+      kind: entity
+      extends: Party
+      backed_by:
+        record: Customer
+      sensitivity:
+        classification: confidential
+        pii: true
+    - id: Contract
+      kind: entity
+      backed_by:
+        record: Contract
+  relationships:
+    - id: has_contract
+      label: has contract
+      from: Customer
+      to: Contract
+      cardinality:
+        from: one
+        to: many
+      backed_by:
+        record: CustomerContract
+        from_field: customer_id
+        to_field: contract_id
+  constraints:
+    - id: customer_policy
+      applies_to:
+        concept: Customer
+      requires_policy: customer_data_access
+"#,
+        )
+        .expect("valid ontology should parse");
+
+        let ontology = parsed.package.ontology.expect("ontology should parse");
+        assert_eq!(ontology.concepts.len(), 3);
+        assert_eq!(ontology.concepts[1].extends, ["Party"]);
+        assert!(ontology.concepts[1].sensitivity.as_ref().unwrap().pii);
+        assert_eq!(ontology.relationships[0].id, "has_contract");
+    }
+
+    #[test]
+    fn parses_semantic_aliases_and_entity_linking() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: ontology-demo
+  version: 0.1.0
+records:
+  - name: Customer
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: email
+        type: string
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+      backed_by:
+        record: Customer
+  relationships: []
+semantic_aliases:
+  concepts:
+    Customer:
+      - client
+      - account holder
+entity_linking:
+  strategies:
+    - id: email_match
+      applies_to: Customer
+      match:
+        source_field: email
+        target_field: email
+      confidence: 0.95
+      sensitivity:
+        pii: true
+"#,
+        )
+        .expect("semantic aliases and linking should parse");
+
+        let aliases = parsed
+            .package
+            .semantic_aliases
+            .expect("semantic aliases should parse");
+        assert_eq!(aliases.concepts["Customer"], ["client", "account holder"]);
+        let linking = parsed
+            .package
+            .entity_linking
+            .expect("entity linking should parse");
+        assert_eq!(linking.strategies[0].id, "email_match");
+        assert_eq!(linking.strategies[0].confidence.0, 950_000);
+    }
+
+    #[test]
+    fn semantic_aliases_warn_on_duplicate_and_reject_collisions() {
+        let duplicate = parse_package(
+            r#"
+package:
+  name: duplicate-alias
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+  relationships: []
+semantic_aliases:
+  concepts:
+    Customer:
+      - client
+      - " Client "
+"#,
+        )
+        .expect("duplicate alias on the same target should parse with warning");
+        assert!(
+            duplicate
+                .warnings
+                .iter()
+                .any(|warning| warning.path.contains("semantic_aliases.concepts.Customer"))
+        );
+
+        let collision = parse_package(
+            r#"
+package:
+  name: alias-collision
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+    - id: Contract
+      kind: entity
+  relationships: []
+semantic_aliases:
+  concepts:
+    Customer:
+      - client
+    Contract:
+      - " client "
+"#,
+        )
+        .expect_err("same normalized alias on different targets should fail");
+        assert!(collision.contains("collides"));
+    }
+
+    #[test]
+    fn rejects_invalid_alias_and_linking_references() {
+        let unknown_alias_concept = parse_package(
+            r#"
+package:
+  name: unknown-alias
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+  relationships: []
+semantic_aliases:
+  concepts:
+    Missing:
+      - client
+"#,
+        )
+        .expect_err("unknown alias concept should fail");
+        assert!(unknown_alias_concept.contains("unknown ontology concept"));
+
+        let unknown_alias_relationship = parse_package(
+            r#"
+package:
+  name: unknown-relationship-alias
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+  relationships: []
+semantic_aliases:
+  relationships:
+    owns:
+      - belongs to
+"#,
+        )
+        .expect_err("unknown alias relationship should fail");
+        assert!(unknown_alias_relationship.contains("unknown ontology relationship"));
+
+        let unknown_field = parse_package(
+            r#"
+package:
+  name: unknown-link-field
+  version: 0.1.0
+records:
+  - name: Customer
+    source: native
+    fields:
+      - name: id
+        type: string
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+      backed_by:
+        record: Customer
+  relationships: []
+entity_linking:
+  strategies:
+    - id: email_match
+      applies_to: Customer
+      match:
+        source_field: email
+        target_field: email
+      confidence: 0.95
+"#,
+        )
+        .expect_err("unknown target field should fail");
+        assert!(unknown_field.contains("entity_linking.strategies[0].match.target_field"));
+    }
+
+    #[test]
+    fn rejects_invalid_entity_linking_strategy_shape() {
+        let out_of_range = parse_package(
+            r#"
+package:
+  name: bad-confidence
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+  relationships: []
+entity_linking:
+  strategies:
+    - id: email_match
+      applies_to: Customer
+      source_type: document
+      match:
+        source_field: email
+        target_field: email
+      confidence: 1.5
+"#,
+        )
+        .expect_err("out of range confidence should fail");
+        assert!(out_of_range.contains("confidence must be between"));
+
+        let duplicate_id = parse_package(
+            r#"
+package:
+  name: duplicate-strategy
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+  relationships: []
+entity_linking:
+  strategies:
+    - id: email_match
+      applies_to: Customer
+      source_type: document
+      match:
+        source_field: email
+        target_field: email
+      confidence: 0.9
+    - id: email_match
+      applies_to: Customer
+      source_type: document
+      match:
+        source_field: external_email
+        target_field: email
+      confidence: 0.8
+"#,
+        )
+        .expect_err("duplicate strategy id should fail");
+        assert!(duplicate_id.contains("duplicate entity-linking strategy id"));
+    }
+
+    #[test]
+    fn parses_valid_retrieval_bindings() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: retrieval-demo
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+    - id: Contract
+      kind: entity
+  relationships:
+    - id: governed_by
+      from: Customer
+      to: Contract
+retrieval_bindings:
+  schema: greentic.sorla.retrieval-bindings.v1
+  providers:
+    - id: primary_evidence
+      category: evidence
+      required_capabilities:
+        - entity.link
+        - evidence.query
+  scopes:
+    - id: customer_evidence
+      applies_to:
+        concept: Customer
+      provider: primary_evidence
+      filters:
+        entity_scope:
+          include_self: true
+          include_related:
+            - relationship: governed_by
+              direction: outgoing
+              max_depth: 1
+"#,
+        )
+        .expect("retrieval bindings should parse");
+        let bindings = parsed
+            .package
+            .retrieval_bindings
+            .expect("retrieval bindings should be present");
+        assert_eq!(bindings.providers[0].id, "primary_evidence");
+        assert_eq!(bindings.scopes[0].id, "customer_evidence");
+    }
+
+    #[test]
+    fn rejects_invalid_retrieval_bindings() {
+        let unknown_concept = parse_package(
+            r#"
+package:
+  name: bad-retrieval-concept
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+  relationships: []
+retrieval_bindings:
+  schema: greentic.sorla.retrieval-bindings.v1
+  providers:
+    - id: evidence
+      category: evidence
+  scopes:
+    - id: missing
+      applies_to:
+        concept: Missing
+      provider: evidence
+"#,
+        )
+        .expect_err("unknown concept should fail");
+        assert!(unknown_concept.contains("applies_to.concept"));
+
+        let invalid_depth = parse_package(
+            r#"
+package:
+  name: bad-retrieval-depth
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+    - id: Contract
+      kind: entity
+  relationships:
+    - id: governed_by
+      from: Customer
+      to: Contract
+retrieval_bindings:
+  schema: greentic.sorla.retrieval-bindings.v1
+  providers:
+    - id: evidence
+      category: evidence
+  scopes:
+    - id: too_deep
+      applies_to:
+        concept: Customer
+      provider: evidence
+      filters:
+        entity_scope:
+          include_related:
+            - relationship: governed_by
+              direction: both
+              max_depth: 6
+"#,
+        )
+        .expect_err("invalid max depth should fail");
+        assert!(invalid_depth.contains("max_depth"));
+
+        let unknown_provider = parse_package(
+            r#"
+package:
+  name: bad-retrieval-provider
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+  relationships: []
+retrieval_bindings:
+  schema: greentic.sorla.retrieval-bindings.v1
+  providers: []
+  scopes:
+    - id: customer_evidence
+      applies_to:
+        concept: Customer
+      provider: missing
+"#,
+        )
+        .expect_err("unknown provider should fail");
+        assert!(unknown_provider.contains("unknown retrieval provider"));
+    }
+
+    #[test]
+    fn rejects_invalid_ontology_references() {
+        let duplicate = parse_package(
+            r#"
+package:
+  name: duplicate-concepts
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+    - id: Customer
+      kind: abstract
+"#,
+        )
+        .expect_err("duplicate concept should fail");
+        assert!(duplicate.contains("ontology.concepts[1].id"));
+
+        let unknown_concept = parse_package(
+            r#"
+package:
+  name: unknown-relationship-concept
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+  relationships:
+    - id: owns
+      from: Customer
+      to: Asset
+"#,
+        )
+        .expect_err("unknown relationship target should fail");
+        assert!(unknown_concept.contains("ontology.relationships[0].to"));
+
+        let cycle = parse_package(
+            r#"
+package:
+  name: cyclic-ontology
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+      extends: Party
+    - id: Party
+      kind: abstract
+      extends: Customer
+"#,
+        )
+        .expect_err("inheritance cycle should fail");
+        assert!(cycle.contains("inheritance cycle"));
+    }
+
+    #[test]
+    fn rejects_ontology_backing_errors() {
+        let missing_record = parse_package(
+            r#"
+package:
+  name: missing-backing-record
+  version: 0.1.0
+records: []
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+      backed_by:
+        record: Customer
+"#,
+        )
+        .expect_err("missing backing record should fail");
+        assert!(missing_record.contains("ontology.concepts[0].backed_by.record"));
+
+        let missing_field = parse_package(
+            r#"
+package:
+  name: missing-backing-field
+  version: 0.1.0
+records:
+  - name: Ownership
+    fields:
+      - name: id
+        type: string
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Party
+      kind: entity
+    - id: Asset
+      kind: entity
+  relationships:
+    - id: owns
+      from: Party
+      to: Asset
+      backed_by:
+        record: Ownership
+        from_field: party_id
+"#,
+        )
+        .expect_err("missing backing field should fail");
+        assert!(missing_field.contains("ontology.relationships[0].backed_by.from_field"));
+    }
+
+    #[test]
+    fn rejects_unknown_ontology_fields() {
+        let error = parse_package(
+            r#"
+package:
+  name: unknown-ontology-field
+  version: 0.1.0
+ontology:
+  schema: greentic.sorla.ontology.v1
+  unsupported: true
+"#,
+        )
+        .expect_err("unknown ontology fields should be denied by serde");
+
+        assert!(error.contains("unknown field"));
+    }
 }

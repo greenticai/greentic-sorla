@@ -47,6 +47,7 @@ CARGO_PACKAGE_PATCH_CONFIG=(
   --config 'patch.crates-io.greentic-sorla.path="crates/greentic-sorla-cli"'
   --config 'patch.crates-io.greentic-sorla-ir.path="crates/greentic-sorla-ir"'
   --config 'patch.crates-io.greentic-sorla-lang.path="crates/greentic-sorla-lang"'
+  --config 'patch.crates-io.greentic-sorla-lib.path="crates/greentic-sorla-lib"'
   --config 'patch.crates-io.greentic-sorla-pack.path="crates/greentic-sorla-pack"'
 )
 
@@ -67,6 +68,8 @@ run_validation_pack_check() {
   local validation_schema_path
   local exposure_schema_path
   local compatibility_schema_path
+  local ontology_schema_path
+  local retrieval_schema_path
   local answers_path
   local output_dir
 
@@ -80,10 +83,14 @@ run_validation_pack_check() {
   validation_schema_path="${tmp_dir}/sorx-validation.schema.json"
   exposure_schema_path="${tmp_dir}/sorx-exposure-policy.schema.json"
   compatibility_schema_path="${tmp_dir}/sorx-compatibility.schema.json"
+  ontology_schema_path="${tmp_dir}/sorla-ontology.schema.json"
+  retrieval_schema_path="${tmp_dir}/sorla-retrieval-bindings.schema.json"
 
   run_capture "${validation_schema_path}" cargo run -p greentic-sorla -- pack schema validation
   run_capture "${exposure_schema_path}" cargo run -p greentic-sorla -- pack schema exposure-policy
   run_capture "${compatibility_schema_path}" cargo run -p greentic-sorla -- pack schema compatibility
+  run_capture "${ontology_schema_path}" cargo run -p greentic-sorla -- pack schema ontology
+  run_capture "${retrieval_schema_path}" cargo run -p greentic-sorla -- pack schema retrieval-bindings
 
   jq -e '."$id" == "greentic.sorx.validation.v1"' "${validation_schema_path}" >/dev/null \
     || { echo "ERROR: validation schema command did not emit greentic.sorx.validation.v1" >&2; return 1; }
@@ -91,6 +98,10 @@ run_validation_pack_check() {
     || { echo "ERROR: exposure policy schema command did not emit greentic.sorx.exposure-policy.v1" >&2; return 1; }
   jq -e '."$id" == "greentic.sorx.compatibility.v1"' "${compatibility_schema_path}" >/dev/null \
     || { echo "ERROR: compatibility schema command did not emit greentic.sorx.compatibility.v1" >&2; return 1; }
+  jq -e '."$id" == "greentic.sorla.ontology.v1"' "${ontology_schema_path}" >/dev/null \
+    || { echo "ERROR: ontology schema command did not emit greentic.sorla.ontology.v1" >&2; return 1; }
+  jq -e '."$id" == "greentic.sorla.retrieval-bindings.v1"' "${retrieval_schema_path}" >/dev/null \
+    || { echo "ERROR: retrieval bindings schema command did not emit greentic.sorla.retrieval-bindings.v1" >&2; return 1; }
 
   mkdir -p "${output_dir}"
   jq --arg output_dir "${output_dir}" '.output_dir = $output_dir' \
@@ -150,7 +161,7 @@ for entry in "${PUBLISHABLE_ENTRIES[@]}"; do
 done
 
 ORDERED_PUBLISHABLE_ENTRIES=()
-for crate in greentic-sorla-lang greentic-sorla-ir greentic-sorla-pack greentic-sorla; do
+for crate in greentic-sorla-lang greentic-sorla-ir greentic-sorla-pack greentic-sorla-lib greentic-sorla; do
   if [[ -n "${PUBLISHABLE_BY_NAME[$crate]:-}" ]]; then
     ORDERED_PUBLISHABLE_ENTRIES+=("${PUBLISHABLE_BY_NAME[$crate]}")
     unset "PUBLISHABLE_BY_NAME[$crate]"
@@ -180,7 +191,7 @@ run_step "cargo fmt"
 run_cmd cargo fmt --all -- --check
 
 run_step "cargo clippy"
-run_cmd cargo clippy --all-targets --all-features -- -D warnings
+run_cmd cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 run_step "cargo test"
 run_cmd cargo test --all-features
@@ -188,8 +199,18 @@ run_cmd cargo test --all-features
 run_step "Validation-enabled gtpack checks"
 run_validation_pack_check
 
+run_step "Ontology handoff smoke"
+run_cmd bash scripts/e2e/ontology-handoff-smoke.sh
+
 run_step "cargo build"
 run_cmd cargo build --all-features
+
+run_step "WASM facade build"
+if rustup target list --installed | grep -qx 'wasm32-wasip2'; then
+  run_cmd cargo build -p greentic-sorla-lib --target wasm32-wasip2 --no-default-features --features wasm
+else
+  echo "[wasm] skipping greentic-sorla-lib wasm32-wasip2 build; install with: rustup target add wasm32-wasip2"
+fi
 
 run_step "cargo doc"
 run_cmd cargo doc --no-deps --all-features

@@ -1,0 +1,23 @@
+[package]
+name = "greentic-sorla-designer-extension"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.94"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Designer extension adapter for Greentic SoRLa."
+readme = "README.md"
+publish = false
+
+[lib]
+name = "greentic_sorla_designer_extension"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+greentic-sorla-lib = { version = "0.1.9", path = "../greentic-sorla-lib", default-features = false, features = ["wasm"] }
+serde.workspace = true
+serde_json.workspace = true

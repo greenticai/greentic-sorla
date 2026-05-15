@@ -163,6 +163,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bs58"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf88ba1141d185c399bee5288d850d63b8369520c1eafc32a0430b5b6c287bf4"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "bstr"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -784,21 +793,25 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
- "ciborium",
- "clap",
  "criterion",
- "greentic-qa-lib",
- "greentic-sorla-pack",
- "serde",
- "serde_json",
+ "greentic-sorla-lib",
  "serde_yaml",
 ]
 
 [[package]]
+name = "greentic-sorla-designer-extension"
+version = "0.1.10"
+dependencies = [
+ "greentic-sorla-lib",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "greentic-sorla-ir"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "ciborium",
  "greentic-sorla-lang",
@@ -809,7 +822,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lang"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "serde",
  "serde_json",
@@ -817,8 +830,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "greentic-sorla-lib"
+version = "0.1.10"
+dependencies = [
+ "ciborium",
+ "clap",
+ "greentic-qa-lib",
+ "greentic-sorla-pack",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "greentic-sorla-pack"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "ciborium",
  "greentic-sorla-ir",
@@ -834,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-wizard"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "greentic-sorla",
  "greentic-sorla-lang",
@@ -1032,9 +1059,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libbz2-rs-sys"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3a6a8c165077efc8f3a971534c50ea6a1a18b329ef4a66e897a7e3a1494565f"
+checksum = "f8fc329e1457d97a9d58a4e2ca49e3be572431a7e096008efc2e3a3c19d428f4"
 
 [[package]]
 name = "libc"
@@ -1512,11 +1539,12 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.19.0"
+version = "3.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f05839ce67618e14a09b286535c0d9c94e85ef25469b0e13cb4f844e5593eb19"
+checksum = "e72c1c2cb7b223fafb600a619537a871c2818583d619401b785e7c0b746ccde2"
 dependencies = [
  "base64",
+ "bs58",
  "chrono",
  "hex",
  "serde_core",
@@ -1527,9 +1555,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.19.0"
+version = "3.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf2ebbe86054f9b45bc3881e865683ccfaccce97b9b4cb53f3039d67f355a334"
+checksum = "b90c488738ecb4fb0262f41f43bc40efc5868d9fb744319ddf5f5317f417bfac"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -1703,6 +1731,21 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "tinyvec"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e61e67053d25a4e82c844e8424039d9745781b3fc4f32b8d55ed50f5f667ef3"
+dependencies = [
+ "tinyvec_macros",
+]
+
+[[package]]
+name = "tinyvec_macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "typed-path"
@@ -2146,7 +2189,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.9"
+version = "0.1.10"
 
 [[package]]
 name = "zerocopy"
@@ -2170,9 +2213,9 @@ dependencies = [
 
 [[package]]
 name = "zerofrom"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69faa1f2a1ea75661980b013019ed6687ed0e83d069bc1114e2cc74c6c04c4df"
+checksum = "0ec05a11813ea801ff6d75110ad09cd0824ddba17dfe17128ea0d5f68e6c5272"
 
 [[package]]
 name = "zeroize"

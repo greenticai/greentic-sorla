@@ -76,6 +76,8 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 ## Workspace Layout
 
 - `crates/greentic-sorla-cli`: public CLI entrypoint
+- `crates/greentic-sorla-lib`: reusable facade used by the CLI and future
+  Designer/tooling integrations
 - `crates/greentic-sorla-lang`: authoring-language-facing types
 - `crates/greentic-sorla-ir`: canonical IR scaffolding
 - `crates/greentic-sorla-pack`: abstract artifact and manifest scaffolding
@@ -87,6 +89,8 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 - `docs/landlord-tenant-e2e.md`: FoundationDB-backed landlord/tenant e2e scenario
 - `docs/product-shape.md`: wizard-first product contract
 - `docs/sorla-gtpack.md`: deterministic SoRLa `.gtpack` handoff contract
+- `docs/library-api.md`: reusable library and CLI boundary
+- `docs/sorla-lib.md`: stable facade API for Designer/tooling reuse
 - `docs/sorx-deployment-handoff.md`: downstream SORX deployment and public
   exposure handoff expectations
 - `docs/wizard.md`: wizard schema and answer-model notes
@@ -98,9 +102,12 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 ## CLI
 
 The current scaffold keeps internal helper commands hidden and reserves the
-public surface for the wizard flow. This standalone CLI is a local authoring
-and extension-development surface, not a competing pack/bundle toolchain. It
-also supports deterministic `.gtpack` handoff output for SoRLa artifacts.
+public surface for the wizard flow. The installed binary is now a thin wrapper
+over `greentic-sorla-lib`, so Designer extensions and tests can reuse the same
+authoring, validation, and pack logic without invoking a subprocess. This
+standalone CLI is a local authoring and extension-development surface, not a
+competing pack/bundle toolchain. It also supports deterministic `.gtpack`
+handoff output for SoRLa artifacts.
 
 ```bash
 cargo run -p greentic-sorla -- wizard --schema

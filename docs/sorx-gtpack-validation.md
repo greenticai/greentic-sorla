@@ -83,6 +83,8 @@ The validation manifest is JSON. The minimum shape is:
   "promotion_requires": [
     "smoke",
     "contract",
+    "ontology",
+    "retrieval",
     "security",
     "provider"
   ],
@@ -108,6 +110,10 @@ surface is exposed publicly.
 
 `promotion_requires` lists suite IDs that downstream SORX must treat as required
 before promotion unless an explicit local operator policy overrides the gate.
+Ontology and retrieval suites are required for exported/public-candidate packs
+when the corresponding SoRLa artifacts exist. Private-only packs may still carry
+ontology suites, but those suites are emitted with `required: false` and are not
+listed in `promotion_requires`.
 
 ## Suites And Tests
 
@@ -136,10 +142,27 @@ The initial test kind vocabulary is:
 - `tenant-isolation`
 - `migration-compatibility`
 - `rollback-compatibility`
+- `ontology-static`
+- `ontology-relationship`
+- `ontology-alias`
+- `entity-linking`
+- `retrieval-binding`
 
 The vocabulary is intentionally broader than the first generator. Early SoRLa
 implementations may scaffold only static handoff checks and contract metadata.
 Downstream SORX is responsible for interpreting and executing runnable tests.
+
+Ontology suites validate deterministic handoff structure only: concept and
+relationship metadata, aliases, and entity-linking declarations. Retrieval
+suites validate abstract binding metadata such as provider category/capability
+requirements and ontology-scoped retrieval filters. Provider compatibility still
+uses `provider-capability`; high-risk, approval-gated, side-effectful, or
+exported endpoints still use `policy-enforced` security checks.
+
+Suite objects intentionally have no `kind` or
+`required_for_public_exposure` fields. Kind lives on individual tests, and
+promotion gating is represented by the suite's `required` flag plus the
+top-level `promotion_requires` list.
 
 ## Static Validation
 
@@ -156,6 +179,8 @@ executing tests:
 - relative references do not escape `assets/sorx/tests/`
 - referenced optional assets exist in the pack
 - validation assets are covered by deterministic lock metadata
+- obsolete suite-level fields such as `kind` or
+  `required_for_public_exposure` are rejected by the manifest shape
 
 These checks are static handoff checks. HTTP calls, provider connectivity,
 runtime healthchecks, tenant isolation probes, and migration execution belong to
@@ -170,6 +195,8 @@ without unpacking archives manually:
 greentic-sorla pack schema validation
 greentic-sorla pack schema exposure-policy
 greentic-sorla pack schema compatibility
+greentic-sorla pack schema ontology
+greentic-sorla pack schema retrieval-bindings
 greentic-sorla pack validation-inspect landlord-tenant-sor.gtpack
 greentic-sorla pack validation-doctor landlord-tenant-sor.gtpack
 greentic-sorla pack doctor landlord-tenant-sor.gtpack

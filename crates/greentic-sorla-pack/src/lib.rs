@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "pack-zip"), allow(dead_code, unused_imports))]
+
 pub mod sorx_compatibility;
 pub mod sorx_exposure;
 pub mod sorx_validation;
@@ -23,7 +25,8 @@ pub use validation_generator::{
 
 use greentic_sorla_ir::{
     AgentEndpointApprovalModeIr, AgentEndpointInputIr, AgentEndpointIr, AgentEndpointOutputIr,
-    AgentEndpointRiskIr, CanonicalIr, IrVersion, ProviderRequirementIr, agent_tools_json,
+    AgentEndpointRiskIr, CanonicalIr, EntityLinkingIr, IrVersion, OntologyModelIr,
+    ProviderRequirementIr, RetrievalBindingsIr, SemanticAliasesIr, agent_tools_json,
     canonical_cbor, canonical_hash_hex, inspect_ir, lower_package,
 };
 use greentic_sorla_lang::parser::parse_package;
@@ -33,7 +36,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "pack-zip")]
 use zip::write::SimpleFileOptions;
+#[cfg(feature = "pack-zip")]
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 pub const AGENT_GATEWAY_HANDOFF_SCHEMA: &str = "greentic.agent-gateway.handoff.v1";
@@ -46,6 +51,30 @@ pub const AGENT_ARAZZO_FILENAME: &str = "agent-workflows.arazzo.yaml";
 pub const MCP_TOOLS_FILENAME: &str = "mcp-tools.json";
 pub const LLMS_TXT_FRAGMENT_FILENAME: &str = "llms.txt.fragment";
 pub const EXECUTABLE_CONTRACT_FILENAME: &str = "executable-contract.json";
+pub const ONTOLOGY_GRAPH_SCHEMA: &str = "greentic.sorla.ontology.graph.v1";
+pub const ONTOLOGY_EXTENSION_ID: &str = "greentic.sorla.ontology.v1";
+pub const ONTOLOGY_GRAPH_FILENAME: &str = "ontology.graph.json";
+pub const ONTOLOGY_IR_CBOR_FILENAME: &str = "ontology.ir.cbor";
+pub const ONTOLOGY_SCHEMA_FILENAME: &str = "ontology.schema.json";
+pub const ONTOLOGY_GRAPH_PATH: &str = "assets/sorla/ontology.graph.json";
+pub const ONTOLOGY_IR_CBOR_PATH: &str = "assets/sorla/ontology.ir.cbor";
+pub const ONTOLOGY_SCHEMA_PATH: &str = "assets/sorla/ontology.schema.json";
+pub const RETRIEVAL_BINDINGS_SCHEMA: &str = "greentic.sorla.retrieval-bindings.v1";
+pub const RETRIEVAL_BINDINGS_FILENAME: &str = "retrieval-bindings.json";
+pub const RETRIEVAL_BINDINGS_IR_CBOR_FILENAME: &str = "retrieval-bindings.ir.cbor";
+pub const RETRIEVAL_BINDINGS_PATH: &str = "assets/sorla/retrieval-bindings.json";
+pub const RETRIEVAL_BINDINGS_IR_CBOR_PATH: &str = "assets/sorla/retrieval-bindings.ir.cbor";
+pub const DESIGNER_NODE_TYPES_SCHEMA: &str = "greentic.sorla.designer-node-types.v1";
+pub const DESIGNER_NODE_TYPES_FILENAME: &str = "designer-node-types.json";
+pub const DESIGNER_NODE_TYPES_PATH: &str = "assets/sorla/designer-node-types.json";
+pub const AGENT_ENDPOINT_ACTION_CATALOG_SCHEMA: &str =
+    "greentic.sorla.agent-endpoint-action-catalog.v1";
+pub const AGENT_ENDPOINT_ACTION_CATALOG_FILENAME: &str = "agent-endpoint-action-catalog.json";
+pub const AGENT_ENDPOINT_ACTION_CATALOG_PATH: &str =
+    "assets/sorla/agent-endpoint-action-catalog.json";
+pub const DEFAULT_DESIGNER_COMPONENT_REF: &str =
+    "oci://ghcr.io/greenticai/components/component-sorx-business:0.1.0";
+pub const DEFAULT_DESIGNER_COMPONENT_OPERATION: &str = "invoke_locked_action";
 pub const SORX_RUNTIME_EXTENSION_ID: &str = "greentic.sorx.runtime.v1";
 pub const START_SCHEMA_FILENAME: &str = "start.schema.json";
 pub const START_QUESTIONS_FILENAME: &str = "start.questions.cbor";
@@ -92,6 +121,9 @@ pub struct ArtifactSet {
     pub agent_tools_json: String,
     pub agent_exports: AgentExportSet,
     pub executable_contract_json: String,
+    pub designer_node_types_json: String,
+    pub agent_endpoint_action_catalog_json: String,
+    pub ontology_artifacts: Option<OntologyArtifactSet>,
     pub canonical_hash: String,
 }
 
@@ -170,6 +202,14 @@ pub struct AgentExportSet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OntologyArtifactSet {
+    pub ir_cbor: Vec<u8>,
+    pub graph_json: String,
+    pub schema_json: String,
+    pub ir_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SorlaGtpackOptions {
     pub input_path: PathBuf,
     pub name: String,
@@ -206,6 +246,14 @@ pub struct SorlaGtpackInspection {
     pub exposure_policy: Option<SorlaGtpackExposurePolicyInspection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compatibility: Option<SorlaGtpackCompatibilityInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ontology: Option<SorlaGtpackOntologyInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retrieval_bindings: Option<SorlaGtpackRetrievalInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub designer_node_types: Option<SorlaGtpackDesignerNodeTypesInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_endpoint_action_catalog: Option<SorlaGtpackAgentEndpointActionCatalogInspection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -229,6 +277,188 @@ pub struct SorlaGtpackCompatibilityInspection {
     pub state_mode: StateCompatibilityMode,
     pub provider_requirement_count: usize,
     pub migration_rule_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackOntologyInspection {
+    pub schema: String,
+    pub graph_schema: String,
+    pub concept_count: usize,
+    pub relationship_count: usize,
+    pub constraint_count: usize,
+    pub ir_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackRetrievalInspection {
+    pub schema: String,
+    pub provider_count: usize,
+    pub scope_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackDesignerNodeTypesInspection {
+    pub schema: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackAgentEndpointActionCatalogInspection {
+    pub schema: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeTypesDocument {
+    pub schema: String,
+    pub package: DesignerNodeTypesPackageRef,
+    #[serde(rename = "nodeTypes")]
+    pub node_types: Vec<DesignerNodeType>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeTypesPackageRef {
+    pub name: String,
+    pub version: String,
+    pub ir_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeType {
+    pub id: String,
+    pub version: String,
+    pub label: String,
+    pub description: String,
+    pub category: String,
+    pub binding: DesignerNodeBinding,
+    #[serde(rename = "configSchema")]
+    pub config_schema: serde_json::Value,
+    #[serde(rename = "inputSchema")]
+    pub input_schema: serde_json::Value,
+    #[serde(rename = "outputSchema")]
+    pub output_schema: serde_json::Value,
+    pub ui: DesignerNodeUi,
+    #[serde(rename = "defaultRouting")]
+    pub default_routing: DesignerNodeRouting,
+    pub metadata: DesignerNodeMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeBinding {
+    pub kind: String,
+    pub component: DesignerComponentRef,
+    pub operation: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerComponentRef {
+    #[serde(rename = "ref")]
+    pub reference: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeUi {
+    pub fields: Vec<DesignerNodeUiField>,
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeUiField {
+    pub name: String,
+    pub label: String,
+    pub widget: String,
+    #[serde(rename = "displayOrder")]
+    pub display_order: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeRouting {
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeMetadata {
+    pub endpoint: DesignerEndpointRef,
+    pub risk: String,
+    pub approval: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub intent: String,
+    pub side_effects: Vec<String>,
+    pub provider_requirements: Vec<ProviderRequirementIr>,
+    pub backing: DesignerNodeBacking,
+    pub exports: AgentGatewayEndpointExports,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerEndpointRef {
+    pub id: String,
+    pub version: String,
+    pub package: String,
+    pub contract_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesignerNodeBacking {
+    pub actions: Vec<String>,
+    pub events: Vec<String>,
+    pub flows: Vec<String>,
+    pub policies: Vec<String>,
+    pub approvals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesignerNodeTypeGenerationOptions {
+    pub component_ref: String,
+    pub operation: String,
+}
+
+impl Default for DesignerNodeTypeGenerationOptions {
+    fn default() -> Self {
+        Self {
+            component_ref: DEFAULT_DESIGNER_COMPONENT_REF.to_string(),
+            operation: DEFAULT_DESIGNER_COMPONENT_OPERATION.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentEndpointActionCatalogDocument {
+    pub schema: String,
+    pub package: AgentEndpointActionCatalogPackageRef,
+    pub actions: Vec<AgentEndpointActionCatalogAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentEndpointActionCatalogPackageRef {
+    pub name: String,
+    pub version: String,
+    pub ir_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentEndpointActionCatalogAction {
+    pub id: String,
+    pub version: String,
+    pub label: String,
+    pub description: String,
+    pub intent: String,
+    pub endpoint_ref: DesignerEndpointRef,
+    pub input_schema: serde_json::Value,
+    pub output_schema: serde_json::Value,
+    pub risk: String,
+    pub approval: String,
+    pub side_effects: Vec<String>,
+    pub provider_requirements: Vec<ProviderRequirementIr>,
+    pub backing: DesignerNodeBacking,
+    pub design: AgentEndpointActionCatalogDesign,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentEndpointActionCatalogDesign {
+    pub aliases: Vec<String>,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -338,6 +568,41 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
             .artifact_references
             .push(LLMS_TXT_FRAGMENT_FILENAME.to_string());
     }
+    let ontology_artifacts = ontology_artifacts(&ir)?;
+    if ontology_artifacts.is_some() {
+        package_manifest
+            .artifact_references
+            .push(ONTOLOGY_GRAPH_FILENAME.to_string());
+        package_manifest
+            .artifact_references
+            .push(ONTOLOGY_IR_CBOR_FILENAME.to_string());
+        package_manifest
+            .artifact_references
+            .push(ONTOLOGY_SCHEMA_FILENAME.to_string());
+    }
+    if ir.retrieval_bindings.is_some() {
+        package_manifest
+            .artifact_references
+            .push(RETRIEVAL_BINDINGS_FILENAME.to_string());
+        package_manifest
+            .artifact_references
+            .push(RETRIEVAL_BINDINGS_IR_CBOR_FILENAME.to_string());
+    }
+    let designer_node_types =
+        generate_designer_node_types_from_ir(&ir, &DesignerNodeTypeGenerationOptions::default())?;
+    let designer_node_types_json =
+        serde_json::to_string_pretty(&designer_node_types).map_err(|err| err.to_string())?;
+    let action_catalog = generate_agent_endpoint_action_catalog_from_ir(&ir)?;
+    let agent_endpoint_action_catalog_json =
+        serde_json::to_string_pretty(&action_catalog).map_err(|err| err.to_string())?;
+    if !designer_node_types.node_types.is_empty() {
+        package_manifest
+            .artifact_references
+            .push(DESIGNER_NODE_TYPES_FILENAME.to_string());
+        package_manifest
+            .artifact_references
+            .push(AGENT_ENDPOINT_ACTION_CATALOG_FILENAME.to_string());
+    }
 
     let mut cbor_artifacts = BTreeMap::new();
     cbor_artifacts.insert("actions.cbor".to_string(), canonical_cbor(&ir.actions));
@@ -356,6 +621,18 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
         cbor_artifacts.insert(
             AGENT_ENDPOINTS_IR_CBOR_FILENAME.to_string(),
             canonical_cbor(&ir),
+        );
+    }
+    if let Some(ontology_artifacts) = &ontology_artifacts {
+        cbor_artifacts.insert(
+            ONTOLOGY_IR_CBOR_FILENAME.to_string(),
+            ontology_artifacts.ir_cbor.clone(),
+        );
+    }
+    if let Some(retrieval) = &ir.retrieval_bindings {
+        cbor_artifacts.insert(
+            RETRIEVAL_BINDINGS_IR_CBOR_FILENAME.to_string(),
+            canonical_cbor(retrieval),
         );
     }
     cbor_artifacts.insert("policies.cbor".to_string(), canonical_cbor(&ir.policies));
@@ -390,10 +667,360 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
         agent_tools_json: agent_tools,
         agent_exports,
         executable_contract_json: executable_contract,
+        designer_node_types_json,
+        agent_endpoint_action_catalog_json,
+        ontology_artifacts,
         canonical_hash,
     })
 }
 
+pub fn generate_designer_node_types_from_ir(
+    ir: &CanonicalIr,
+    options: &DesignerNodeTypeGenerationOptions,
+) -> Result<DesignerNodeTypesDocument, String> {
+    if options.component_ref.trim().is_empty() {
+        return Err("designer node type component_ref must not be empty".to_string());
+    }
+    if options.operation.trim().is_empty() {
+        return Err("designer node type operation must not be empty".to_string());
+    }
+    let ir_hash = canonical_hash_hex(ir);
+    let node_types = ir
+        .agent_endpoints
+        .iter()
+        .map(|endpoint| designer_node_type_for_endpoint(ir, endpoint, options, &ir_hash))
+        .collect::<Vec<_>>();
+    Ok(DesignerNodeTypesDocument {
+        schema: DESIGNER_NODE_TYPES_SCHEMA.to_string(),
+        package: DesignerNodeTypesPackageRef {
+            name: ir.package.name.clone(),
+            version: ir.package.version.clone(),
+            ir_hash,
+        },
+        node_types,
+    })
+}
+
+pub fn generate_agent_endpoint_action_catalog_from_ir(
+    ir: &CanonicalIr,
+) -> Result<AgentEndpointActionCatalogDocument, String> {
+    let ir_hash = canonical_hash_hex(ir);
+    let contract_hash = format!("sha256:{ir_hash}");
+    let actions = ir
+        .agent_endpoints
+        .iter()
+        .map(|endpoint| {
+            let description = endpoint
+                .description
+                .clone()
+                .unwrap_or_else(|| endpoint.intent.clone());
+            AgentEndpointActionCatalogAction {
+                id: endpoint.id.clone(),
+                version: ir.package.version.clone(),
+                label: endpoint.title.clone(),
+                description,
+                intent: endpoint.intent.clone(),
+                endpoint_ref: DesignerEndpointRef {
+                    id: endpoint.id.clone(),
+                    version: ir.package.version.clone(),
+                    package: ir.package.name.clone(),
+                    contract_hash: contract_hash.clone(),
+                },
+                input_schema: object_schema_value(&endpoint.inputs),
+                output_schema: output_object_schema_value(&endpoint.outputs),
+                risk: agent_endpoint_risk_label(&endpoint.risk).to_string(),
+                approval: agent_endpoint_approval_label(&endpoint.approval).to_string(),
+                side_effects: endpoint.side_effects.clone(),
+                provider_requirements: endpoint.provider_requirements.clone(),
+                backing: DesignerNodeBacking {
+                    actions: endpoint.backing.actions.clone(),
+                    events: endpoint.backing.events.clone(),
+                    flows: endpoint.backing.flows.clone(),
+                    policies: endpoint.backing.policies.clone(),
+                    approvals: endpoint.backing.approvals.clone(),
+                },
+                design: AgentEndpointActionCatalogDesign {
+                    aliases: design_aliases_for_endpoint(endpoint),
+                    tags: vec!["sorla".to_string(), "agent-endpoint".to_string()],
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(AgentEndpointActionCatalogDocument {
+        schema: AGENT_ENDPOINT_ACTION_CATALOG_SCHEMA.to_string(),
+        package: AgentEndpointActionCatalogPackageRef {
+            name: ir.package.name.clone(),
+            version: ir.package.version.clone(),
+            ir_hash,
+        },
+        actions,
+    })
+}
+
+fn designer_node_type_for_endpoint(
+    ir: &CanonicalIr,
+    endpoint: &AgentEndpointIr,
+    options: &DesignerNodeTypeGenerationOptions,
+    ir_hash: &str,
+) -> DesignerNodeType {
+    let endpoint_ref = serde_json::json!({
+        "id": endpoint.id,
+        "version": ir.package.version,
+        "package": ir.package.name,
+        "contract_hash": format!("sha256:{ir_hash}")
+    });
+    DesignerNodeType {
+        id: format!("sorla.agent-endpoint.{}", endpoint.id),
+        version: ir.package.version.clone(),
+        label: endpoint.title.clone(),
+        description: endpoint
+            .description
+            .clone()
+            .unwrap_or_else(|| endpoint.intent.clone()),
+        category: "System of Record".to_string(),
+        binding: DesignerNodeBinding {
+            kind: "component".to_string(),
+            component: DesignerComponentRef {
+                reference: options.component_ref.clone(),
+            },
+            operation: options.operation.clone(),
+        },
+        config_schema: serde_json::json!({
+            "type": "object",
+            "required": ["endpoint_ref"],
+            "properties": {
+                "endpoint_ref": {
+                    "const": endpoint_ref
+                }
+            },
+            "additionalProperties": false
+        }),
+        input_schema: object_schema_value(&endpoint.inputs),
+        output_schema: output_object_schema_value(&endpoint.outputs),
+        ui: DesignerNodeUi {
+            fields: endpoint
+                .inputs
+                .iter()
+                .enumerate()
+                .map(|(index, input)| DesignerNodeUiField {
+                    name: input.name.clone(),
+                    label: label_from_identifier(&input.name),
+                    widget: widget_for_input(input),
+                    display_order: ((index + 1) * 10) as u16,
+                })
+                .collect(),
+            tags: vec!["sorla".to_string(), "agent-endpoint".to_string()],
+            aliases: design_aliases_for_endpoint(endpoint),
+        },
+        default_routing: DesignerNodeRouting {
+            kind: "out".to_string(),
+        },
+        metadata: DesignerNodeMetadata {
+            endpoint: DesignerEndpointRef {
+                id: endpoint.id.clone(),
+                version: ir.package.version.clone(),
+                package: ir.package.name.clone(),
+                contract_hash: format!("sha256:{ir_hash}"),
+            },
+            risk: agent_endpoint_risk_label(&endpoint.risk).to_string(),
+            approval: agent_endpoint_approval_label(&endpoint.approval).to_string(),
+            intent: endpoint.intent.clone(),
+            side_effects: endpoint.side_effects.clone(),
+            provider_requirements: endpoint.provider_requirements.clone(),
+            backing: DesignerNodeBacking {
+                actions: endpoint.backing.actions.clone(),
+                events: endpoint.backing.events.clone(),
+                flows: endpoint.backing.flows.clone(),
+                policies: endpoint.backing.policies.clone(),
+                approvals: endpoint.backing.approvals.clone(),
+            },
+            exports: AgentGatewayEndpointExports {
+                openapi: endpoint.agent_visibility.openapi,
+                arazzo: endpoint.agent_visibility.arazzo,
+                mcp: endpoint.agent_visibility.mcp,
+                llms_txt: endpoint.agent_visibility.llms_txt,
+            },
+        },
+    }
+}
+
+fn output_object_schema_value(outputs: &[AgentEndpointOutputIr]) -> serde_json::Value {
+    let properties = outputs
+        .iter()
+        .map(|output| {
+            let mut property = serde_json::Map::new();
+            property.insert(
+                "type".to_string(),
+                serde_json::Value::String(output.type_name.clone()),
+            );
+            if let Some(description) = &output.description {
+                property.insert(
+                    "description".to_string(),
+                    serde_json::Value::String(description.clone()),
+                );
+            }
+            (output.name.clone(), serde_json::Value::Object(property))
+        })
+        .collect::<serde_json::Map<_, _>>();
+
+    serde_json::json!({
+        "type": "object",
+        "properties": properties
+    })
+}
+
+fn label_from_identifier(identifier: &str) -> String {
+    identifier
+        .split(['_', '-'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn widget_for_input(input: &AgentEndpointInputIr) -> String {
+    if !input.enum_values.is_empty() {
+        return "select".to_string();
+    }
+    match input.type_name.as_str() {
+        "bool" | "boolean" => "checkbox",
+        "number" | "float" | "double" | "decimal" | "integer" | "int" => "number",
+        _ => "text",
+    }
+    .to_string()
+}
+
+fn design_aliases_for_endpoint(endpoint: &AgentEndpointIr) -> Vec<String> {
+    let mut aliases = BTreeSet::new();
+    aliases.insert(endpoint.id.replace(['_', '-'], " "));
+    aliases.insert(endpoint.title.to_ascii_lowercase());
+    aliases.into_iter().collect()
+}
+
+fn ontology_artifacts(ir: &CanonicalIr) -> Result<Option<OntologyArtifactSet>, String> {
+    let Some(ontology) = &ir.ontology else {
+        return Ok(None);
+    };
+
+    let ir_cbor = canonical_cbor(ontology);
+    let ir_hash = sha256_hex(&ir_cbor);
+    let graph = ontology_graph_json(ir, ontology, &ir_hash);
+    let schema = ontology_schema_json();
+
+    Ok(Some(OntologyArtifactSet {
+        ir_cbor,
+        graph_json: serde_json::to_string_pretty(&graph).map_err(|err| err.to_string())?,
+        schema_json: serde_json::to_string_pretty(&schema).map_err(|err| err.to_string())?,
+        ir_hash,
+    }))
+}
+
+fn ontology_graph_json(
+    ir: &CanonicalIr,
+    ontology: &OntologyModelIr,
+    ir_hash: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema": ONTOLOGY_GRAPH_SCHEMA,
+        "package": {
+            "name": ir.package.name.clone(),
+            "version": ir.package.version.clone(),
+        },
+        "ir_hash": ir_hash,
+        "concepts": ontology.concepts.clone(),
+        "relationships": ontology.relationships.clone(),
+        "constraints": ontology.constraints.clone(),
+        "semantic_aliases": ontology.semantic_aliases.clone(),
+        "entity_linking": ontology.entity_linking.clone(),
+        "indexes": {
+            "concepts_by_id": true,
+            "relationships_by_id": true
+        }
+    })
+}
+
+pub fn ontology_schema_json() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": ONTOLOGY_EXTENSION_ID,
+        "title": "SoRLa ontology v1",
+        "type": "object",
+        "required": ["schema", "concepts", "relationships", "semantic_aliases", "entity_linking"],
+        "properties": {
+            "schema": { "const": ONTOLOGY_EXTENSION_ID },
+            "concepts": { "type": "array" },
+            "relationships": { "type": "array" },
+            "constraints": { "type": "array" },
+            "semantic_aliases": { "type": "object" },
+            "entity_linking": { "type": "object" }
+        },
+        "additionalProperties": false
+    })
+}
+
+pub fn retrieval_bindings_schema_json() -> serde_json::Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": RETRIEVAL_BINDINGS_SCHEMA,
+        "title": "SoRLa retrieval bindings v1",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "providers", "scopes"],
+        "properties": {
+            "schema": { "const": RETRIEVAL_BINDINGS_SCHEMA },
+            "providers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "category", "required_capabilities"],
+                    "properties": {
+                        "id": { "type": "string", "minLength": 1 },
+                        "category": { "type": "string", "minLength": 1 },
+                        "required_capabilities": {
+                            "type": "array",
+                            "items": { "type": "string", "minLength": 1 }
+                        }
+                    }
+                }
+            },
+            "scopes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["id", "applies_to", "provider"],
+                    "properties": {
+                        "id": { "type": "string", "minLength": 1 },
+                        "applies_to": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "concept": { "type": "string", "minLength": 1 },
+                                "relationship": { "type": "string", "minLength": 1 }
+                            }
+                        },
+                        "provider": { "type": "string", "minLength": 1 },
+                        "filters": { "type": "object" },
+                        "permission": {
+                            "type": "string",
+                            "enum": ["inherit", "public-metadata-only", "requires-policy"]
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
+#[cfg(feature = "pack-zip")]
 pub fn build_sorla_gtpack(options: &SorlaGtpackOptions) -> Result<SorlaGtpackBuildSummary, String> {
     let yaml = fs::read_to_string(&options.input_path).map_err(|err| {
         format!(
@@ -405,6 +1032,7 @@ pub fn build_sorla_gtpack(options: &SorlaGtpackOptions) -> Result<SorlaGtpackBui
     build_sorla_gtpack_from_artifacts(options, artifacts)
 }
 
+#[cfg(feature = "pack-zip")]
 fn build_sorla_gtpack_from_artifacts(
     options: &SorlaGtpackOptions,
     artifacts: ArtifactSet,
@@ -466,6 +1094,28 @@ fn build_sorla_gtpack_from_artifacts(
             bytes.clone(),
         );
     }
+    if let Some(ontology) = &artifacts.ontology_artifacts {
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            ONTOLOGY_GRAPH_PATH.to_string(),
+            ontology.graph_json.as_bytes().to_vec(),
+        );
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            ONTOLOGY_SCHEMA_PATH.to_string(),
+            ontology.schema_json.as_bytes().to_vec(),
+        );
+    }
+    if let Some(retrieval) = &artifacts.ir.retrieval_bindings {
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            RETRIEVAL_BINDINGS_PATH.to_string(),
+            serde_json::to_vec_pretty(retrieval).map_err(|err| err.to_string())?,
+        );
+    }
 
     insert_pack_asset(
         &mut entries,
@@ -515,6 +1165,23 @@ fn build_sorla_gtpack_from_artifacts(
         format!("assets/sorla/{EXECUTABLE_CONTRACT_FILENAME}"),
         artifacts.executable_contract_json.as_bytes().to_vec(),
     );
+    if !artifacts.ir.agent_endpoints.is_empty() {
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            DESIGNER_NODE_TYPES_PATH.to_string(),
+            artifacts.designer_node_types_json.as_bytes().to_vec(),
+        );
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            AGENT_ENDPOINT_ACTION_CATALOG_PATH.to_string(),
+            artifacts
+                .agent_endpoint_action_catalog_json
+                .as_bytes()
+                .to_vec(),
+        );
+    }
 
     for (name, bytes) in &sorx_assets {
         insert_pack_asset(
@@ -566,6 +1233,7 @@ fn build_sorla_gtpack_from_artifacts(
     })
 }
 
+#[cfg(feature = "pack-zip")]
 fn insert_pack_asset(
     entries: &mut BTreeMap<String, Vec<u8>>,
     asset_paths: &mut Vec<String>,
@@ -576,6 +1244,7 @@ fn insert_pack_asset(
     entries.insert(path, bytes);
 }
 
+#[cfg(feature = "pack-zip")]
 fn sorx_startup_assets(ir: &CanonicalIr) -> BTreeMap<String, Vec<u8>> {
     let mut assets = BTreeMap::new();
     let schema = serde_json::json!({
@@ -630,6 +1299,7 @@ fn sorx_startup_assets(ir: &CanonicalIr) -> BTreeMap<String, Vec<u8>> {
     assets
 }
 
+#[cfg(feature = "pack-zip")]
 fn sorx_startup_example() -> serde_json::Value {
     serde_json::json!({
         "tenant": {
@@ -664,6 +1334,7 @@ fn sorx_startup_example() -> serde_json::Value {
     })
 }
 
+#[cfg(feature = "pack-zip")]
 fn runtime_template_yaml(ir: &CanonicalIr) -> String {
     format!(
         "schema: greentic.sorx.runtime.template.v1\npackage:\n  name: {}\n  version: {}\nruntime:\n  tenant_id: ${{tenant.tenant_id}}\n  environment: ${{tenant.environment}}\nserver:\n  bind: ${{server.bind}}\n  public_base_url: ${{server.public_base_url}}\nmcp:\n  enabled: ${{mcp.enabled}}\n  bind: ${{mcp.bind}}\nproviders:\n  store:\n    kind: ${{providers.store.kind}}\n    config_ref: ${{providers.store.config_ref}}\npolicy:\n  approvals:\n    low: ${{policy.approvals.low}}\n    medium: ${{policy.approvals.medium}}\n    high: ${{policy.approvals.high}}\n    critical: ${{policy.approvals.critical}}\naudit:\n  sink: ${{audit.sink}}\n",
@@ -671,10 +1342,12 @@ fn runtime_template_yaml(ir: &CanonicalIr) -> String {
     )
 }
 
+#[cfg(feature = "pack-zip")]
 fn provider_bindings_template_yaml() -> String {
     "schema: greentic.sorx.provider-bindings.template.v1\nproviders:\n  foundationdb:\n    local:\n      kind: foundationdb\n      config_ref: providers.foundationdb.local\n      tenant_prefix: ${tenant.tenant_id}\n".to_string()
 }
 
+#[cfg(feature = "pack-zip")]
 fn sorx_runtime_extension_value(
     artifacts: &ArtifactSet,
     sorx_assets: &BTreeMap<String, Vec<u8>>,
@@ -729,6 +1402,43 @@ fn sorx_runtime_extension_value(
             serde_json::json!(format!("assets/sorla/{LLMS_TXT_FRAGMENT_FILENAME}")),
         );
     }
+    if artifacts.ontology_artifacts.is_some() {
+        sorla.insert(
+            "ontology".to_string(),
+            serde_json::json!({
+                "schema": ONTOLOGY_EXTENSION_ID,
+                "graph": ONTOLOGY_GRAPH_PATH,
+                "ir": ONTOLOGY_IR_CBOR_PATH,
+                "json_schema": ONTOLOGY_SCHEMA_PATH
+            }),
+        );
+    }
+    if artifacts.ir.retrieval_bindings.is_some() {
+        sorla.insert(
+            "retrieval_bindings".to_string(),
+            serde_json::json!({
+                "schema": RETRIEVAL_BINDINGS_SCHEMA,
+                "json": RETRIEVAL_BINDINGS_PATH,
+                "ir": RETRIEVAL_BINDINGS_IR_CBOR_PATH
+            }),
+        );
+    }
+    if !artifacts.ir.agent_endpoints.is_empty() {
+        sorla.insert(
+            "designer_node_types".to_string(),
+            serde_json::json!({
+                "schema": DESIGNER_NODE_TYPES_SCHEMA,
+                "json": DESIGNER_NODE_TYPES_PATH
+            }),
+        );
+        sorla.insert(
+            "agent_endpoint_action_catalog".to_string(),
+            serde_json::json!({
+                "schema": AGENT_ENDPOINT_ACTION_CATALOG_SCHEMA,
+                "json": AGENT_ENDPOINT_ACTION_CATALOG_PATH
+            }),
+        );
+    }
 
     let mut sorx = sorx_assets
         .keys()
@@ -776,6 +1486,7 @@ fn sorx_runtime_extension_value(
     })
 }
 
+#[cfg(feature = "pack-zip")]
 fn pack_lock_for_entries(entries: &BTreeMap<String, Vec<u8>>) -> SorlaPackLock {
     SorlaPackLock {
         schema: "greentic.gtpack.lock.sorla.v1".to_string(),
@@ -799,6 +1510,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+#[cfg(feature = "pack-zip")]
 fn write_zip_entries(path: &Path, entries: BTreeMap<String, Vec<u8>>) -> Result<(), String> {
     let file = fs::File::create(path)
         .map_err(|err| format!("failed to create gtpack {}: {err}", path.display()))?;
@@ -824,6 +1536,7 @@ fn write_zip_entries(path: &Path, entries: BTreeMap<String, Vec<u8>>) -> Result<
     Ok(())
 }
 
+#[cfg(feature = "pack-zip")]
 pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String> {
     let mut archive = open_gtpack(path)?;
     let names = zip_entry_names(&mut archive)?;
@@ -846,12 +1559,24 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
     let validation = validation_manifest_summary(&mut archive, &manifest, &names)?;
     let exposure_policy = exposure_policy_summary(&mut archive, &manifest, &names)?;
     let compatibility = compatibility_summary(&mut archive, &manifest, &names)?;
+    let ontology = ontology_summary(&mut archive, &manifest, &names)?;
+    let retrieval_bindings = retrieval_summary(&mut archive, &manifest, &names)?;
+    let designer_node_types = designer_node_types_summary(&mut archive, &manifest, &names)?;
+    let agent_endpoint_action_catalog =
+        agent_endpoint_action_catalog_summary(&mut archive, &manifest, &names)?;
     let optional_artifacts = [
         AGENT_ENDPOINTS_IR_CBOR_FILENAME,
         AGENT_OPENAPI_OVERLAY_FILENAME,
         AGENT_ARAZZO_FILENAME,
         MCP_TOOLS_FILENAME,
         LLMS_TXT_FRAGMENT_FILENAME,
+        DESIGNER_NODE_TYPES_FILENAME,
+        AGENT_ENDPOINT_ACTION_CATALOG_FILENAME,
+        ONTOLOGY_GRAPH_FILENAME,
+        ONTOLOGY_IR_CBOR_FILENAME,
+        ONTOLOGY_SCHEMA_FILENAME,
+        RETRIEVAL_BINDINGS_FILENAME,
+        RETRIEVAL_BINDINGS_IR_CBOR_FILENAME,
     ]
     .into_iter()
     .map(|name| {
@@ -883,9 +1608,176 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
         validation,
         exposure_policy,
         compatibility,
+        ontology,
+        retrieval_bindings,
+        designer_node_types,
+        agent_endpoint_action_catalog,
     })
 }
 
+fn ontology_extension_paths(
+    manifest: &SorlaPackManifest,
+) -> Result<Option<(String, String, String)>, String> {
+    let Some(ontology) = manifest
+        .extension
+        .get("sorla")
+        .and_then(|sorla| sorla.get("ontology"))
+    else {
+        return Ok(None);
+    };
+
+    let schema = ontology
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "pack.cbor ontology extension is missing `schema`".to_string())?;
+    if schema != ONTOLOGY_EXTENSION_ID {
+        return Err(format!(
+            "pack.cbor ontology extension has unsupported schema `{schema}`"
+        ));
+    }
+
+    let graph = ontology_extension_path(ontology, "graph", ONTOLOGY_GRAPH_PATH)?;
+    let ir = ontology_extension_path(ontology, "ir", ONTOLOGY_IR_CBOR_PATH)?;
+    let schema_path = ontology_extension_path(ontology, "json_schema", ONTOLOGY_SCHEMA_PATH)?;
+    Ok(Some((graph, ir, schema_path)))
+}
+
+fn ontology_extension_path(
+    ontology: &serde_json::Value,
+    key: &str,
+    expected: &str,
+) -> Result<String, String> {
+    let path = ontology
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("pack.cbor ontology extension is missing `{key}`"))?;
+    if path != expected {
+        return Err(format!(
+            "pack.cbor references unsupported ontology asset path `{path}` for `{key}`"
+        ));
+    }
+    validate_relative_pack_asset_path(path)?;
+    Ok(path.to_string())
+}
+
+fn validate_relative_pack_asset_path(path: &str) -> Result<(), String> {
+    if path.starts_with('/') || path.contains("..") || !path.starts_with("assets/") {
+        return Err(format!("pack.cbor references unsafe asset path `{path}`"));
+    }
+    Ok(())
+}
+
+fn retrieval_extension_paths(
+    manifest: &SorlaPackManifest,
+) -> Result<Option<(String, String)>, String> {
+    let Some(retrieval) = manifest
+        .extension
+        .get("sorla")
+        .and_then(|sorla| sorla.get("retrieval_bindings"))
+    else {
+        return Ok(None);
+    };
+    let schema = retrieval
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "pack.cbor retrieval_bindings extension is missing `schema`".to_string())?;
+    if schema != RETRIEVAL_BINDINGS_SCHEMA {
+        return Err(format!(
+            "pack.cbor retrieval_bindings extension has unsupported schema `{schema}`"
+        ));
+    }
+    let json = retrieval_extension_path(retrieval, "json", RETRIEVAL_BINDINGS_PATH)?;
+    let ir = retrieval_extension_path(retrieval, "ir", RETRIEVAL_BINDINGS_IR_CBOR_PATH)?;
+    Ok(Some((json, ir)))
+}
+
+fn retrieval_extension_path(
+    retrieval: &serde_json::Value,
+    key: &str,
+    expected: &str,
+) -> Result<String, String> {
+    let path = retrieval
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("pack.cbor retrieval_bindings extension is missing `{key}`"))?;
+    if path != expected {
+        return Err(format!(
+            "pack.cbor references unsupported retrieval asset path `{path}` for `{key}`"
+        ));
+    }
+    validate_relative_pack_asset_path(path)?;
+    Ok(path.to_string())
+}
+
+fn designer_node_types_extension_path(
+    manifest: &SorlaPackManifest,
+) -> Result<Option<String>, String> {
+    let Some(node_types) = manifest
+        .extension
+        .get("sorla")
+        .and_then(|sorla| sorla.get("designer_node_types"))
+    else {
+        return Ok(None);
+    };
+    let schema = node_types
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "pack.cbor designer_node_types extension is missing `schema`".to_string())?;
+    if schema != DESIGNER_NODE_TYPES_SCHEMA {
+        return Err(format!(
+            "pack.cbor designer_node_types extension has unsupported schema `{schema}`"
+        ));
+    }
+    let json_path = node_types
+        .get("json")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "pack.cbor designer_node_types extension is missing `json`".to_string())?;
+    if json_path != DESIGNER_NODE_TYPES_PATH {
+        return Err(format!(
+            "pack.cbor references unsupported designer node types asset path `{json_path}`"
+        ));
+    }
+    validate_relative_pack_asset_path(json_path)?;
+    Ok(Some(json_path.to_string()))
+}
+
+fn agent_endpoint_action_catalog_extension_path(
+    manifest: &SorlaPackManifest,
+) -> Result<Option<String>, String> {
+    let Some(catalog) = manifest
+        .extension
+        .get("sorla")
+        .and_then(|sorla| sorla.get("agent_endpoint_action_catalog"))
+    else {
+        return Ok(None);
+    };
+    let schema = catalog
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            "pack.cbor agent_endpoint_action_catalog extension is missing `schema`".to_string()
+        })?;
+    if schema != AGENT_ENDPOINT_ACTION_CATALOG_SCHEMA {
+        return Err(format!(
+            "pack.cbor agent_endpoint_action_catalog extension has unsupported schema `{schema}`"
+        ));
+    }
+    let json_path = catalog
+        .get("json")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            "pack.cbor agent_endpoint_action_catalog extension is missing `json`".to_string()
+        })?;
+    if json_path != AGENT_ENDPOINT_ACTION_CATALOG_PATH {
+        return Err(format!(
+            "pack.cbor references unsupported agent endpoint action catalog asset path `{json_path}`"
+        ));
+    }
+    validate_relative_pack_asset_path(json_path)?;
+    Ok(Some(json_path.to_string()))
+}
+
+#[cfg(feature = "pack-zip")]
 fn sorx_extension_path(
     manifest: &SorlaPackManifest,
     key: &str,
@@ -908,6 +1800,7 @@ fn sorx_extension_path(
     Ok(Some(path.to_string()))
 }
 
+#[cfg(feature = "pack-zip")]
 fn validation_manifest_path(manifest: &SorlaPackManifest) -> Result<Option<String>, String> {
     sorx_extension_path(
         manifest,
@@ -916,14 +1809,124 @@ fn validation_manifest_path(manifest: &SorlaPackManifest) -> Result<Option<Strin
     )
 }
 
+#[cfg(feature = "pack-zip")]
 fn exposure_policy_path(manifest: &SorlaPackManifest) -> Result<Option<String>, String> {
     sorx_extension_path(manifest, "exposure_policy", SORX_EXPOSURE_POLICY_PATH)
 }
 
+#[cfg(feature = "pack-zip")]
 fn compatibility_path(manifest: &SorlaPackManifest) -> Result<Option<String>, String> {
     sorx_extension_path(manifest, "compatibility", SORX_COMPATIBILITY_PATH)
 }
 
+#[cfg(feature = "pack-zip")]
+fn ontology_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackOntologyInspection>, String> {
+    let Some((graph_path, ir_path, schema_path)) = ontology_extension_paths(manifest)? else {
+        return Ok(None);
+    };
+    for path in [&graph_path, &ir_path, &schema_path] {
+        if !names.contains(path) {
+            return Err(format!(
+                "pack.cbor references missing ontology asset `{path}`"
+            ));
+        }
+    }
+
+    let ontology_ir = read_ontology_ir(archive, &ir_path)?;
+    let graph = read_ontology_graph(archive, &graph_path)?;
+    let ir_bytes = zip_bytes(archive, &ir_path)?;
+    let ir_hash = sha256_hex(&ir_bytes);
+    if graph["ir_hash"].as_str() != Some(ir_hash.as_str()) {
+        return Err("ontology.graph.json ir_hash does not match ontology.ir.cbor".to_string());
+    }
+
+    Ok(Some(SorlaGtpackOntologyInspection {
+        schema: ontology_ir.schema.clone(),
+        graph_schema: graph["schema"].as_str().unwrap_or("").to_string(),
+        concept_count: ontology_ir.concepts.len(),
+        relationship_count: ontology_ir.relationships.len(),
+        constraint_count: ontology_ir.constraints.len(),
+        ir_hash,
+    }))
+}
+
+#[cfg(feature = "pack-zip")]
+fn retrieval_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackRetrievalInspection>, String> {
+    let Some((json_path, ir_path)) = retrieval_extension_paths(manifest)? else {
+        return Ok(None);
+    };
+    for path in [&json_path, &ir_path] {
+        if !names.contains(path) {
+            return Err(format!(
+                "pack.cbor references missing retrieval asset `{path}`"
+            ));
+        }
+    }
+    let json = read_retrieval_json(archive, &json_path)?;
+    let ir = read_retrieval_ir(archive, &ir_path)?;
+    if json != ir {
+        return Err(
+            "retrieval-bindings.json does not match retrieval-bindings.ir.cbor".to_string(),
+        );
+    }
+    Ok(Some(SorlaGtpackRetrievalInspection {
+        schema: ir.schema,
+        provider_count: ir.providers.len(),
+        scope_count: ir.scopes.len(),
+    }))
+}
+
+#[cfg(feature = "pack-zip")]
+fn designer_node_types_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackDesignerNodeTypesInspection>, String> {
+    let Some(json_path) = designer_node_types_extension_path(manifest)? else {
+        return Ok(None);
+    };
+    if !names.contains(&json_path) {
+        return Err(format!(
+            "pack.cbor references missing designer node types asset `{json_path}`"
+        ));
+    }
+    let document = read_designer_node_types(archive, &json_path)?;
+    Ok(Some(SorlaGtpackDesignerNodeTypesInspection {
+        schema: document.schema,
+        count: document.node_types.len(),
+    }))
+}
+
+#[cfg(feature = "pack-zip")]
+fn agent_endpoint_action_catalog_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackAgentEndpointActionCatalogInspection>, String> {
+    let Some(json_path) = agent_endpoint_action_catalog_extension_path(manifest)? else {
+        return Ok(None);
+    };
+    if !names.contains(&json_path) {
+        return Err(format!(
+            "pack.cbor references missing agent endpoint action catalog asset `{json_path}`"
+        ));
+    }
+    let document = read_agent_endpoint_action_catalog(archive, &json_path)?;
+    Ok(Some(SorlaGtpackAgentEndpointActionCatalogInspection {
+        schema: document.schema,
+        count: document.actions.len(),
+    }))
+}
+
+#[cfg(feature = "pack-zip")]
 fn compatibility_summary<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     manifest: &SorlaPackManifest,
@@ -950,6 +1953,7 @@ fn compatibility_summary<R: Read + Seek>(
     }))
 }
 
+#[cfg(feature = "pack-zip")]
 fn exposure_policy_summary<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     manifest: &SorlaPackManifest,
@@ -980,6 +1984,7 @@ fn exposure_policy_summary<R: Read + Seek>(
     }))
 }
 
+#[cfg(feature = "pack-zip")]
 fn validation_manifest_summary<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     manifest: &SorlaPackManifest,
@@ -1010,6 +2015,7 @@ fn validation_manifest_summary<R: Read + Seek>(
     }))
 }
 
+#[cfg(feature = "pack-zip")]
 fn validate_embedded_sorx_validation<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     names: &BTreeSet<String>,
@@ -1063,6 +2069,7 @@ fn validate_embedded_sorx_validation<R: Read + Seek>(
     Ok(())
 }
 
+#[cfg(feature = "pack-zip")]
 fn validate_embedded_sorx_exposure_policy<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     names: &BTreeSet<String>,
@@ -1097,6 +2104,7 @@ fn validate_embedded_sorx_exposure_policy<R: Read + Seek>(
     Ok(())
 }
 
+#[cfg(feature = "pack-zip")]
 fn validate_embedded_sorx_compatibility<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     names: &BTreeSet<String>,
@@ -1137,6 +2145,513 @@ fn validate_embedded_sorx_compatibility<R: Read + Seek>(
     Ok(())
 }
 
+#[cfg(feature = "pack-zip")]
+fn validate_embedded_ontology_artifacts<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let declared_paths = ontology_extension_paths(&pack_manifest)?;
+    let Some(expected_ontology) = &ir.ontology else {
+        if declared_paths.is_some() {
+            return Err(
+                "pack.cbor declares ontology extension but model.cbor has no ontology".into(),
+            );
+        }
+        return Ok(());
+    };
+    let Some((graph_path, ir_path, schema_path)) = declared_paths else {
+        return Err("pack.cbor is missing sorla ontology extension".to_string());
+    };
+
+    for path in [&graph_path, &ir_path, &schema_path] {
+        if !names.contains(path) {
+            return Err(format!(
+                "pack.cbor references missing ontology asset `{path}`"
+            ));
+        }
+        if !pack_manifest.assets.iter().any(|asset| asset == path) {
+            return Err(format!("pack.cbor assets do not include `{path}`"));
+        }
+        validate_lock_includes_entry(archive, path)?;
+    }
+
+    let emitted_ontology = read_ontology_ir(archive, &ir_path)?;
+    if &emitted_ontology != expected_ontology {
+        return Err("ontology.ir.cbor does not match model.cbor ontology IR".to_string());
+    }
+
+    let graph = read_ontology_graph(archive, &graph_path)?;
+    let ir_bytes = zip_bytes(archive, &ir_path)?;
+    let ir_hash = sha256_hex(&ir_bytes);
+    if graph["ir_hash"].as_str() != Some(ir_hash.as_str()) {
+        return Err("ontology.graph.json ir_hash does not match ontology.ir.cbor".to_string());
+    }
+    if graph["package"]["name"].as_str() != Some(ir.package.name.as_str()) {
+        return Err("ontology.graph.json package.name does not match model.cbor".to_string());
+    }
+    if graph["package"]["version"].as_str() != Some(ir.package.version.as_str()) {
+        return Err("ontology.graph.json package.version does not match model.cbor".to_string());
+    }
+    let graph_concepts = graph_array::<greentic_sorla_ir::ConceptDefinitionIr>(&graph, "concepts")?;
+    if graph_concepts != emitted_ontology.concepts {
+        return Err("ontology.graph.json concepts do not match ontology.ir.cbor".to_string());
+    }
+    let graph_relationships =
+        graph_array::<greentic_sorla_ir::RelationshipDefinitionIr>(&graph, "relationships")?;
+    if graph_relationships != emitted_ontology.relationships {
+        return Err("ontology.graph.json relationships do not match ontology.ir.cbor".to_string());
+    }
+    let graph_constraints =
+        graph_array::<greentic_sorla_ir::OntologyConstraintIr>(&graph, "constraints")?;
+    if graph_constraints != emitted_ontology.constraints {
+        return Err("ontology.graph.json constraints do not match ontology.ir.cbor".to_string());
+    }
+    let graph_aliases: SemanticAliasesIr =
+        serde_json::from_value(graph["semantic_aliases"].clone())
+            .map_err(|err| format!("ontology.graph.json `semantic_aliases` is invalid: {err}"))?;
+    if graph_aliases != emitted_ontology.semantic_aliases {
+        return Err(
+            "ontology.graph.json semantic_aliases do not match ontology.ir.cbor".to_string(),
+        );
+    }
+    let graph_linking: EntityLinkingIr = serde_json::from_value(graph["entity_linking"].clone())
+        .map_err(|err| format!("ontology.graph.json `entity_linking` is invalid: {err}"))?;
+    if graph_linking != emitted_ontology.entity_linking {
+        return Err(
+            "ontology.graph.json entity_linking does not match ontology.ir.cbor".to_string(),
+        );
+    }
+
+    validate_ontology_backing(&emitted_ontology, ir)?;
+    let schema_json: serde_json::Value = serde_json::from_str(&zip_text(archive, &schema_path)?)
+        .map_err(|err| format!("{schema_path} is invalid JSON: {err}"))?;
+    if schema_json["$id"].as_str() != Some(ONTOLOGY_EXTENSION_ID) {
+        return Err("ontology.schema.json has unsupported $id".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_embedded_retrieval_bindings<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let declared_paths = retrieval_extension_paths(&pack_manifest)?;
+    let Some(expected) = &ir.retrieval_bindings else {
+        if declared_paths.is_some() {
+            return Err(
+                "pack.cbor declares retrieval_bindings extension but model.cbor has no retrieval bindings"
+                    .to_string(),
+            );
+        }
+        return Ok(());
+    };
+    let Some((json_path, ir_path)) = declared_paths else {
+        return Err("pack.cbor is missing sorla retrieval_bindings extension".to_string());
+    };
+    for path in [&json_path, &ir_path] {
+        if !names.contains(path) {
+            return Err(format!(
+                "pack.cbor references missing retrieval asset `{path}`"
+            ));
+        }
+        if !pack_manifest.assets.iter().any(|asset| asset == path) {
+            return Err(format!("pack.cbor assets do not include `{path}`"));
+        }
+        validate_lock_includes_entry(archive, path)?;
+    }
+    let json = read_retrieval_json(archive, &json_path)?;
+    let cbor = read_retrieval_ir(archive, &ir_path)?;
+    if &json != expected || &cbor != expected {
+        return Err("retrieval bindings assets do not match model.cbor".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_embedded_designer_node_types<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let declared_path = designer_node_types_extension_path(&pack_manifest)?;
+    if ir.agent_endpoints.is_empty() {
+        if declared_path.is_some() {
+            return Err(
+                "pack.cbor declares designer_node_types extension but model.cbor has no agent endpoints"
+                    .to_string(),
+            );
+        }
+        return Ok(());
+    }
+    let Some(json_path) = declared_path else {
+        return Err("pack.cbor is missing sorla designer_node_types extension".to_string());
+    };
+    if !names.contains(&json_path) {
+        return Err(format!(
+            "pack.cbor references missing designer node types asset `{json_path}`"
+        ));
+    }
+    if !pack_manifest.assets.iter().any(|asset| asset == &json_path) {
+        return Err(format!("pack.cbor assets do not include `{json_path}`"));
+    }
+    validate_lock_includes_entry(archive, &json_path)?;
+
+    let document = read_designer_node_types(archive, &json_path)?;
+    let expected_hash = canonical_hash_hex(ir);
+    let expected_contract_hash = format!("sha256:{expected_hash}");
+    if document.package.name != ir.package.name
+        || document.package.version != ir.package.version
+        || document.package.ir_hash != expected_hash
+    {
+        return Err(
+            "designer-node-types.json package metadata does not match model.cbor".to_string(),
+        );
+    }
+    if document.node_types.len() != ir.agent_endpoints.len() {
+        return Err(format!(
+            "designer-node-types.json has {} node types but model.cbor has {} agent endpoints",
+            document.node_types.len(),
+            ir.agent_endpoints.len()
+        ));
+    }
+
+    let endpoints = ir
+        .agent_endpoints
+        .iter()
+        .map(|endpoint| (endpoint.id.as_str(), endpoint))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    for node_type in &document.node_types {
+        let endpoint_id = node_type.metadata.endpoint.id.as_str();
+        let Some(endpoint) = endpoints.get(endpoint_id) else {
+            return Err(format!(
+                "designer-node-types.json references unknown endpoint `{endpoint_id}`"
+            ));
+        };
+        if !seen.insert(endpoint_id) {
+            return Err(format!(
+                "designer-node-types.json contains duplicate endpoint `{endpoint_id}`"
+            ));
+        }
+        if node_type.id != format!("sorla.agent-endpoint.{endpoint_id}") {
+            return Err(format!(
+                "designer-node-types.json node `{}` does not match endpoint `{endpoint_id}`",
+                node_type.id
+            ));
+        }
+        if node_type.binding.kind != "component" {
+            return Err(format!(
+                "designer-node-types.json node `{}` has unsupported binding kind `{}`",
+                node_type.id, node_type.binding.kind
+            ));
+        }
+        if node_type.binding.operation != DEFAULT_DESIGNER_COMPONENT_OPERATION {
+            return Err(format!(
+                "designer-node-types.json node `{}` has unsupported operation `{}`",
+                node_type.id, node_type.binding.operation
+            ));
+        }
+        if !is_sha256_contract_hash(&node_type.metadata.endpoint.contract_hash) {
+            return Err(format!(
+                "designer-node-types.json node `{}` has invalid contract_hash `{}`",
+                node_type.id, node_type.metadata.endpoint.contract_hash
+            ));
+        }
+        if node_type.metadata.endpoint.version != ir.package.version
+            || node_type.metadata.endpoint.package != ir.package.name
+            || node_type.metadata.endpoint.contract_hash != expected_contract_hash
+        {
+            return Err(format!(
+                "designer-node-types.json node `{}` endpoint_ref does not match model metadata",
+                node_type.id
+            ));
+        }
+        let config_ref = node_type
+            .config_schema
+            .get("properties")
+            .and_then(|properties| properties.get("endpoint_ref"))
+            .and_then(|endpoint_ref| endpoint_ref.get("const"))
+            .ok_or_else(|| {
+                format!(
+                    "designer-node-types.json node `{}` is missing locked endpoint_ref config",
+                    node_type.id
+                )
+            })?;
+        if config_ref.get("id").and_then(serde_json::Value::as_str) != Some(endpoint_id) {
+            return Err(format!(
+                "designer-node-types.json node `{}` config endpoint_ref does not match metadata",
+                node_type.id
+            ));
+        }
+        if config_ref
+            .get("package")
+            .and_then(serde_json::Value::as_str)
+            != Some(ir.package.name.as_str())
+            || config_ref
+                .get("version")
+                .and_then(serde_json::Value::as_str)
+                != Some(ir.package.version.as_str())
+            || config_ref
+                .get("contract_hash")
+                .and_then(serde_json::Value::as_str)
+                != Some(expected_contract_hash.as_str())
+        {
+            return Err(format!(
+                "designer-node-types.json node `{}` config endpoint_ref does not match model metadata",
+                node_type.id
+            ));
+        }
+        reject_free_text_runtime_selection(&serde_json::to_value(node_type).unwrap_or_default())?;
+        for input in endpoint.inputs.iter().filter(|input| input.required) {
+            let has_required = node_type
+                .input_schema
+                .get("required")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|required| {
+                    required
+                        .iter()
+                        .any(|item| item.as_str() == Some(input.name.as_str()))
+                });
+            if !has_required {
+                return Err(format!(
+                    "designer-node-types.json node `{}` input schema is missing required input `{}`",
+                    node_type.id, input.name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_embedded_agent_endpoint_action_catalog<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let declared_path = agent_endpoint_action_catalog_extension_path(&pack_manifest)?;
+    if ir.agent_endpoints.is_empty() {
+        if declared_path.is_some() {
+            return Err(
+                "pack.cbor declares agent_endpoint_action_catalog extension but model.cbor has no agent endpoints"
+                    .to_string(),
+            );
+        }
+        return Ok(());
+    }
+    let Some(json_path) = declared_path else {
+        return Err(
+            "pack.cbor is missing sorla agent_endpoint_action_catalog extension".to_string(),
+        );
+    };
+    if !names.contains(&json_path) {
+        return Err(format!(
+            "pack.cbor references missing agent endpoint action catalog asset `{json_path}`"
+        ));
+    }
+    if !pack_manifest.assets.iter().any(|asset| asset == &json_path) {
+        return Err(format!("pack.cbor assets do not include `{json_path}`"));
+    }
+    validate_lock_includes_entry(archive, &json_path)?;
+
+    let document = read_agent_endpoint_action_catalog(archive, &json_path)?;
+    let expected_hash = canonical_hash_hex(ir);
+    let expected_contract_hash = format!("sha256:{expected_hash}");
+    if document.package.name != ir.package.name
+        || document.package.version != ir.package.version
+        || document.package.ir_hash != expected_hash
+    {
+        return Err(
+            "agent-endpoint-action-catalog.json package metadata does not match model.cbor"
+                .to_string(),
+        );
+    }
+    if document.actions.len() != ir.agent_endpoints.len() {
+        return Err(format!(
+            "agent-endpoint-action-catalog.json has {} actions but model.cbor has {} agent endpoints",
+            document.actions.len(),
+            ir.agent_endpoints.len()
+        ));
+    }
+
+    let endpoints = ir
+        .agent_endpoints
+        .iter()
+        .map(|endpoint| (endpoint.id.as_str(), endpoint))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    for action in &document.actions {
+        let Some(endpoint) = endpoints.get(action.id.as_str()) else {
+            return Err(format!(
+                "agent-endpoint-action-catalog.json references unknown endpoint `{}`",
+                action.id
+            ));
+        };
+        if !seen.insert(action.id.as_str()) {
+            return Err(format!(
+                "agent-endpoint-action-catalog.json contains duplicate endpoint `{}`",
+                action.id
+            ));
+        }
+        if action.endpoint_ref.id != action.id
+            || action.endpoint_ref.version != ir.package.version
+            || action.endpoint_ref.package != ir.package.name
+            || action.endpoint_ref.contract_hash != expected_contract_hash
+        {
+            return Err(format!(
+                "agent-endpoint-action-catalog.json action `{}` endpoint_ref does not match model metadata",
+                action.id
+            ));
+        }
+        if !is_sha256_contract_hash(&action.endpoint_ref.contract_hash) {
+            return Err(format!(
+                "agent-endpoint-action-catalog.json action `{}` has invalid contract_hash `{}`",
+                action.id, action.endpoint_ref.contract_hash
+            ));
+        }
+        for input in endpoint.inputs.iter().filter(|input| input.required) {
+            let has_required = action
+                .input_schema
+                .get("required")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|required| {
+                    required
+                        .iter()
+                        .any(|item| item.as_str() == Some(input.name.as_str()))
+                });
+            if !has_required {
+                return Err(format!(
+                    "agent-endpoint-action-catalog.json action `{}` input schema is missing required input `{}`",
+                    action.id, input.name
+                ));
+            }
+        }
+        reject_free_text_runtime_selection(&serde_json::to_value(action).unwrap_or_default())?;
+    }
+    Ok(())
+}
+
+fn is_sha256_contract_hash(value: &str) -> bool {
+    let Some(hex) = value.strip_prefix("sha256:") else {
+        return false;
+    };
+    hex.len() == 64
+        && hex
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+fn reject_free_text_runtime_selection(value: &serde_json::Value) -> Result<(), String> {
+    const FORBIDDEN_KEYS: [&str; 4] = [
+        "action_label",
+        "action_alias",
+        "intent_query",
+        "natural_language_action",
+    ];
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, nested) in object {
+                if FORBIDDEN_KEYS.contains(&key.as_str()) {
+                    return Err(format!(
+                        "generated metadata contains forbidden runtime action selection field `{key}`"
+                    ));
+                }
+                reject_free_text_runtime_selection(nested)?;
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                reject_free_text_runtime_selection(item)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn graph_array<T>(graph: &serde_json::Value, key: &str) -> Result<Vec<T>, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    serde_json::from_value(graph[key].clone())
+        .map_err(|err| format!("ontology.graph.json `{key}` is invalid: {err}"))
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_ontology_backing(ontology: &OntologyModelIr, ir: &CanonicalIr) -> Result<(), String> {
+    let records: BTreeMap<_, _> = ir
+        .records
+        .iter()
+        .map(|record| (record.name.as_str(), record))
+        .collect();
+    for concept in &ontology.concepts {
+        if let Some(backing) = &concept.backing {
+            validate_ontology_backing_ref(&records, backing, &format!("concept `{}`", concept.id))?;
+        }
+    }
+    for relationship in &ontology.relationships {
+        if let Some(backing) = &relationship.backing {
+            validate_ontology_backing_ref(
+                &records,
+                backing,
+                &format!("relationship `{}`", relationship.id),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_ontology_backing_ref(
+    records: &BTreeMap<&str, &greentic_sorla_ir::RecordIr>,
+    backing: &greentic_sorla_ir::OntologyBackingIr,
+    label: &str,
+) -> Result<(), String> {
+    let record = records.get(backing.record.as_str()).ok_or_else(|| {
+        format!(
+            "ontology {label} backing references unknown record `{}`",
+            backing.record
+        )
+    })?;
+    for field in [&backing.from_field, &backing.to_field]
+        .into_iter()
+        .flatten()
+    {
+        if !record
+            .fields
+            .iter()
+            .any(|candidate| candidate.name == *field)
+        {
+            return Err(format!(
+                "ontology {label} backing references unknown field `{}` on record `{}`",
+                field, backing.record
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
 fn validate_exposure_policy_against_validation<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     policy: &SorxExposurePolicy,
@@ -1162,6 +2677,7 @@ fn validate_exposure_policy_against_validation<R: Read + Seek>(
     Ok(())
 }
 
+#[cfg(feature = "pack-zip")]
 fn read_validation_manifest<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     path: &str,
@@ -1170,6 +2686,7 @@ fn read_validation_manifest<R: Read + Seek>(
         .map_err(|err| format!("{path} is invalid JSON: {err}"))
 }
 
+#[cfg(feature = "pack-zip")]
 fn read_exposure_policy<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     path: &str,
@@ -1178,6 +2695,7 @@ fn read_exposure_policy<R: Read + Seek>(
         .map_err(|err| format!("{path} is invalid JSON: {err}"))
 }
 
+#[cfg(feature = "pack-zip")]
 fn read_compatibility_manifest<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     path: &str,
@@ -1186,6 +2704,93 @@ fn read_compatibility_manifest<R: Read + Seek>(
         .map_err(|err| format!("{path} is invalid JSON: {err}"))
 }
 
+#[cfg(feature = "pack-zip")]
+fn read_ontology_ir<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<OntologyModelIr, String> {
+    let bytes = zip_bytes(archive, path)?;
+    ciborium::de::from_reader(Cursor::new(bytes))
+        .map_err(|err| format!("{path} is invalid ontology IR CBOR: {err}"))
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_ontology_graph<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    let graph: serde_json::Value = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid ontology graph JSON: {err}"))?;
+    if graph["schema"].as_str() != Some(ONTOLOGY_GRAPH_SCHEMA) {
+        return Err(format!(
+            "{path} has unsupported ontology graph schema `{}`",
+            graph["schema"].as_str().unwrap_or("<missing>")
+        ));
+    }
+    Ok(graph)
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_retrieval_ir<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<RetrievalBindingsIr, String> {
+    let bytes = zip_bytes(archive, path)?;
+    ciborium::de::from_reader(Cursor::new(bytes))
+        .map_err(|err| format!("{path} is invalid retrieval bindings CBOR: {err}"))
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_retrieval_json<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<RetrievalBindingsIr, String> {
+    let retrieval: RetrievalBindingsIr = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid retrieval bindings JSON: {err}"))?;
+    if retrieval.schema != RETRIEVAL_BINDINGS_SCHEMA {
+        return Err(format!(
+            "{path} has unsupported retrieval bindings schema `{}`",
+            retrieval.schema
+        ));
+    }
+    Ok(retrieval)
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_designer_node_types<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<DesignerNodeTypesDocument, String> {
+    let document: DesignerNodeTypesDocument = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid designer node types JSON: {err}"))?;
+    if document.schema != DESIGNER_NODE_TYPES_SCHEMA {
+        return Err(format!(
+            "{path} has unsupported designer node types schema `{}`",
+            document.schema
+        ));
+    }
+    Ok(document)
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_agent_endpoint_action_catalog<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<AgentEndpointActionCatalogDocument, String> {
+    let document: AgentEndpointActionCatalogDocument =
+        serde_json::from_str(&zip_text(archive, path)?).map_err(|err| {
+            format!("{path} is invalid agent endpoint action catalog JSON: {err}")
+        })?;
+    if document.schema != AGENT_ENDPOINT_ACTION_CATALOG_SCHEMA {
+        return Err(format!(
+            "{path} has unsupported agent endpoint action catalog schema `{}`",
+            document.schema
+        ));
+    }
+    Ok(document)
+}
+
+#[cfg(feature = "pack-zip")]
 fn validate_lock_includes_entry<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     path: &str,
@@ -1201,6 +2806,7 @@ fn validate_lock_includes_entry<R: Read + Seek>(
     Ok(())
 }
 
+#[cfg(feature = "pack-zip")]
 pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, String> {
     let inspection = inspect_sorla_gtpack(path)?;
     let mut archive = open_gtpack(path)?;
@@ -1222,6 +2828,10 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
     validate_embedded_sorx_validation(&mut archive, &names, &ir)?;
     validate_embedded_sorx_exposure_policy(&mut archive, &names, &ir)?;
     validate_embedded_sorx_compatibility(&mut archive, &names, &ir)?;
+    validate_embedded_ontology_artifacts(&mut archive, &names, &ir)?;
+    validate_embedded_retrieval_bindings(&mut archive, &names, &ir)?;
+    validate_embedded_designer_node_types(&mut archive, &names, &ir)?;
+    validate_embedded_agent_endpoint_action_catalog(&mut archive, &names, &ir)?;
     let endpoint_ids: BTreeSet<_> = ir
         .agent_endpoints
         .iter()
@@ -1285,16 +2895,43 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
 
     reject_secret_markers(&mut archive)?;
 
+    let mut checked_assets = required_pack_entries()
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if inspection.ontology.is_some() {
+        checked_assets.extend(
+            [
+                ONTOLOGY_GRAPH_PATH,
+                ONTOLOGY_IR_CBOR_PATH,
+                ONTOLOGY_SCHEMA_PATH,
+            ]
+            .into_iter()
+            .map(str::to_string),
+        );
+    }
+    if inspection.retrieval_bindings.is_some() {
+        checked_assets.extend(
+            [RETRIEVAL_BINDINGS_PATH, RETRIEVAL_BINDINGS_IR_CBOR_PATH]
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
+    if inspection.designer_node_types.is_some() {
+        checked_assets.push(DESIGNER_NODE_TYPES_PATH.to_string());
+    }
+    if inspection.agent_endpoint_action_catalog.is_some() {
+        checked_assets.push(AGENT_ENDPOINT_ACTION_CATALOG_PATH.to_string());
+    }
+
     Ok(SorlaGtpackDoctorReport {
         path: inspection.path,
         status: "ok".to_string(),
-        checked_assets: required_pack_entries()
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
+        checked_assets,
     })
 }
 
+#[cfg(feature = "pack-zip")]
 fn required_pack_entries() -> Vec<&'static str> {
     vec![
         "pack.cbor",
@@ -1314,12 +2951,14 @@ fn required_pack_entries() -> Vec<&'static str> {
     ]
 }
 
+#[cfg(feature = "pack-zip")]
 fn open_gtpack(path: &Path) -> Result<ZipArchive<fs::File>, String> {
     let file = fs::File::open(path)
         .map_err(|err| format!("failed to open gtpack {}: {err}", path.display()))?;
     ZipArchive::new(file).map_err(|err| format!("failed to read gtpack {}: {err}", path.display()))
 }
 
+#[cfg(feature = "pack-zip")]
 fn zip_entry_names<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
 ) -> Result<BTreeSet<String>, String> {
@@ -1335,6 +2974,7 @@ fn zip_entry_names<R: Read + Seek>(
     Ok(names)
 }
 
+#[cfg(feature = "pack-zip")]
 fn zip_bytes<R: Read + Seek>(archive: &mut ZipArchive<R>, name: &str) -> Result<Vec<u8>, String> {
     let mut entry = archive
         .by_name(name)
@@ -1346,11 +2986,13 @@ fn zip_bytes<R: Read + Seek>(archive: &mut ZipArchive<R>, name: &str) -> Result<
     Ok(bytes)
 }
 
+#[cfg(feature = "pack-zip")]
 fn zip_text<R: Read + Seek>(archive: &mut ZipArchive<R>, name: &str) -> Result<String, String> {
     let bytes = zip_bytes(archive, name)?;
     String::from_utf8(bytes).map_err(|err| format!("`{name}` is not UTF-8: {err}"))
 }
 
+#[cfg(feature = "pack-zip")]
 fn validate_pack_lock_entries<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     names: &BTreeSet<String>,
@@ -1380,6 +3022,7 @@ fn validate_pack_lock_entries<R: Read + Seek>(
     Ok(())
 }
 
+#[cfg(feature = "pack-zip")]
 fn reject_secret_markers<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Result<(), String> {
     const MARKERS: &[&str] = &[
         "BEGIN PRIVATE KEY",
@@ -1965,6 +3608,8 @@ mod tests {
             AGENT_ARAZZO_FILENAME,
             MCP_TOOLS_FILENAME,
             LLMS_TXT_FRAGMENT_FILENAME,
+            DESIGNER_NODE_TYPES_FILENAME,
+            AGENT_ENDPOINT_ACTION_CATALOG_FILENAME,
         ] {
             assert!(
                 built
@@ -1975,6 +3620,60 @@ mod tests {
             );
         }
         assert_eq!(built.agent_exports, first_exports);
+        let designer_node_types: DesignerNodeTypesDocument =
+            serde_json::from_str(&built.designer_node_types_json)
+                .expect("designer node types should parse");
+        assert_eq!(designer_node_types.schema, DESIGNER_NODE_TYPES_SCHEMA);
+        assert_eq!(
+            designer_node_types.node_types.len(),
+            ir.agent_endpoints.len()
+        );
+        assert_eq!(
+            designer_node_types.node_types[0]
+                .metadata
+                .endpoint
+                .contract_hash,
+            format!("sha256:{}", canonical_hash_hex(&ir))
+        );
+        assert_eq!(
+            designer_node_types.node_types[0].binding.operation,
+            DEFAULT_DESIGNER_COMPONENT_OPERATION
+        );
+        let email_field = designer_node_types.node_types[0]
+            .ui
+            .fields
+            .iter()
+            .find(|field| field.name == "email")
+            .expect("email field should be emitted");
+        assert_eq!(email_field.label, "Email");
+        assert_eq!(email_field.widget, "text");
+        assert!(
+            designer_node_types.node_types[0]
+                .ui
+                .aliases
+                .contains(&"create customer contact".to_string())
+        );
+        let action_catalog: AgentEndpointActionCatalogDocument =
+            serde_json::from_str(&built.agent_endpoint_action_catalog_json)
+                .expect("action catalog should parse");
+        assert_eq!(action_catalog.schema, AGENT_ENDPOINT_ACTION_CATALOG_SCHEMA);
+        assert_eq!(action_catalog.actions.len(), ir.agent_endpoints.len());
+        assert_eq!(
+            action_catalog.actions[0].endpoint_ref.contract_hash,
+            format!("sha256:{}", canonical_hash_hex(&ir))
+        );
+        assert!(
+            built
+                .package_manifest
+                .artifact_references
+                .contains(&DESIGNER_NODE_TYPES_FILENAME.to_string())
+        );
+        assert!(
+            built
+                .package_manifest
+                .artifact_references
+                .contains(&AGENT_ENDPOINT_ACTION_CATALOG_FILENAME.to_string())
+        );
 
         let mut expected_gateway_value: serde_json::Value =
             serde_json::from_str(&expected_gateway).expect("agent gateway golden should parse");
@@ -2037,6 +3736,12 @@ mod tests {
                 .assets
                 .contains(&format!("assets/sorla/{MCP_TOOLS_FILENAME}"))
         );
+        assert!(first.assets.contains(&DESIGNER_NODE_TYPES_PATH.to_string()));
+        assert!(
+            first
+                .assets
+                .contains(&AGENT_ENDPOINT_ACTION_CATALOG_PATH.to_string())
+        );
 
         let inspection = inspect_sorla_gtpack(&first_out).expect("inspect pack");
         assert_eq!(inspection.extension, SORX_RUNTIME_EXTENSION_ID);
@@ -2070,6 +3775,18 @@ mod tests {
                 .get(&format!("assets/sorla/{AGENT_OPENAPI_OVERLAY_FILENAME}")),
             Some(&true)
         );
+        let designer = inspection
+            .designer_node_types
+            .as_ref()
+            .expect("inspect should summarize designer node types");
+        assert_eq!(designer.schema, DESIGNER_NODE_TYPES_SCHEMA);
+        assert!(designer.count >= 1);
+        let catalog = inspection
+            .agent_endpoint_action_catalog
+            .as_ref()
+            .expect("inspect should summarize action catalog");
+        assert_eq!(catalog.schema, AGENT_ENDPOINT_ACTION_CATALOG_SCHEMA);
+        assert!(catalog.count >= 1);
         doctor_sorla_gtpack(&first_out).expect("doctor accepts pack");
 
         let mut archive =
@@ -2123,6 +3840,150 @@ mod tests {
     }
 
     #[test]
+    fn designer_node_metadata_handles_labels_widgets_and_enums() {
+        let yaml = r#"
+package:
+  name: designer-metadata-demo
+  version: 0.1.0
+records: []
+agent_endpoints:
+  - id: review_claim
+    title: Review claim
+    intent: Review a submitted claim before approval.
+    description: Dispatches a locked claim review action.
+    inputs:
+      - name: claim_id
+        type: string
+        required: true
+      - name: approved
+        type: boolean
+        required: true
+      - name: priority
+        type: string
+        enum_values:
+          - low
+          - high
+    outputs:
+      - name: review_id
+        type: string
+    side_effects:
+      - event.ClaimReviewed
+    risk: medium
+    approval: required
+"#;
+        let built = build_artifacts_from_yaml(yaml).expect("artifacts build");
+        let document: DesignerNodeTypesDocument =
+            serde_json::from_str(&built.designer_node_types_json)
+                .expect("designer node types should parse");
+        let node_type = document
+            .node_types
+            .iter()
+            .find(|node_type| node_type.id == "sorla.agent-endpoint.review_claim")
+            .expect("node type should be emitted");
+
+        assert_eq!(node_type.label, "Review claim");
+        assert_eq!(
+            node_type.metadata.intent,
+            "Review a submitted claim before approval."
+        );
+        assert!(node_type.ui.aliases.contains(&"review claim".to_string()));
+        let fields = node_type
+            .ui
+            .fields
+            .iter()
+            .map(|field| {
+                (
+                    field.name.as_str(),
+                    field.label.as_str(),
+                    field.widget.as_str(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(fields.contains(&("claim_id", "Claim Id", "text")));
+        assert!(fields.contains(&("approved", "Approved", "checkbox")));
+        assert!(fields.contains(&("priority", "Priority", "select")));
+        assert_eq!(
+            node_type.input_schema["properties"]["priority"]["enum"],
+            serde_json::json!(["high", "low"])
+        );
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_malformed_designer_node_type_metadata() {
+        let temp = tempdir().expect("tempdir");
+        let out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        rewrite_gtpack(&out, |path, bytes| {
+            if path == DESIGNER_NODE_TYPES_PATH {
+                let mut document: DesignerNodeTypesDocument =
+                    serde_json::from_slice(bytes).expect("designer node types parse");
+                document.node_types[0].metadata.endpoint.contract_hash = "sha256:BAD".to_string();
+                *bytes = serde_json::to_vec_pretty(&document).expect("document serializes");
+            }
+            true
+        });
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("invalid contract_hash"));
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_tampered_action_catalog_metadata() {
+        let temp = tempdir().expect("tempdir");
+        let out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        rewrite_gtpack(&out, |path, bytes| {
+            if path == AGENT_ENDPOINT_ACTION_CATALOG_PATH {
+                let mut document: AgentEndpointActionCatalogDocument =
+                    serde_json::from_slice(bytes).expect("action catalog parses");
+                document.actions[0].endpoint_ref.contract_hash = "sha256:BAD".to_string();
+                *bytes = serde_json::to_vec_pretty(&document).expect("document serializes");
+            }
+            true
+        });
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("endpoint_ref does not match model metadata"));
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_metadata_asset_without_lock_update() {
+        let temp = tempdir().expect("tempdir");
+        let out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        rewrite_gtpack_preserving_lock(&out, |path, bytes| {
+            if path == AGENT_ENDPOINT_ACTION_CATALOG_PATH {
+                bytes.push(b'\n');
+            }
+            true
+        });
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("pack.lock.cbor"));
+    }
+
+    #[test]
     fn validation_pack_assets_match_golden_snapshots() {
         let temp = tempdir().expect("tempdir");
         let minimal_out = temp.path().join("minimal.gtpack");
@@ -2164,12 +4025,331 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ontology_gtpack_artifacts_are_deterministic_and_discoverable() {
+        let temp = tempdir().expect("tempdir");
+        let input = write_ontology_fixture(temp.path());
+        let first_out = temp.path().join("first.gtpack");
+        let second_out = temp.path().join("second.gtpack");
+        let options = |out_path: PathBuf| SorlaGtpackOptions {
+            input_path: input.clone(),
+            name: "ontology-demo".to_string(),
+            version: "0.1.0".to_string(),
+            out_path,
+        };
+
+        let first = build_sorla_gtpack(&options(first_out.clone())).expect("first pack builds");
+        let second = build_sorla_gtpack(&options(second_out.clone())).expect("second pack builds");
+
+        assert_eq!(
+            fs::read(&first_out).unwrap(),
+            fs::read(&second_out).unwrap()
+        );
+        assert_eq!(first.ir_hash, second.ir_hash);
+        for path in [
+            ONTOLOGY_GRAPH_PATH,
+            ONTOLOGY_IR_CBOR_PATH,
+            ONTOLOGY_SCHEMA_PATH,
+            RETRIEVAL_BINDINGS_PATH,
+            RETRIEVAL_BINDINGS_IR_CBOR_PATH,
+        ] {
+            assert!(first.assets.contains(&path.to_string()), "{path}");
+        }
+
+        let inspection = inspect_sorla_gtpack(&first_out).expect("inspect pack");
+        let ontology = inspection
+            .ontology
+            .as_ref()
+            .expect("inspect should summarize ontology metadata");
+        assert_eq!(ontology.schema, ONTOLOGY_EXTENSION_ID);
+        assert_eq!(ontology.graph_schema, ONTOLOGY_GRAPH_SCHEMA);
+        assert_eq!(ontology.concept_count, 3);
+        assert_eq!(ontology.relationship_count, 1);
+        assert_eq!(ontology.constraint_count, 1);
+        let retrieval = inspection
+            .retrieval_bindings
+            .as_ref()
+            .expect("inspect should summarize retrieval bindings");
+        assert_eq!(retrieval.schema, RETRIEVAL_BINDINGS_SCHEMA);
+        assert_eq!(retrieval.provider_count, 1);
+        assert_eq!(retrieval.scope_count, 1);
+        assert_eq!(
+            inspection.optional_artifacts.get(ONTOLOGY_GRAPH_PATH),
+            Some(&true)
+        );
+
+        let mut archive =
+            ZipArchive::new(fs::File::open(&first_out).expect("open pack")).expect("read pack");
+        let graph: serde_json::Value =
+            serde_json::from_str(&zip_text(&mut archive, ONTOLOGY_GRAPH_PATH).expect("graph"))
+                .expect("graph JSON");
+        assert_eq!(
+            graph["semantic_aliases"]["concepts"]["Customer"],
+            serde_json::json!(["client", "customer account"])
+        );
+        assert_eq!(
+            graph["entity_linking"]["strategies"][0]["id"],
+            "email_match"
+        );
+        let retrieval_json: serde_json::Value = serde_json::from_str(
+            &zip_text(&mut archive, RETRIEVAL_BINDINGS_PATH).expect("retrieval JSON"),
+        )
+        .expect("retrieval JSON parses");
+        assert_eq!(retrieval_json["providers"][0]["id"], "primary_evidence");
+        let pack_manifest: SorlaPackManifest = ciborium::de::from_reader(Cursor::new(
+            zip_bytes(&mut archive, "pack.cbor").expect("pack.cbor"),
+        ))
+        .expect("pack manifest decodes");
+        let ontology_extension = pack_manifest
+            .extension
+            .get("sorla")
+            .and_then(|sorla| sorla.get("ontology"))
+            .expect("ontology extension is declared");
+        assert_eq!(ontology_extension["schema"], ONTOLOGY_EXTENSION_ID);
+        assert_eq!(ontology_extension["graph"], ONTOLOGY_GRAPH_PATH);
+        assert_eq!(ontology_extension["ir"], ONTOLOGY_IR_CBOR_PATH);
+        assert_eq!(ontology_extension["json_schema"], ONTOLOGY_SCHEMA_PATH);
+
+        doctor_sorla_gtpack(&first_out).expect("doctor accepts ontology pack");
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_missing_ontology_graph() {
+        let temp = tempdir().expect("tempdir");
+        let input = write_ontology_fixture(temp.path());
+        let out = temp.path().join("ontology.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: input,
+            name: "ontology-demo".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        rewrite_gtpack(&out, |path, _bytes| path != ONTOLOGY_GRAPH_PATH);
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains(ONTOLOGY_GRAPH_PATH));
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_ontology_graph_that_diverges_from_ir() {
+        let temp = tempdir().expect("tempdir");
+        let input = write_ontology_fixture(temp.path());
+        let out = temp.path().join("ontology.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: input,
+            name: "ontology-demo".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        rewrite_gtpack(&out, |path, bytes| {
+            if path == ONTOLOGY_GRAPH_PATH {
+                let mut graph: serde_json::Value =
+                    serde_json::from_slice(bytes).expect("graph JSON");
+                graph["concepts"][0]["id"] =
+                    serde_json::Value::String("UnknownConcept".to_string());
+                *bytes = serde_json::to_vec_pretty(&graph).expect("graph serializes");
+            }
+            true
+        });
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("concepts do not match"));
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_unsafe_ontology_manifest_path() {
+        let temp = tempdir().expect("tempdir");
+        let input = write_ontology_fixture(temp.path());
+        let out = temp.path().join("ontology.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: input,
+            name: "ontology-demo".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        rewrite_gtpack(&out, |path, bytes| {
+            if path == "pack.cbor" || path == "manifest.cbor" {
+                let mut manifest: SorlaPackManifest =
+                    ciborium::de::from_reader(Cursor::new(bytes.clone()))
+                        .expect("manifest decodes");
+                manifest.extension["sorla"]["ontology"]["graph"] =
+                    serde_json::Value::String("../ontology.graph.json".to_string());
+                *bytes = canonical_cbor(&manifest);
+            }
+            if path == "manifest.json" {
+                let mut manifest: SorlaPackManifest =
+                    serde_json::from_slice(bytes).expect("manifest JSON decodes");
+                manifest.extension["sorla"]["ontology"]["graph"] =
+                    serde_json::Value::String("../ontology.graph.json".to_string());
+                *bytes = serde_json::to_vec_pretty(&manifest).expect("manifest serializes");
+            }
+            true
+        });
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("ontology asset path"));
+    }
+
     fn assert_gtpack_json_matches_fixture(pack_path: &Path, asset_path: &str, fixture_path: &str) {
         let mut archive =
             ZipArchive::new(fs::File::open(pack_path).expect("open pack")).expect("read pack");
         let actual = zip_text(&mut archive, asset_path).expect("asset should exist");
         let expected = fs::read_to_string(fixture_path).expect("fixture should read");
         assert_eq!(actual.trim_end(), expected.trim_end(), "{asset_path}");
+    }
+
+    fn write_ontology_fixture(dir: &Path) -> PathBuf {
+        let path = dir.join("ontology.sorla.yaml");
+        fs::write(
+            &path,
+            r#"
+package:
+  name: ontology-demo
+  version: 0.1.0
+records:
+  - name: Customer
+    fields:
+      - name: id
+        type: string
+      - name: email
+        type: string
+        sensitive: true
+  - name: Contract
+    fields:
+      - name: id
+        type: string
+  - name: CustomerContract
+    fields:
+      - name: customer_id
+        type: string
+        references:
+          record: Customer
+          field: id
+      - name: contract_id
+        type: string
+        references:
+          record: Contract
+          field: id
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Party
+      kind: abstract
+    - id: Customer
+      kind: entity
+      extends: Party
+      backed_by:
+        record: Customer
+      sensitivity:
+        classification: confidential
+        pii: true
+    - id: Contract
+      kind: entity
+      backed_by:
+        record: Contract
+  relationships:
+    - id: has_contract
+      from: Customer
+      to: Contract
+      cardinality:
+        from: one
+        to: many
+      backed_by:
+        record: CustomerContract
+        from_field: customer_id
+        to_field: contract_id
+  constraints:
+    - id: customer_data_policy
+      applies_to:
+        concept: Customer
+      requires_policy: customer_data_access
+semantic_aliases:
+  concepts:
+    Customer:
+      - customer account
+      - client
+  relationships:
+    has_contract:
+      - covered by
+entity_linking:
+  strategies:
+    - id: email_match
+      applies_to: Customer
+      match:
+        source_field: email
+        target_field: email
+      confidence: 0.95
+      sensitivity:
+        pii: true
+retrieval_bindings:
+  schema: greentic.sorla.retrieval-bindings.v1
+  providers:
+    - id: primary_evidence
+      category: evidence
+      required_capabilities:
+        - evidence.query
+        - entity.link
+  scopes:
+    - id: customer_evidence
+      applies_to:
+        concept: Customer
+      provider: primary_evidence
+      filters:
+        entity_scope:
+          include_self: true
+          include_related:
+            - relationship: has_contract
+              direction: outgoing
+              max_depth: 1
+"#,
+        )
+        .expect("write ontology fixture");
+        path
+    }
+
+    fn rewrite_gtpack(path: &Path, mut f: impl FnMut(&str, &mut Vec<u8>) -> bool) {
+        let mut archive =
+            ZipArchive::new(fs::File::open(path).expect("open pack")).expect("read pack");
+        let mut entries = BTreeMap::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("entry");
+            if entry.name() == "pack.lock.cbor" {
+                continue;
+            }
+            let name = entry.name().to_string();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read entry");
+            if f(&name, &mut bytes) {
+                entries.insert(name, bytes);
+            }
+        }
+        drop(archive);
+        let lock = pack_lock_for_entries(&entries);
+        entries.insert("pack.lock.cbor".to_string(), canonical_cbor(&lock));
+        write_zip_entries(path, entries).expect("rewrite pack");
+    }
+
+    fn rewrite_gtpack_preserving_lock(path: &Path, mut f: impl FnMut(&str, &mut Vec<u8>) -> bool) {
+        let mut archive =
+            ZipArchive::new(fs::File::open(path).expect("open pack")).expect("read pack");
+        let mut entries = BTreeMap::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).expect("entry");
+            let name = entry.name().to_string();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).expect("read entry");
+            if f(&name, &mut bytes) {
+                entries.insert(name, bytes);
+            }
+        }
+        drop(archive);
+        write_zip_entries(path, entries).expect("rewrite pack");
     }
 
     #[test]

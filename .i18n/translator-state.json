@@ -13151,6 +13151,42 @@
           "engine": "codex-cli",
           "timestamp_epoch_secs": 1775832809
         },
+        "wizard.questions.ontology_concepts.help": {
+          "last_english_hash": "819c5c14ab61b2d54a7c4923a20cee5ce713ac482b2f761e519f76fcd92f44c7",
+          "last_bot_translation_hash": "819c5c14ab61b2d54a7c4923a20cee5ce713ac482b2f761e519f76fcd92f44c7",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778770522
+        },
+        "wizard.questions.ontology_concepts.label": {
+          "last_english_hash": "5e77c93d14f683ca4f0556e35bc3603dbc5fa78016fea2e05e15a522cf685e56",
+          "last_bot_translation_hash": "5e77c93d14f683ca4f0556e35bc3603dbc5fa78016fea2e05e15a522cf685e56",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778770522
+        },
+        "wizard.questions.ontology_relationships.help": {
+          "last_english_hash": "5a285c2a05e025f2cd6ef32ecb0be3e49954590127bc5f627752e55920742cdc",
+          "last_bot_translation_hash": "5a285c2a05e025f2cd6ef32ecb0be3e49954590127bc5f627752e55920742cdc",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778770522
+        },
+        "wizard.questions.ontology_relationships.label": {
+          "last_english_hash": "efa28d8df66bb515f501282c90c8503e6b65f63f9717002a68702ebc12447b03",
+          "last_bot_translation_hash": "efa28d8df66bb515f501282c90c8503e6b65f63f9717002a68702ebc12447b03",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778770522
+        },
+        "wizard.questions.ontology_schema.help": {
+          "last_english_hash": "409b6823155bf1005cf5ab3b895606431d3097796f289b509cd4beb3953753cd",
+          "last_bot_translation_hash": "409b6823155bf1005cf5ab3b895606431d3097796f289b509cd4beb3953753cd",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778770522
+        },
+        "wizard.questions.ontology_schema.label": {
+          "last_english_hash": "698847ec39dacbbd2dcaaa8bb1dc0aefbdbceb19d38f5355eb7e93f5649c4212",
+          "last_bot_translation_hash": "698847ec39dacbbd2dcaaa8bb1dc0aefbdbceb19d38f5355eb7e93f5649c4212",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778770522
+        },
         "wizard.questions.output_artifacts.help": {
           "last_english_hash": "73e62133d5fa8efe1b2f32406f75f31ba7d1061e822fb635d535e5fc52ca1114",
           "last_bot_translation_hash": "73e62133d5fa8efe1b2f32406f75f31ba7d1061e822fb635d535e5fc52ca1114",
@@ -13223,6 +13259,18 @@
           "engine": "codex-cli",
           "timestamp_epoch_secs": 1775832809
         },
+        "wizard.questions.retrieval_bindings_scopes.help": {
+          "last_english_hash": "6a545a0ce6b49360e93693ccd0a6ec86400f4d382b760e57049c23b2b40ea564",
+          "last_bot_translation_hash": "6a545a0ce6b49360e93693ccd0a6ec86400f4d382b760e57049c23b2b40ea564",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778778637
+        },
+        "wizard.questions.retrieval_bindings_scopes.label": {
+          "last_english_hash": "ee85da3affae9f2cb868ac68b9e8924fad8e02b76ebb1dd1dcd7aa69a0616428",
+          "last_bot_translation_hash": "ee85da3affae9f2cb868ac68b9e8924fad8e02b76ebb1dd1dcd7aa69a0616428",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778778637
+        },
         "wizard.questions.storage_provider.help": {
           "last_english_hash": "f3cbed46cf080aba83fe387d30dfec438f9b0b6f96b11008ba4b0fde0ab72a26",
           "last_bot_translation_hash": "f3cbed46cf080aba83fe387d30dfec438f9b0b6f96b11008ba4b0fde0ab72a26",
@@ -13294,6 +13342,18 @@
           "last_bot_translation_hash": "40a2d048f3d320f6f10dcdf2c6586d13a8aa672daf2db550503bb12328a72395",
           "engine": "codex-cli",
           "timestamp_epoch_secs": 1775832809
+        },
+        "wizard.sections.ontology.description": {
+          "last_english_hash": "17defc2679e2a89f7069aef6368da53e6ccfd9f8de02270a74cceb68b9d73d8f",
+          "last_bot_translation_hash": "17defc2679e2a89f7069aef6368da53e6ccfd9f8de02270a74cceb68b9d73d8f",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778770522
+        },
+        "wizard.sections.ontology.title": {
+          "last_english_hash": "8b053c77aec460d859c3fc10707503d06472521590e523c7942b085abd204c99",
+          "last_bot_translation_hash": "8b053c77aec460d859c3fc10707503d06472521590e523c7942b085abd204c99",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1778770522
         },
         "wizard.sections.output.description": {
           "last_english_hash": "e803ff28f0c6c66372c75654d49a1afe67bfa2648bd02cbf617deba124ec7797",

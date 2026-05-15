@@ -33,6 +33,7 @@ pub enum EndpointVisibility {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SorxValidationSuite {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,6 +229,41 @@ pub enum SorxValidationTest {
         #[serde(skip_serializing_if = "Option::is_none")]
         expect: Option<serde_json::Value>,
     },
+    OntologyStatic {
+        id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        required: Option<bool>,
+    },
+    OntologyRelationship {
+        id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        required: Option<bool>,
+    },
+    OntologyAlias {
+        id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        required: Option<bool>,
+    },
+    EntityLinking {
+        id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        required: Option<bool>,
+    },
+    RetrievalBinding {
+        id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        required: Option<bool>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -333,7 +369,12 @@ impl SorxValidationTest {
             | Self::PolicyEnforced { id, .. }
             | Self::TenantIsolation { id, .. }
             | Self::MigrationCompatibility { id, .. }
-            | Self::RollbackCompatibility { id, .. } => id,
+            | Self::RollbackCompatibility { id, .. }
+            | Self::OntologyStatic { id, .. }
+            | Self::OntologyRelationship { id, .. }
+            | Self::OntologyAlias { id, .. }
+            | Self::EntityLinking { id, .. }
+            | Self::RetrievalBinding { id, .. } => id,
         }
     }
 
@@ -353,6 +394,11 @@ impl SorxValidationTest {
             | Self::RollbackCompatibility { input_ref, .. } => {
                 input_ref.iter().map(String::as_str).collect()
             }
+            Self::OntologyStatic { .. }
+            | Self::OntologyRelationship { .. }
+            | Self::OntologyAlias { .. }
+            | Self::EntityLinking { .. }
+            | Self::RetrievalBinding { .. } => Vec::new(),
         }
     }
 }
@@ -451,7 +497,12 @@ pub fn sorx_validation_schema_json() -> serde_json::Value {
                             "policy-enforced",
                             "tenant-isolation",
                             "migration-compatibility",
-                            "rollback-compatibility"
+                            "rollback-compatibility",
+                            "ontology-static",
+                            "ontology-relationship",
+                            "ontology-alias",
+                            "entity-linking",
+                            "retrieval-binding"
                         ]
                     },
                     "id": { "type": "string", "minLength": 1 },

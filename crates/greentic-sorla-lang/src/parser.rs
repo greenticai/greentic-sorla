@@ -1,8 +1,9 @@
 use crate::ast::{
-    AgentEndpointApprovalMode, AgentEndpointDecl, AgentEndpointRisk, FieldAuthority, Package,
-    ParseWarning, ParsedPackage, ProviderRequirement, Record, RecordSource,
+    AgentEndpointApprovalMode, AgentEndpointDecl, AgentEndpointRisk, FieldAuthority,
+    OntologyBacking, OntologyProviderRequirement, Package, ParseWarning, ParsedPackage,
+    ProviderRequirement, Record, RecordSource,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub fn parse_package(input: &str) -> Result<ParsedPackage, String> {
     let mut package: Package = serde_yaml::from_str(input)
@@ -41,7 +42,12 @@ fn validate_package(package: &Package) -> Result<Vec<ParseWarning>, String> {
     validate_projection_references(package)?;
     validate_migrations(package)?;
     validate_provider_requirements(&package.provider_requirements, "provider_requirements")?;
-    validate_agent_endpoints(package)
+    let mut warnings = validate_ontology(package)?;
+    warnings.extend(validate_semantic_aliases(package)?);
+    validate_entity_linking(package)?;
+    validate_retrieval_bindings(package)?;
+    warnings.extend(validate_agent_endpoints(package)?);
+    Ok(warnings)
 }
 
 fn validate_record(record: &Record) -> Result<(), String> {
@@ -674,6 +680,594 @@ fn validate_provider_requirements(
     }
 
     Ok(())
+}
+
+fn validate_ontology(package: &Package) -> Result<Vec<ParseWarning>, String> {
+    let Some(ontology) = &package.ontology else {
+        return Ok(Vec::new());
+    };
+
+    require_non_empty(&ontology.schema, "ontology.schema", "ontology schema")?;
+    if ontology.schema != "greentic.sorla.ontology.v1" {
+        return Err(format!(
+            "ontology.schema: unsupported ontology schema `{}`",
+            ontology.schema
+        ));
+    }
+
+    let record_fields = package
+        .records
+        .iter()
+        .map(|record| {
+            (
+                record.name.clone(),
+                declared_names(record.fields.iter().map(|field| field.name.as_str())),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    let mut concept_ids = BTreeSet::new();
+    for (concept_index, concept) in ontology.concepts.iter().enumerate() {
+        let path = format!("ontology.concepts[{concept_index}]");
+        validate_stable_id(&concept.id, &format!("{path}.id"))?;
+        if !concept_ids.insert(concept.id.clone()) {
+            return Err(format!(
+                "{path}.id: duplicate ontology concept id `{}`",
+                concept.id
+            ));
+        }
+        for (extends_index, parent) in concept.extends.iter().enumerate() {
+            validate_stable_id(parent, &format!("{path}.extends[{extends_index}]"))?;
+        }
+        if let Some(backing) = &concept.backed_by {
+            validate_ontology_backing(backing, &record_fields, &format!("{path}.backed_by"))?;
+        }
+        validate_ontology_provider_requirements(
+            &concept.provider_requirements,
+            &format!("{path}.provider_requirements"),
+        )?;
+        for (hook_index, hook) in concept.policy_hooks.iter().enumerate() {
+            require_non_empty(
+                &hook.policy,
+                &format!("{path}.policy_hooks[{hook_index}].policy"),
+                "ontology policy hook",
+            )?;
+        }
+    }
+
+    for (concept_index, concept) in ontology.concepts.iter().enumerate() {
+        let path = format!("ontology.concepts[{concept_index}]");
+        for (extends_index, parent) in concept.extends.iter().enumerate() {
+            if !concept_ids.contains(parent) {
+                return Err(format!(
+                    "{path}.extends[{extends_index}]: unknown ontology concept `{parent}`"
+                ));
+            }
+        }
+    }
+    validate_ontology_extends_acyclic(ontology, &concept_ids)?;
+
+    let mut relationship_ids = BTreeSet::new();
+    for (relationship_index, relationship) in ontology.relationships.iter().enumerate() {
+        let path = format!("ontology.relationships[{relationship_index}]");
+        validate_stable_id(&relationship.id, &format!("{path}.id"))?;
+        if !relationship_ids.insert(relationship.id.clone()) {
+            return Err(format!(
+                "{path}.id: duplicate ontology relationship id `{}`",
+                relationship.id
+            ));
+        }
+        validate_stable_id(&relationship.from, &format!("{path}.from"))?;
+        validate_stable_id(&relationship.to, &format!("{path}.to"))?;
+        if !concept_ids.contains(&relationship.from) {
+            return Err(format!(
+                "{path}.from: unknown ontology concept `{}`",
+                relationship.from
+            ));
+        }
+        if !concept_ids.contains(&relationship.to) {
+            return Err(format!(
+                "{path}.to: unknown ontology concept `{}`",
+                relationship.to
+            ));
+        }
+        if let Some(backing) = &relationship.backed_by {
+            validate_ontology_backing(backing, &record_fields, &format!("{path}.backed_by"))?;
+        }
+        validate_ontology_provider_requirements(
+            &relationship.provider_requirements,
+            &format!("{path}.provider_requirements"),
+        )?;
+        for (hook_index, hook) in relationship.policy_hooks.iter().enumerate() {
+            require_non_empty(
+                &hook.policy,
+                &format!("{path}.policy_hooks[{hook_index}].policy"),
+                "ontology policy hook",
+            )?;
+        }
+    }
+
+    let mut constraint_ids = BTreeSet::new();
+    for (constraint_index, constraint) in ontology.constraints.iter().enumerate() {
+        let path = format!("ontology.constraints[{constraint_index}]");
+        validate_stable_id(&constraint.id, &format!("{path}.id"))?;
+        if !constraint_ids.insert(constraint.id.clone()) {
+            return Err(format!(
+                "{path}.id: duplicate ontology constraint id `{}`",
+                constraint.id
+            ));
+        }
+        if !concept_ids.contains(&constraint.applies_to.concept) {
+            return Err(format!(
+                "{path}.applies_to.concept: unknown ontology concept `{}`",
+                constraint.applies_to.concept
+            ));
+        }
+        if let Some(policy) = &constraint.requires_policy {
+            require_non_empty(
+                policy,
+                &format!("{path}.requires_policy"),
+                "ontology required policy",
+            )?;
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn validate_semantic_aliases(package: &Package) -> Result<Vec<ParseWarning>, String> {
+    let Some(aliases) = &package.semantic_aliases else {
+        return Ok(Vec::new());
+    };
+    let ontology = package
+        .ontology
+        .as_ref()
+        .ok_or_else(|| "semantic_aliases require an ontology section".to_string())?;
+    let concept_ids = declared_names(ontology.concepts.iter().map(|concept| concept.id.as_str()));
+    let relationship_ids = declared_names(
+        ontology
+            .relationships
+            .iter()
+            .map(|relationship| relationship.id.as_str()),
+    );
+    let mut warnings = Vec::new();
+    let mut normalized_targets: BTreeMap<String, String> = BTreeMap::new();
+
+    validate_alias_map(
+        &aliases.concepts,
+        &concept_ids,
+        "semantic_aliases.concepts",
+        "concept",
+        &mut normalized_targets,
+        &mut warnings,
+    )?;
+    validate_alias_map(
+        &aliases.relationships,
+        &relationship_ids,
+        "semantic_aliases.relationships",
+        "relationship",
+        &mut normalized_targets,
+        &mut warnings,
+    )?;
+    Ok(warnings)
+}
+
+fn validate_alias_map(
+    aliases: &BTreeMap<String, Vec<String>>,
+    known_targets: &BTreeSet<String>,
+    path: &str,
+    target_kind: &str,
+    normalized_targets: &mut BTreeMap<String, String>,
+    warnings: &mut Vec<ParseWarning>,
+) -> Result<(), String> {
+    for (target, values) in aliases {
+        if !known_targets.contains(target) {
+            return Err(format!(
+                "{path}.{target}: unknown ontology {target_kind} `{target}`"
+            ));
+        }
+        let mut target_aliases = BTreeSet::new();
+        for (alias_index, alias) in values.iter().enumerate() {
+            require_non_empty(
+                alias,
+                &format!("{path}.{target}[{alias_index}]"),
+                "semantic alias",
+            )?;
+            let normalized = normalize_semantic_alias(alias);
+            let target_key = format!("{target_kind}:{target}");
+            if let Some(existing) = normalized_targets.get(&normalized) {
+                if existing != &target_key {
+                    return Err(format!(
+                        "{path}.{target}[{alias_index}]: semantic alias `{alias}` collides with `{existing}` after normalization"
+                    ));
+                }
+                warnings.push(ParseWarning {
+                    path: format!("{path}.{target}[{alias_index}]"),
+                    message: format!(
+                        "duplicate semantic alias `{alias}` was de-duplicated after normalization"
+                    ),
+                });
+            } else {
+                normalized_targets.insert(normalized.clone(), target_key);
+            }
+            if !target_aliases.insert(normalized) {
+                warnings.push(ParseWarning {
+                    path: format!("{path}.{target}[{alias_index}]"),
+                    message: format!(
+                        "duplicate semantic alias `{alias}` was de-duplicated after normalization"
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn normalize_semantic_alias(alias: &str) -> String {
+    alias
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn validate_entity_linking(package: &Package) -> Result<(), String> {
+    let Some(entity_linking) = &package.entity_linking else {
+        return Ok(());
+    };
+    let ontology = package
+        .ontology
+        .as_ref()
+        .ok_or_else(|| "entity_linking requires an ontology section".to_string())?;
+    let concepts = ontology
+        .concepts
+        .iter()
+        .map(|concept| (concept.id.as_str(), concept))
+        .collect::<BTreeMap<_, _>>();
+    let record_fields = package
+        .records
+        .iter()
+        .map(|record| {
+            (
+                record.name.clone(),
+                declared_names(record.fields.iter().map(|field| field.name.as_str())),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut strategy_ids = BTreeSet::new();
+
+    for (strategy_index, strategy) in entity_linking.strategies.iter().enumerate() {
+        let path = format!("entity_linking.strategies[{strategy_index}]");
+        validate_stable_id(&strategy.id, &format!("{path}.id"))?;
+        if !strategy_ids.insert(strategy.id.clone()) {
+            return Err(format!(
+                "{path}.id: duplicate entity-linking strategy id `{}`",
+                strategy.id
+            ));
+        }
+        let concept = concepts.get(strategy.applies_to.as_str()).ok_or_else(|| {
+            format!(
+                "{path}.applies_to: unknown ontology concept `{}`",
+                strategy.applies_to
+            )
+        })?;
+        require_non_empty(
+            &strategy.match_fields.source_field,
+            &format!("{path}.match.source_field"),
+            "entity-linking source field",
+        )?;
+        require_non_empty(
+            &strategy.match_fields.target_field,
+            &format!("{path}.match.target_field"),
+            "entity-linking target field",
+        )?;
+        match &concept.backed_by {
+            Some(backing) => {
+                let fields = record_fields.get(&backing.record).ok_or_else(|| {
+                    format!(
+                        "{path}.applies_to: concept `{}` is backed by unknown record `{}`",
+                        concept.id, backing.record
+                    )
+                })?;
+                if !fields.contains(&strategy.match_fields.target_field) {
+                    return Err(format!(
+                        "{path}.match.target_field: unknown field `{}` on backing record `{}`",
+                        strategy.match_fields.target_field, backing.record
+                    ));
+                }
+            }
+            None => {
+                let Some(source_type) = &strategy.source_type else {
+                    return Err(format!(
+                        "{path}.source_type: unbacked concept `{}` requires an explicit non-record source type",
+                        concept.id
+                    ));
+                };
+                require_non_empty(source_type, &format!("{path}.source_type"), "source type")?;
+                if source_type == "record" {
+                    return Err(format!(
+                        "{path}.source_type: unbacked concept `{}` requires a non-record source type",
+                        concept.id
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_retrieval_bindings(package: &Package) -> Result<(), String> {
+    let Some(bindings) = &package.retrieval_bindings else {
+        return Ok(());
+    };
+    let ontology = package
+        .ontology
+        .as_ref()
+        .ok_or_else(|| "retrieval_bindings require an ontology section".to_string())?;
+    require_non_empty(
+        &bindings.schema,
+        "retrieval_bindings.schema",
+        "retrieval bindings schema",
+    )?;
+    if bindings.schema != "greentic.sorla.retrieval-bindings.v1" {
+        return Err(format!(
+            "retrieval_bindings.schema: unsupported retrieval bindings schema `{}`",
+            bindings.schema
+        ));
+    }
+    let concept_ids = declared_names(ontology.concepts.iter().map(|concept| concept.id.as_str()));
+    let relationship_ids = declared_names(
+        ontology
+            .relationships
+            .iter()
+            .map(|relationship| relationship.id.as_str()),
+    );
+
+    let mut provider_ids = BTreeSet::new();
+    for (provider_index, provider) in bindings.providers.iter().enumerate() {
+        let path = format!("retrieval_bindings.providers[{provider_index}]");
+        validate_stable_id(&provider.id, &format!("{path}.id"))?;
+        if !provider_ids.insert(provider.id.clone()) {
+            return Err(format!(
+                "{path}.id: duplicate retrieval provider id `{}`",
+                provider.id
+            ));
+        }
+        require_non_empty(
+            &provider.category,
+            &format!("{path}.category"),
+            "provider category",
+        )?;
+        reject_secret_like_value(&provider.category, &format!("{path}.category"))?;
+        let mut capabilities = BTreeSet::new();
+        for (capability_index, capability) in provider.required_capabilities.iter().enumerate() {
+            let capability_path = format!("{path}.required_capabilities[{capability_index}]");
+            require_non_empty(capability, &capability_path, "provider capability")?;
+            reject_secret_like_value(capability, &capability_path)?;
+            if !capabilities.insert(capability.clone()) {
+                return Err(format!(
+                    "{capability_path}: duplicate retrieval provider capability `{capability}`"
+                ));
+            }
+        }
+    }
+
+    let mut scope_ids = BTreeSet::new();
+    for (scope_index, scope) in bindings.scopes.iter().enumerate() {
+        let path = format!("retrieval_bindings.scopes[{scope_index}]");
+        validate_stable_id(&scope.id, &format!("{path}.id"))?;
+        if !scope_ids.insert(scope.id.clone()) {
+            return Err(format!(
+                "{path}.id: duplicate retrieval scope id `{}`",
+                scope.id
+            ));
+        }
+        if !provider_ids.contains(&scope.provider) {
+            return Err(format!(
+                "{path}.provider: unknown retrieval provider `{}`",
+                scope.provider
+            ));
+        }
+        validate_retrieval_scope_target(
+            &scope.applies_to.concept,
+            &scope.applies_to.relationship,
+            &concept_ids,
+            &relationship_ids,
+            &format!("{path}.applies_to"),
+        )?;
+        if let Some(filters) = &scope.filters
+            && let Some(entity_scope) = &filters.entity_scope
+        {
+            for (rule_index, rule) in entity_scope.include_related.iter().enumerate() {
+                let rule_path =
+                    format!("{path}.filters.entity_scope.include_related[{rule_index}]");
+                if !relationship_ids.contains(&rule.relationship) {
+                    return Err(format!(
+                        "{rule_path}.relationship: unknown ontology relationship `{}`",
+                        rule.relationship
+                    ));
+                }
+                if rule.max_depth > 5 {
+                    return Err(format!(
+                        "{rule_path}.max_depth: retrieval traversal depth must be between 0 and 5"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_retrieval_scope_target(
+    concept: &Option<String>,
+    relationship: &Option<String>,
+    concept_ids: &BTreeSet<String>,
+    relationship_ids: &BTreeSet<String>,
+    path: &str,
+) -> Result<(), String> {
+    match (concept, relationship) {
+        (Some(concept), None) => {
+            if !concept_ids.contains(concept) {
+                return Err(format!(
+                    "{path}.concept: unknown ontology concept `{concept}`"
+                ));
+            }
+            Ok(())
+        }
+        (None, Some(relationship)) => {
+            if !relationship_ids.contains(relationship) {
+                return Err(format!(
+                    "{path}.relationship: unknown ontology relationship `{relationship}`"
+                ));
+            }
+            Ok(())
+        }
+        (None, None) => Err(format!("{path}: must declare `concept` or `relationship`")),
+        (Some(_), Some(_)) => Err(format!(
+            "{path}: must declare exactly one of `concept` or `relationship`"
+        )),
+    }
+}
+
+fn reject_secret_like_value(value: &str, path: &str) -> Result<(), String> {
+    let lower = value.to_ascii_lowercase();
+    for marker in ["secret", "password", "token", "api_key", "client_secret"] {
+        if lower.contains(marker) {
+            return Err(format!(
+                "{path}: retrieval bindings must not include `{marker}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_ontology_backing(
+    backing: &OntologyBacking,
+    record_fields: &BTreeMap<String, BTreeSet<String>>,
+    path: &str,
+) -> Result<(), String> {
+    require_non_empty(
+        &backing.record,
+        &format!("{path}.record"),
+        "ontology backing record",
+    )?;
+    let Some(fields) = record_fields.get(&backing.record) else {
+        return Err(format!(
+            "{path}.record: unknown ontology backing record `{}`",
+            backing.record
+        ));
+    };
+    if let Some(from_field) = &backing.from_field {
+        require_non_empty(
+            from_field,
+            &format!("{path}.from_field"),
+            "ontology backing from field",
+        )?;
+        if !fields.contains(from_field) {
+            return Err(format!(
+                "{path}.from_field: unknown field `{from_field}` on record `{}`",
+                backing.record
+            ));
+        }
+    }
+    if let Some(to_field) = &backing.to_field {
+        require_non_empty(
+            to_field,
+            &format!("{path}.to_field"),
+            "ontology backing to field",
+        )?;
+        if !fields.contains(to_field) {
+            return Err(format!(
+                "{path}.to_field: unknown field `{to_field}` on record `{}`",
+                backing.record
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_ontology_provider_requirements(
+    requirements: &[OntologyProviderRequirement],
+    path: &str,
+) -> Result<(), String> {
+    for (index, requirement) in requirements.iter().enumerate() {
+        let requirement_path = format!("{path}[{index}]");
+        require_non_empty(
+            &requirement.category,
+            &format!("{requirement_path}.category"),
+            "ontology provider requirement category",
+        )?;
+        let mut capabilities = BTreeSet::new();
+        for (capability_index, capability) in requirement.capabilities.iter().enumerate() {
+            require_non_empty(
+                capability,
+                &format!("{requirement_path}.capabilities[{capability_index}]"),
+                "ontology provider requirement capability",
+            )?;
+            if !capabilities.insert(capability.clone()) {
+                return Err(format!(
+                    "{requirement_path}.capabilities[{capability_index}]: duplicate ontology provider capability `{capability}` in category `{}`",
+                    requirement.category
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_ontology_extends_acyclic(
+    ontology: &crate::ast::OntologyModel,
+    concept_ids: &BTreeSet<String>,
+) -> Result<(), String> {
+    let parents = ontology
+        .concepts
+        .iter()
+        .map(|concept| (concept.id.as_str(), concept.extends.as_slice()))
+        .collect::<BTreeMap<_, _>>();
+
+    for concept in concept_ids {
+        let mut visiting = BTreeSet::new();
+        visit_ontology_parent(concept, &parents, &mut visiting, &mut BTreeSet::new())?;
+    }
+    Ok(())
+}
+
+fn visit_ontology_parent<'a>(
+    concept: &'a str,
+    parents: &BTreeMap<&'a str, &'a [String]>,
+    visiting: &mut BTreeSet<&'a str>,
+    visited: &mut BTreeSet<&'a str>,
+) -> Result<(), String> {
+    if visited.contains(concept) {
+        return Ok(());
+    }
+    if !visiting.insert(concept) {
+        return Err(format!(
+            "ontology.concepts: inheritance cycle includes concept `{concept}`"
+        ));
+    }
+    if let Some(parent_ids) = parents.get(concept) {
+        for parent in *parent_ids {
+            visit_ontology_parent(parent, parents, visiting, visited)?;
+        }
+    }
+    visiting.remove(concept);
+    visited.insert(concept);
+    Ok(())
+}
+
+fn validate_stable_id(value: &str, path: &str) -> Result<(), String> {
+    require_non_empty(value, path, "stable identifier")?;
+    if !is_url_safe_identifier(value) {
+        return Err(format!("{path}: `{value}` must be URL-safe"));
+    }
+    Ok(())
+}
+
+fn is_url_safe_identifier(value: &str) -> bool {
+    value
+        .chars()
+        .all(|char| char.is_ascii_alphanumeric() || matches!(char, '_' | '-'))
 }
 
 fn warn_about_endpoint_shape(

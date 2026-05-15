@@ -3,6 +3,8 @@ members = [
   "crates/greentic-sorla-cli",
   "crates/greentic-sorla-ir",
   "crates/greentic-sorla-lang",
+  "crates/greentic-sorla-lib",
+  "crates/greentic-sorla-designer-extension",
   "crates/greentic-sorla-pack",
   "crates/greentic-sorla-wizard",
   "xtask",
@@ -14,6 +16,7 @@ default-members = [
   "crates/greentic-sorla-cli",
   "crates/greentic-sorla-ir",
   "crates/greentic-sorla-lang",
+  "crates/greentic-sorla-lib",
   "crates/greentic-sorla-pack",
   "crates/greentic-sorla-wizard",
   "xtask",
@@ -21,7 +24,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/greenticai/greentic-sorla"
@@ -39,6 +42,8 @@ greentic-qa-lib = "0.5"
 greentic-sorla-cli = { package = "greentic-sorla", version = "0.1.9", path = "crates/greentic-sorla-cli" }
 greentic-sorla-ir = { version = "0.1.9", path = "crates/greentic-sorla-ir" }
 greentic-sorla-lang = { version = "0.1.9", path = "crates/greentic-sorla-lang" }
+greentic-sorla-lib = { version = "0.1.9", path = "crates/greentic-sorla-lib" }
+greentic-sorla-designer-extension = { version = "0.1.9", path = "crates/greentic-sorla-designer-extension" }
 greentic-sorla-pack = { version = "0.1.9", path = "crates/greentic-sorla-pack" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

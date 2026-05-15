@@ -1,0 +1,36 @@
+[package]
+name = "greentic-sorla-lib"
+version.workspace = true
+edition.workspace = true
+rust-version = "1.94"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Reusable library facade for Greentic SoRLa authoring, validation, and handoff artifacts."
+readme = "README.md"
+include = ["src/**", "i18n/**", "examples/**", "build.rs", "Cargo.toml", "README.md"]
+
+[lib]
+name = "greentic_sorla_lib"
+
+[features]
+default = ["std", "pack-zip", "cli"]
+std = []
+wasm = []
+pack-zip = ["greentic-sorla-pack/pack-zip"]
+cli = ["dep:greentic-qa-lib"]
+
+[dependencies]
+ciborium.workspace = true
+clap.workspace = true
+greentic-sorla-pack = { version = "0.1.9", path = "../greentic-sorla-pack", default-features = false }
+greentic-qa-lib = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+serde_yaml.workspace = true
