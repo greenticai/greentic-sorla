@@ -793,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "criterion",
  "greentic-sorla-lib",
@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-designer-extension"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "greentic-sorla-lib",
  "serde",
@@ -811,7 +811,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-ir"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "ciborium",
  "greentic-sorla-lang",
@@ -822,7 +822,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lang"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "serde",
  "serde_json",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lib"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "ciborium",
  "clap",
@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-pack"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "ciborium",
  "greentic-sorla-ir",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-wizard"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "greentic-sorla",
  "greentic-sorla-lang",
@@ -2189,7 +2189,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.10"
+version = "0.1.11"
 
 [[package]]
 name = "zerocopy"

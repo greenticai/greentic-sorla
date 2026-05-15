@@ -18,6 +18,6 @@ name = "greentic_sorla_designer_extension"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-greentic-sorla-lib = { version = "0.1.10", path = "../greentic-sorla-lib", default-features = false, features = ["wasm"] }
+greentic-sorla-lib = { version = "0.1.11", path = "../greentic-sorla-lib", default-features = false, features = ["wasm"] }
 serde.workspace = true
 serde_json.workspace = true
