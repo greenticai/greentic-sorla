@@ -39,6 +39,9 @@
 | Designer PR-20 | Endpoint contract hash and lock hardening | implemented | Designer node type and action catalog endpoint refs now enforce canonical `sha256:<64 lowercase hex>` hashes and pack lock coverage. |
 | Designer PR-21 | Designer node type metadata polish | implemented | Node type generation now includes stable field labels, widgets, optional aliases, and search context while preserving v1 compatibility. |
 | Designer PR-22 | Designer extension locked endpoint node UX | implemented | The extension can resolve node types by exact ID, endpoint ID, or label, emits richer locked metadata, and returns selection diagnostics. |
+| Versioned Views PR-04 | Versioned SoRLa view contracts | implemented | `views` now keeps legacy named views compatible while supporting versioned read-only/read-write mappings validated against records, fields, and agent endpoint inputs. |
+| Operational Indexes PR-05 | Operational index and query requirements | implemented | Optional `operational_indexes` declarations validate provider-agnostic exact/composite/text index requirements, static query targets, and scan gates, then lower into canonical IR and `.gtpack` JSON/CBOR assets. |
+| Migration PR-06 | Typed compatibility operations | implemented | Existing migrations now support optional from/to versions and typed declarative operations such as add-record, split-record, and require-index while preserving backfill/idempotence compatibility. |
 
 ## 1. High-Level Purpose
 
@@ -78,6 +81,14 @@ Ontology PR-07 hardens that surface for production use. The CLI can emit SoRLa-o
 
 Designer PR-08 through PR-22 added the reusable library APIs, stable facade, WASM-friendly profile, Designer extension adapter crate, prompting/knowledge helpers, deterministic `.gtpack` compatibility output, prompt-to-pack e2e coverage, generated Designer node type metadata from SoRLa agent endpoints, extension tools that turn those node types into locked generic flow-node JSON, a SoRLa-local node-type-to-locked-endpoint e2e, security hardening of the generated metadata path, a deterministic agent-endpoint action catalog view, endpoint hash/lock hardening, node metadata polish, and extension UX improvements. The line builds on existing agent endpoint, executable contract, and Designer adapter boundaries rather than assuming a separate Business Action Catalog or vendored Designer SDK/WIT, preserving current crate boundaries and the extension-first ownership rule.
 
+Versioned Views PR-04 through Migration PR-06 extend the language and handoff
+contracts without changing ownership boundaries. Views now support optional
+versioned read-only/read-write mappings on top of the existing `views` section.
+Operational index declarations provide abstract exact/composite/text index and
+query requirement metadata for downstream providers without emitting concrete
+provider DDL. Migrations keep the existing compatibility/backfill contract and
+add typed declarative operations that downstream Sorx can plan or execute.
+
 ## 2. Main Components and Functionality
 
 - Component: workspace root
@@ -113,7 +124,9 @@ Designer PR-08 through PR-22 added the reusable library APIs, stable facade, WAS
     - Defines optional ontology AST nodes for concepts, relationships, cardinality, constraints, sensitivity, policy hooks, and provider requirement hints.
     - Defines optional semantic alias and entity-linking AST nodes that map user/document/provider language to ontology concepts without provider credentials or runtime matching.
     - Defines optional retrieval binding AST nodes for abstract evidence providers, ontology scopes, entity-scope filters, traversal rules, and retrieval permission modes.
-    - Defines executable AST nodes for field `references`, migration `backfills`/`idempotence_key`, and agent endpoint `emits` plans.
+    - Defines versioned view AST nodes for legacy named views plus optional read-only/read-write record mappings and endpoint write mappings.
+    - Defines optional operational index AST nodes for provider-agnostic exact/composite/text index declarations and static query requirements.
+    - Defines executable AST nodes for field `references`, migration `backfills`/`idempotence_key`, typed migration operations, and agent endpoint `emits` plans.
     - Defines agent endpoint AST nodes for inputs, outputs, risk, approval, backing references, visibility, provider requirements, examples, and operation emits.
     - Parses YAML-authored packages using parser-validated `source: native|external|hybrid`.
     - Applies additive v0.1 compatibility by defaulting omitted `source` to `native` and surfacing warnings.
@@ -122,6 +135,7 @@ Designer PR-08 through PR-22 added the reusable library APIs, stable facade, WAS
     - Validates ontology schema version, unique URL-safe IDs, concept references, acyclic inheritance, backing records/fields, and unknown-field rejection.
     - Validates semantic aliases, deterministic alias normalization/collision behavior, entity-linking strategy IDs, confidence bounds, and backing-record target fields.
     - Validates retrieval binding schema, provider IDs/capabilities, scope/provider references, ontology target references, traversal directions, and bounded traversal depths.
+    - Validates versioned view record/field mappings, read-only/write consistency, endpoint write mappings, operational index references, query requirement scan gates, and typed migration operation references.
 
 - Component: `crates/greentic-sorla-ir`
   - **Path:** `crates/greentic-sorla-ir`
@@ -131,6 +145,7 @@ Designer PR-08 through PR-22 added the reusable library APIs, stable facade, WAS
     - Lowers optional ontology metadata into deterministic canonical IR with sorted concepts, relationships, constraints, provider requirements, and inheritance parents.
     - Lowers semantic aliases and entity-linking strategies into the ontology IR with normalized sorted aliases and sorted strategy IDs.
     - Lowers retrieval bindings into canonical IR with sorted providers, capabilities, scopes, and traversal rules.
+    - Lowers versioned views, operational index declarations, query requirements, and typed migration operations into canonical IR.
     - Separates business records, events, projections, compatibility data, external sources, and provider contract requirements.
     - Lowers field references, migration backfills/idempotence keys, and agent endpoint emits into canonical IR.
     - Lowers agent endpoints into canonical IR and includes them in canonical hashes and agent-tool views.
@@ -146,13 +161,16 @@ Designer PR-08 through PR-22 added the reusable library APIs, stable facade, WAS
     - Produces inspectable JSON and `agent-tools.json` views for tests and downstream tooling.
     - Emits agent endpoint handoff artifacts including `agent-gateway.json`, `agent-endpoints.ir.cbor`, OpenAPI overlay YAML, Arazzo workflows, `mcp-tools.json`, and `llms.txt.fragment`.
     - Emits `executable-contract.json` with relationships, migrations, agent operation emits, and operation result/error schema keyed by the canonical IR hash.
+    - Emits enriched `views.cbor` and validates the `.gtpack` view artifact against `model.cbor`.
     - Emits optional ontology handoff artifacts into `.gtpack` archives: deterministic graph JSON, canonical ontology IR CBOR, and JSON schema assets referenced by `greentic.sorla.ontology.v1` extension metadata.
     - Emits optional retrieval binding handoff artifacts into `.gtpack` archives: `retrieval-bindings.json` and `retrieval-bindings.ir.cbor`, referenced by `greentic.sorla.retrieval-bindings.v1` extension metadata.
+    - Emits optional operational index handoff artifacts into `.gtpack` archives: `operational-indexes.json` and `operational-indexes.ir.cbor`, referenced by `greentic.sorla.operational-indexes.v1` extension metadata.
     - Exposes deterministic JSON schema helpers for ontology and retrieval binding metadata.
     - Generates deterministic SORX validation suites for ontology static checks, ontology relationships, semantic aliases, entity-linking declarations, retrieval bindings, provider capabilities, and security policy gates.
     - Requires ontology/retrieval validation suites for exported packs via `promotion_requires`, while allowing private-only ontology suites to remain optional metadata.
     - Validates ontology pack integrity in `pack doctor`, including manifest paths, lock coverage, IR hash matching, graph/IR consistency, aliases, entity-linking strategies, backing record/field references, and secret scanning.
     - Validates retrieval binding pack integrity in `pack doctor`, including manifest paths, lock coverage, and JSON/CBOR/model consistency.
+    - Validates operational index pack integrity in `pack doctor`, including manifest paths, lock coverage, and JSON/CBOR/model consistency.
     - Rejects obsolete suite-level validation fields such as `kind` and `required_for_public_exposure`; test kind remains a per-test field.
   - **Key dependencies / integration points:** documented as producing source artifacts and handoff-oriented metadata rather than final packs or bundles.
 

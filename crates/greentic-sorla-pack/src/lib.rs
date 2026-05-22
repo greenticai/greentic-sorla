@@ -26,8 +26,8 @@ pub use validation_generator::{
 use greentic_sorla_ir::{
     AgentEndpointApprovalModeIr, AgentEndpointInputIr, AgentEndpointIr, AgentEndpointOutputIr,
     AgentEndpointRiskIr, CanonicalIr, EntityLinkingIr, IrVersion, OntologyModelIr,
-    ProviderRequirementIr, RetrievalBindingsIr, SemanticAliasesIr, agent_tools_json,
-    canonical_cbor, canonical_hash_hex, inspect_ir, lower_package,
+    OperationalIndexesIr, ProviderRequirementIr, RetrievalBindingsIr, SemanticAliasesIr, ViewIr,
+    agent_tools_json, canonical_cbor, canonical_hash_hex, inspect_ir, lower_package,
 };
 use greentic_sorla_lang::parser::parse_package;
 use serde::{Deserialize, Serialize};
@@ -42,8 +42,10 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 pub const AGENT_GATEWAY_HANDOFF_SCHEMA: &str = "greentic.agent-gateway.handoff.v1";
+pub const SORX_AGENT_GATEWAY_SCHEMA: &str = "greentic.sorla.agent-gateway.v1";
 pub const OPENAPI_AGENT_OVERLAY_SCHEMA: &str = "greentic.openapi.agent-overlay.v1";
 pub const MCP_TOOLS_HANDOFF_SCHEMA: &str = "greentic.mcp.tools.handoff.v1";
+pub const SORX_MCP_TOOLS_SCHEMA: &str = "greentic.sorla.mcp-tools.v1";
 pub const AGENT_GATEWAY_HANDOFF_FILENAME: &str = "agent-gateway.json";
 pub const AGENT_ENDPOINTS_IR_CBOR_FILENAME: &str = "agent-endpoints.ir.cbor";
 pub const AGENT_OPENAPI_OVERLAY_FILENAME: &str = "agent-endpoints.openapi.overlay.yaml";
@@ -64,6 +66,11 @@ pub const RETRIEVAL_BINDINGS_FILENAME: &str = "retrieval-bindings.json";
 pub const RETRIEVAL_BINDINGS_IR_CBOR_FILENAME: &str = "retrieval-bindings.ir.cbor";
 pub const RETRIEVAL_BINDINGS_PATH: &str = "assets/sorla/retrieval-bindings.json";
 pub const RETRIEVAL_BINDINGS_IR_CBOR_PATH: &str = "assets/sorla/retrieval-bindings.ir.cbor";
+pub const OPERATIONAL_INDEXES_SCHEMA: &str = "greentic.sorla.operational-indexes.v1";
+pub const OPERATIONAL_INDEXES_FILENAME: &str = "operational-indexes.json";
+pub const OPERATIONAL_INDEXES_IR_CBOR_FILENAME: &str = "operational-indexes.ir.cbor";
+pub const OPERATIONAL_INDEXES_PATH: &str = "assets/sorla/operational-indexes.json";
+pub const OPERATIONAL_INDEXES_IR_CBOR_PATH: &str = "assets/sorla/operational-indexes.ir.cbor";
 pub const DESIGNER_NODE_TYPES_SCHEMA: &str = "greentic.sorla.designer-node-types.v1";
 pub const DESIGNER_NODE_TYPES_FILENAME: &str = "designer-node-types.json";
 pub const DESIGNER_NODE_TYPES_PATH: &str = "assets/sorla/designer-node-types.json";
@@ -86,6 +93,11 @@ pub const SORX_EXPOSURE_POLICY_PATH: &str = "assets/sorx/exposure-policy.json";
 const SORX_EXPOSURE_POLICY_ASSET: &str = "exposure-policy.json";
 pub const SORX_VALIDATION_MANIFEST_PATH: &str = "assets/sorx/tests/test-manifest.json";
 const SORX_VALIDATION_MANIFEST_ASSET: &str = "tests/test-manifest.json";
+pub const SORX_VALIDATION_SUITE_SCHEMA: &str = "greentic.sorx.validation-suite.v1";
+pub const SORX_VALIDATION_SUITE_PATH: &str = "assets/sorx/validation-suite.json";
+const SORX_VALIDATION_SUITE_ASSET: &str = "validation-suite.json";
+pub const SORX_VALIDATION_SUITE_CBOR_PATH: &str = "assets/sorx/validation-suite.cbor";
+const SORX_VALIDATION_SUITE_CBOR_ASSET: &str = "validation-suite.cbor";
 
 const STABLE_PACK_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
 
@@ -154,10 +166,20 @@ pub struct AgentGatewayPackageRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentGatewayEndpointRef {
     pub id: String,
+    pub endpoint_id: String,
+    pub operation_id: String,
+    pub operation: String,
+    pub method: String,
+    pub path: String,
+    pub entity: String,
+    pub collection: String,
+    pub provider_binding: String,
     pub title: String,
     pub intent: String,
     pub risk: String,
     pub approval: String,
+    pub input_schema: serde_json::Value,
+    pub output_schema: serde_json::Value,
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
     pub side_effects: Vec<String>,
@@ -251,6 +273,8 @@ pub struct SorlaGtpackInspection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retrieval_bindings: Option<SorlaGtpackRetrievalInspection>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub operational_indexes: Option<SorlaGtpackOperationalIndexesInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub designer_node_types: Option<SorlaGtpackDesignerNodeTypesInspection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_endpoint_action_catalog: Option<SorlaGtpackAgentEndpointActionCatalogInspection>,
@@ -294,6 +318,13 @@ pub struct SorlaGtpackRetrievalInspection {
     pub schema: String,
     pub provider_count: usize,
     pub scope_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackOperationalIndexesInspection {
+    pub schema: String,
+    pub index_count: usize,
+    pub query_requirement_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -588,6 +619,14 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
             .artifact_references
             .push(RETRIEVAL_BINDINGS_IR_CBOR_FILENAME.to_string());
     }
+    if ir.operational_indexes.is_some() {
+        package_manifest
+            .artifact_references
+            .push(OPERATIONAL_INDEXES_FILENAME.to_string());
+        package_manifest
+            .artifact_references
+            .push(OPERATIONAL_INDEXES_IR_CBOR_FILENAME.to_string());
+    }
     let designer_node_types =
         generate_designer_node_types_from_ir(&ir, &DesignerNodeTypeGenerationOptions::default())?;
     let designer_node_types_json =
@@ -633,6 +672,12 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
         cbor_artifacts.insert(
             RETRIEVAL_BINDINGS_IR_CBOR_FILENAME.to_string(),
             canonical_cbor(retrieval),
+        );
+    }
+    if let Some(indexes) = &ir.operational_indexes {
+        cbor_artifacts.insert(
+            OPERATIONAL_INDEXES_IR_CBOR_FILENAME.to_string(),
+            canonical_cbor(indexes),
         );
     }
     cbor_artifacts.insert("policies.cbor".to_string(), canonical_cbor(&ir.policies));
@@ -1057,6 +1102,15 @@ fn build_sorla_gtpack_from_artifacts(
         SORX_VALIDATION_MANIFEST_ASSET.to_string(),
         serde_json::to_vec_pretty(&validation_manifest).map_err(|err| err.to_string())?,
     );
+    let validation_suite = sorx_runtime_validation_suite_json(&artifacts.ir);
+    sorx_assets.insert(
+        SORX_VALIDATION_SUITE_ASSET.to_string(),
+        serde_json::to_vec_pretty(&validation_suite).map_err(|err| err.to_string())?,
+    );
+    sorx_assets.insert(
+        SORX_VALIDATION_SUITE_CBOR_ASSET.to_string(),
+        canonical_cbor(&validation_suite),
+    );
     let exposure_policy = generate_sorx_exposure_policy(&artifacts.ir.agent_endpoints);
     let known_endpoint_ids = artifacts
         .ir
@@ -1114,6 +1168,14 @@ fn build_sorla_gtpack_from_artifacts(
             &mut asset_paths,
             RETRIEVAL_BINDINGS_PATH.to_string(),
             serde_json::to_vec_pretty(retrieval).map_err(|err| err.to_string())?,
+        );
+    }
+    if let Some(indexes) = &artifacts.ir.operational_indexes {
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            OPERATIONAL_INDEXES_PATH.to_string(),
+            serde_json::to_vec_pretty(indexes).map_err(|err| err.to_string())?,
         );
     }
 
@@ -1423,6 +1485,16 @@ fn sorx_runtime_extension_value(
             }),
         );
     }
+    if artifacts.ir.operational_indexes.is_some() {
+        sorla.insert(
+            "operational_indexes".to_string(),
+            serde_json::json!({
+                "schema": OPERATIONAL_INDEXES_SCHEMA,
+                "json": OPERATIONAL_INDEXES_PATH,
+                "ir": OPERATIONAL_INDEXES_IR_CBOR_PATH
+            }),
+        );
+    }
     if !artifacts.ir.agent_endpoints.is_empty() {
         sorla.insert(
             "designer_node_types".to_string(),
@@ -1444,6 +1516,8 @@ fn sorx_runtime_extension_value(
         .keys()
         .filter(|name| {
             name.as_str() != SORX_VALIDATION_MANIFEST_ASSET
+                && name.as_str() != SORX_VALIDATION_SUITE_ASSET
+                && name.as_str() != SORX_VALIDATION_SUITE_CBOR_ASSET
                 && name.as_str() != SORX_EXPOSURE_POLICY_ASSET
                 && name.as_str() != SORX_COMPATIBILITY_ASSET
         })
@@ -1464,6 +1538,18 @@ fn sorx_runtime_extension_value(
         sorx.insert(
             "validation_manifest".to_string(),
             serde_json::Value::String(SORX_VALIDATION_MANIFEST_PATH.to_string()),
+        );
+    }
+    if sorx_assets.contains_key(SORX_VALIDATION_SUITE_ASSET) {
+        sorx.insert(
+            "validation_suite".to_string(),
+            serde_json::Value::String(SORX_VALIDATION_SUITE_PATH.to_string()),
+        );
+    }
+    if sorx_assets.contains_key(SORX_VALIDATION_SUITE_CBOR_ASSET) {
+        sorx.insert(
+            "validation_suite_cbor".to_string(),
+            serde_json::Value::String(SORX_VALIDATION_SUITE_CBOR_PATH.to_string()),
         );
     }
     if sorx_assets.contains_key(SORX_EXPOSURE_POLICY_ASSET) {
@@ -1561,6 +1647,7 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
     let compatibility = compatibility_summary(&mut archive, &manifest, &names)?;
     let ontology = ontology_summary(&mut archive, &manifest, &names)?;
     let retrieval_bindings = retrieval_summary(&mut archive, &manifest, &names)?;
+    let operational_indexes = operational_indexes_summary(&mut archive, &manifest, &names)?;
     let designer_node_types = designer_node_types_summary(&mut archive, &manifest, &names)?;
     let agent_endpoint_action_catalog =
         agent_endpoint_action_catalog_summary(&mut archive, &manifest, &names)?;
@@ -1577,6 +1664,8 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
         ONTOLOGY_SCHEMA_FILENAME,
         RETRIEVAL_BINDINGS_FILENAME,
         RETRIEVAL_BINDINGS_IR_CBOR_FILENAME,
+        OPERATIONAL_INDEXES_FILENAME,
+        OPERATIONAL_INDEXES_IR_CBOR_FILENAME,
     ]
     .into_iter()
     .map(|name| {
@@ -1610,6 +1699,7 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
         compatibility,
         ontology,
         retrieval_bindings,
+        operational_indexes,
         designer_node_types,
         agent_endpoint_action_catalog,
     })
@@ -1703,6 +1793,48 @@ fn retrieval_extension_path(
     if path != expected {
         return Err(format!(
             "pack.cbor references unsupported retrieval asset path `{path}` for `{key}`"
+        ));
+    }
+    validate_relative_pack_asset_path(path)?;
+    Ok(path.to_string())
+}
+
+fn operational_indexes_extension_paths(
+    manifest: &SorlaPackManifest,
+) -> Result<Option<(String, String)>, String> {
+    let Some(indexes) = manifest
+        .extension
+        .get("sorla")
+        .and_then(|sorla| sorla.get("operational_indexes"))
+    else {
+        return Ok(None);
+    };
+    let schema = indexes
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "pack.cbor operational_indexes extension is missing `schema`".to_string())?;
+    if schema != OPERATIONAL_INDEXES_SCHEMA {
+        return Err(format!(
+            "pack.cbor operational_indexes extension has unsupported schema `{schema}`"
+        ));
+    }
+    let json = operational_indexes_extension_path(indexes, "json", OPERATIONAL_INDEXES_PATH)?;
+    let ir = operational_indexes_extension_path(indexes, "ir", OPERATIONAL_INDEXES_IR_CBOR_PATH)?;
+    Ok(Some((json, ir)))
+}
+
+fn operational_indexes_extension_path(
+    indexes: &serde_json::Value,
+    key: &str,
+    expected: &str,
+) -> Result<String, String> {
+    let path = indexes
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("pack.cbor operational_indexes extension is missing `{key}`"))?;
+    if path != expected {
+        return Err(format!(
+            "pack.cbor references unsupported operational indexes asset path `{path}` for `{key}`"
         ));
     }
     validate_relative_pack_asset_path(path)?;
@@ -1881,6 +2013,36 @@ fn retrieval_summary<R: Read + Seek>(
         schema: ir.schema,
         provider_count: ir.providers.len(),
         scope_count: ir.scopes.len(),
+    }))
+}
+
+#[cfg(feature = "pack-zip")]
+fn operational_indexes_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackOperationalIndexesInspection>, String> {
+    let Some((json_path, ir_path)) = operational_indexes_extension_paths(manifest)? else {
+        return Ok(None);
+    };
+    for path in [&json_path, &ir_path] {
+        if !names.contains(path) {
+            return Err(format!(
+                "pack.cbor references missing operational indexes asset `{path}`"
+            ));
+        }
+    }
+    let json = read_operational_indexes_json(archive, &json_path)?;
+    let ir = read_operational_indexes_ir(archive, &ir_path)?;
+    if json != ir {
+        return Err(
+            "operational-indexes.json does not match operational-indexes.ir.cbor".to_string(),
+        );
+    }
+    Ok(Some(SorlaGtpackOperationalIndexesInspection {
+        schema: ir.schema,
+        index_count: ir.indexes.len(),
+        query_requirement_count: ir.query_requirements.len(),
     }))
 }
 
@@ -2146,6 +2308,20 @@ fn validate_embedded_sorx_compatibility<R: Read + Seek>(
 }
 
 #[cfg(feature = "pack-zip")]
+fn validate_embedded_views<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let views_bytes = zip_bytes(archive, "assets/sorla/views.cbor")?;
+    let views: Vec<ViewIr> = ciborium::de::from_reader(Cursor::new(views_bytes))
+        .map_err(|err| format!("views.cbor is invalid view IR: {err}"))?;
+    if views != ir.views {
+        return Err("views.cbor does not match model.cbor views".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
 fn validate_embedded_ontology_artifacts<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     names: &BTreeSet<String>,
@@ -2274,6 +2450,48 @@ fn validate_embedded_retrieval_bindings<R: Read + Seek>(
     let cbor = read_retrieval_ir(archive, &ir_path)?;
     if &json != expected || &cbor != expected {
         return Err("retrieval bindings assets do not match model.cbor".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_embedded_operational_indexes<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let declared_paths = operational_indexes_extension_paths(&pack_manifest)?;
+    let Some(expected) = &ir.operational_indexes else {
+        if declared_paths.is_some() {
+            return Err(
+                "pack.cbor declares operational_indexes extension but model.cbor has no operational indexes"
+                    .to_string(),
+            );
+        }
+        return Ok(());
+    };
+    let Some((json_path, ir_path)) = declared_paths else {
+        return Err("pack.cbor is missing sorla operational_indexes extension".to_string());
+    };
+    for path in [&json_path, &ir_path] {
+        if !names.contains(path) {
+            return Err(format!(
+                "pack.cbor references missing operational indexes asset `{path}`"
+            ));
+        }
+        if !pack_manifest.assets.iter().any(|asset| asset == path) {
+            return Err(format!("pack.cbor assets do not include `{path}`"));
+        }
+        validate_lock_includes_entry(archive, path)?;
+    }
+    let json = read_operational_indexes_json(archive, &json_path)?;
+    let cbor = read_operational_indexes_ir(archive, &ir_path)?;
+    if &json != expected || &cbor != expected {
+        return Err("operational indexes assets do not match model.cbor".to_string());
     }
     Ok(())
 }
@@ -2757,6 +2975,32 @@ fn read_retrieval_json<R: Read + Seek>(
 }
 
 #[cfg(feature = "pack-zip")]
+fn read_operational_indexes_ir<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<OperationalIndexesIr, String> {
+    let bytes = zip_bytes(archive, path)?;
+    ciborium::de::from_reader(Cursor::new(bytes))
+        .map_err(|err| format!("{path} is invalid operational indexes CBOR: {err}"))
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_operational_indexes_json<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<OperationalIndexesIr, String> {
+    let indexes: OperationalIndexesIr = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid operational indexes JSON: {err}"))?;
+    if indexes.schema != OPERATIONAL_INDEXES_SCHEMA {
+        return Err(format!(
+            "{path} has unsupported operational indexes schema `{}`",
+            indexes.schema
+        ));
+    }
+    Ok(indexes)
+}
+
+#[cfg(feature = "pack-zip")]
 fn read_designer_node_types<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     path: &str,
@@ -2828,8 +3072,10 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
     validate_embedded_sorx_validation(&mut archive, &names, &ir)?;
     validate_embedded_sorx_exposure_policy(&mut archive, &names, &ir)?;
     validate_embedded_sorx_compatibility(&mut archive, &names, &ir)?;
+    validate_embedded_views(&mut archive, &ir)?;
     validate_embedded_ontology_artifacts(&mut archive, &names, &ir)?;
     validate_embedded_retrieval_bindings(&mut archive, &names, &ir)?;
+    validate_embedded_operational_indexes(&mut archive, &names, &ir)?;
     validate_embedded_designer_node_types(&mut archive, &names, &ir)?;
     validate_embedded_agent_endpoint_action_catalog(&mut archive, &names, &ir)?;
     let endpoint_ids: BTreeSet<_> = ir
@@ -2917,6 +3163,13 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
                 .map(str::to_string),
         );
     }
+    if inspection.operational_indexes.is_some() {
+        checked_assets.extend(
+            [OPERATIONAL_INDEXES_PATH, OPERATIONAL_INDEXES_IR_CBOR_PATH]
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
     if inspection.designer_node_types.is_some() {
         checked_assets.push(DESIGNER_NODE_TYPES_PATH.to_string());
     }
@@ -2938,6 +3191,7 @@ fn required_pack_entries() -> Vec<&'static str> {
         "pack.lock.cbor",
         "manifest.cbor",
         "assets/sorla/model.cbor",
+        "assets/sorla/views.cbor",
         "assets/sorla/package-manifest.cbor",
         "assets/sorla/executable-contract.json",
         "assets/sorla/agent-gateway.json",
@@ -3074,8 +3328,11 @@ pub fn executable_contract_json(ir: &CanonicalIr) -> String {
             serde_json::json!({
                 "name": migration.name,
                 "compatibility": migration.compatibility,
+                "from_version": migration.from_version,
+                "to_version": migration.to_version,
                 "projection_updates": migration.projection_updates,
                 "backfills": migration.backfills,
+                "operations": migration.operations,
                 "idempotence_key": migration.idempotence_key
             })
         })
@@ -3129,11 +3386,21 @@ pub fn agent_gateway_handoff_manifest(ir: &CanonicalIr) -> AgentGatewayHandoffMa
         .agent_endpoints
         .iter()
         .map(|endpoint| AgentGatewayEndpointRef {
+            endpoint_id: endpoint.id.clone(),
+            operation_id: endpoint.id.clone(),
+            operation: sorx_runtime_operation(endpoint).to_string(),
+            method: sorx_runtime_method(endpoint).to_string(),
+            path: sorx_runtime_path(endpoint, ir),
+            entity: sorx_runtime_entity(endpoint, ir),
+            collection: sorx_runtime_collection(endpoint, ir),
+            provider_binding: "store".to_string(),
             id: endpoint.id.clone(),
             title: endpoint.title.clone(),
             intent: endpoint.intent.clone(),
             risk: agent_endpoint_risk_label(&endpoint.risk).to_string(),
             approval: agent_endpoint_approval_label(&endpoint.approval).to_string(),
+            input_schema: object_schema_value(&endpoint.inputs),
+            output_schema: output_object_schema_value(&endpoint.outputs),
             inputs: endpoint
                 .inputs
                 .iter()
@@ -3163,7 +3430,7 @@ pub fn agent_gateway_handoff_manifest(ir: &CanonicalIr) -> AgentGatewayHandoffMa
     };
 
     AgentGatewayHandoffManifest {
-        schema: AGENT_GATEWAY_HANDOFF_SCHEMA.to_string(),
+        schema: SORX_AGENT_GATEWAY_SCHEMA.to_string(),
         package: AgentGatewayPackageRef {
             name: ir.package.name.clone(),
             version: ir.package.version.clone(),
@@ -3176,9 +3443,132 @@ pub fn agent_gateway_handoff_manifest(ir: &CanonicalIr) -> AgentGatewayHandoffMa
         },
         exports,
         notes: vec![
-            "This is handoff metadata for downstream assembly, not final runtime gateway behavior."
+            "This manifest includes SORX runtime route metadata plus SoRLa handoff context."
                 .to_string(),
         ],
+    }
+}
+
+fn sorx_runtime_operation(endpoint: &AgentEndpointIr) -> &'static str {
+    if endpoint.id.starts_with("update_") || endpoint.id.contains("_update_") {
+        "update"
+    } else if endpoint.id.starts_with("delete_")
+        || endpoint.id.starts_with("remove_")
+        || endpoint.id.contains("_refund")
+    {
+        "delete"
+    } else if endpoint.id.starts_with("create_")
+        || endpoint.id.starts_with("add_")
+        || endpoint.id.starts_with("record_")
+        || endpoint.id.starts_with("assign_")
+        || endpoint.emits.is_some()
+    {
+        "create"
+    } else {
+        "query"
+    }
+}
+
+fn sorx_runtime_method(endpoint: &AgentEndpointIr) -> &'static str {
+    match sorx_runtime_operation(endpoint) {
+        "query" => "GET",
+        "update" => "PATCH",
+        "delete" => "DELETE",
+        _ => "POST",
+    }
+}
+
+fn sorx_runtime_path(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
+    let collection = sorx_runtime_collection(endpoint, ir);
+    match sorx_runtime_operation(endpoint) {
+        "query" => format!("/v1/agent/{collection}/query/{}", endpoint.id),
+        "update" => match sorx_runtime_id_input(endpoint, &sorx_runtime_entity(endpoint, ir)) {
+            Some(id_input) => format!("/v1/agent/{collection}/{{{id_input}}}"),
+            None => format!("/v1/agent/{collection}/{}", endpoint.id),
+        },
+        "delete" => match sorx_runtime_id_input(endpoint, &sorx_runtime_entity(endpoint, ir)) {
+            Some(id_input) => format!("/v1/agent/{collection}/{{{id_input}}}"),
+            None => format!("/v1/agent/{collection}/{}", endpoint.id),
+        },
+        _ => format!("/v1/agent/{collection}/create"),
+    }
+}
+
+fn sorx_runtime_id_input(endpoint: &AgentEndpointIr, entity: &str) -> Option<String> {
+    let entity_id = format!("{}_id", snake_case_identifier(entity));
+    endpoint
+        .inputs
+        .iter()
+        .find(|input| input.name == entity_id || input.name == "id")
+        .map(|input| input.name.clone())
+}
+
+fn sorx_runtime_entity(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
+    if let Some(emit) = &endpoint.emits
+        && let Some(event) = ir.events.iter().find(|event| event.name == emit.event)
+    {
+        return event.record.clone();
+    }
+
+    if let Some(record) = endpoint.outputs.iter().find_map(|output| {
+        let output_name = output.name.trim_end_matches('s');
+        ir.records
+            .iter()
+            .find(|record| output_name.contains(&snake_case_identifier(&record.name)))
+    }) {
+        return record.name.clone();
+    }
+
+    let haystack = endpoint_entity_haystack(endpoint);
+    if let Some(record) = ir
+        .records
+        .iter()
+        .find(|record| haystack.contains(&snake_case_identifier(&record.name)))
+    {
+        return record.name.clone();
+    }
+
+    ir.records
+        .first()
+        .map(|record| record.name.clone())
+        .unwrap_or_else(|| "Record".to_string())
+}
+
+fn endpoint_entity_haystack(endpoint: &AgentEndpointIr) -> String {
+    let mut parts = vec![endpoint.id.clone()];
+    parts.extend(endpoint.inputs.iter().map(|input| input.name.clone()));
+    parts.extend(endpoint.outputs.iter().map(|output| output.name.clone()));
+    parts.join(" ")
+}
+
+fn sorx_runtime_collection(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
+    pluralize_snake(&snake_case_identifier(&sorx_runtime_entity(endpoint, ir)))
+}
+
+fn snake_case_identifier(value: &str) -> String {
+    let mut out = String::new();
+    for (index, ch) in value.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if index > 0 {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else if ch == '-' || ch == ' ' {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn pluralize_snake(value: &str) -> String {
+    if value.ends_with('y') {
+        format!("{}ies", value.trim_end_matches('y'))
+    } else if value.ends_with('s') {
+        value.to_string()
+    } else {
+        format!("{value}s")
     }
 }
 
@@ -3345,8 +3735,12 @@ fn mcp_tools_json(ir: &CanonicalIr) -> String {
         .map(|endpoint| {
             serde_json::json!({
                 "name": endpoint.id,
+                "endpoint_id": endpoint.id,
+                "operation_id": endpoint.id,
                 "title": endpoint.title,
                 "description": endpoint.intent,
+                "input_schema": object_schema_value(&endpoint.inputs),
+                "output_schema": output_object_schema_value(&endpoint.outputs),
                 "inputSchema": object_schema_value(&endpoint.inputs),
                 "annotations": {
                     "risk": agent_endpoint_risk_label(&endpoint.risk),
@@ -3358,10 +3752,57 @@ fn mcp_tools_json(ir: &CanonicalIr) -> String {
         .collect::<Vec<_>>();
 
     serde_json::to_string_pretty(&serde_json::json!({
-        "schema": MCP_TOOLS_HANDOFF_SCHEMA,
+        "schema": SORX_MCP_TOOLS_SCHEMA,
         "tools": tools
     }))
     .expect("MCP tools handoff should serialize")
+}
+
+fn sorx_runtime_validation_suite_json(ir: &CanonicalIr) -> serde_json::Value {
+    let mut tests = vec![
+        serde_json::json!({
+            "id": "doctor.pack.valid",
+            "kind": "doctor",
+            "level": "required"
+        }),
+        serde_json::json!({
+            "id": "routes.generated",
+            "kind": "route_generation",
+            "level": "required"
+        }),
+        serde_json::json!({
+            "id": "agent-gateway.present",
+            "kind": "artifact_exists",
+            "level": "required",
+            "path": format!("assets/sorla/{AGENT_GATEWAY_HANDOFF_FILENAME}")
+        }),
+    ];
+
+    if ir
+        .agent_endpoints
+        .iter()
+        .any(|endpoint| endpoint.agent_visibility.mcp)
+    {
+        tests.push(serde_json::json!({
+            "id": "mcp-tools.present",
+            "kind": "artifact_exists",
+            "level": "recommended",
+            "path": format!("assets/sorla/{MCP_TOOLS_FILENAME}")
+        }));
+    }
+
+    serde_json::json!({
+        "schema": SORX_VALIDATION_SUITE_SCHEMA,
+        "suite_id": format!("{}-runtime", ir.package.name),
+        "pack_name": ir.package.name,
+        "pack_version": ir.package.version,
+        "gates": {
+            "required_for_private_activation": true,
+            "required_for_public_exposure": true,
+            "minimum_pass_level": "required"
+        },
+        "tests": tests
+    })
 }
 
 fn llms_txt_fragment(ir: &CanonicalIr) -> String {
@@ -3540,7 +3981,7 @@ mod tests {
         );
         assert!(first.cbor_artifacts.contains_key("launcher-handoff.cbor"));
         assert!(first.agent_exports.agent_gateway_json.contains(
-            "This is handoff metadata for downstream assembly, not final runtime gateway behavior."
+            "This manifest includes SORX runtime route metadata plus SoRLa handoff context."
         ));
         assert!(first.agent_tools_json.contains("storage"));
         assert_eq!(
@@ -3574,10 +4015,6 @@ mod tests {
         let expected_inspect =
             fs::read_to_string("tests/golden/customer_contact_agent_endpoints.inspect.json")
                 .expect("agent endpoint inspect golden should be readable");
-        let expected_gateway =
-            fs::read_to_string("tests/golden/customer_contact_agent_endpoints.agent-gateway.json")
-                .expect("agent gateway golden should be readable");
-
         let parsed = parse_package(&fixture).expect("agent endpoint fixture should parse");
         let ir = lower_package(&parsed.package);
         let first_exports = export_agent_artifacts(&ir);
@@ -3675,15 +4112,26 @@ mod tests {
                 .contains(&AGENT_ENDPOINT_ACTION_CATALOG_FILENAME.to_string())
         );
 
-        let mut expected_gateway_value: serde_json::Value =
-            serde_json::from_str(&expected_gateway).expect("agent gateway golden should parse");
-        expected_gateway_value["package"]["ir_hash"] =
-            serde_json::Value::String(canonical_hash_hex(&ir));
         let actual_gateway_value: serde_json::Value = serde_json::from_str(
             &serde_json::to_string_pretty(&manifest).expect("manifest should serialize"),
         )
         .expect("manifest JSON should parse");
-        assert_eq!(actual_gateway_value, expected_gateway_value);
+        assert_eq!(actual_gateway_value["schema"], SORX_AGENT_GATEWAY_SCHEMA);
+        assert_eq!(
+            actual_gateway_value["endpoints"][0]["endpoint_id"],
+            "create_customer_contact"
+        );
+        assert_eq!(actual_gateway_value["endpoints"][0]["operation"], "create");
+        assert_eq!(actual_gateway_value["endpoints"][0]["method"], "POST");
+        assert_eq!(
+            actual_gateway_value["endpoints"][0]["path"],
+            "/v1/agent/contacts/create"
+        );
+        assert_eq!(actual_gateway_value["endpoints"][0]["entity"], "Contact");
+        assert_eq!(
+            actual_gateway_value["endpoints"][0]["collection"],
+            "contacts"
+        );
 
         assert!(first_exports.openapi_overlay_yaml.is_some());
         assert!(first_exports.arazzo_yaml.is_some());
@@ -3810,6 +4258,22 @@ mod tests {
             pack_manifest
                 .extension
                 .get("sorx")
+                .and_then(|sorx| sorx.get("validation_suite"))
+                .and_then(serde_json::Value::as_str),
+            Some(SORX_VALIDATION_SUITE_PATH)
+        );
+        assert_eq!(
+            pack_manifest
+                .extension
+                .get("sorx")
+                .and_then(|sorx| sorx.get("validation_suite_cbor"))
+                .and_then(serde_json::Value::as_str),
+            Some(SORX_VALIDATION_SUITE_CBOR_PATH)
+        );
+        assert_eq!(
+            pack_manifest
+                .extension
+                .get("sorx")
                 .and_then(|sorx| sorx.get("exposure_policy"))
                 .and_then(serde_json::Value::as_str),
             Some(SORX_EXPOSURE_POLICY_PATH)
@@ -3826,6 +4290,16 @@ mod tests {
             pack_manifest
                 .assets
                 .contains(&SORX_VALIDATION_MANIFEST_PATH.to_string())
+        );
+        assert!(
+            pack_manifest
+                .assets
+                .contains(&SORX_VALIDATION_SUITE_PATH.to_string())
+        );
+        assert!(
+            pack_manifest
+                .assets
+                .contains(&SORX_VALIDATION_SUITE_CBOR_PATH.to_string())
         );
         assert!(
             pack_manifest
@@ -4571,7 +5045,7 @@ package:
         let ir = lower_package(&parsed.package);
         let manifest = agent_gateway_handoff_manifest(&ir);
 
-        assert_eq!(manifest.schema, AGENT_GATEWAY_HANDOFF_SCHEMA);
+        assert_eq!(manifest.schema, SORX_AGENT_GATEWAY_SCHEMA);
         assert_eq!(manifest.package.name, "empty-agent-package");
         assert_eq!(manifest.package.ir_hash, canonical_hash_hex(&ir));
         assert!(manifest.endpoints.is_empty());
@@ -4581,8 +5055,8 @@ package:
         assert!(!manifest.exports.arazzo);
         assert!(!manifest.exports.mcp_tools);
         assert!(!manifest.exports.llms_txt);
-        assert!(manifest.notes[0].contains("handoff metadata"));
-        assert!(manifest.notes[0].contains("not final runtime gateway behavior"));
+        assert!(manifest.notes[0].contains("SORX runtime route metadata"));
+        assert!(manifest.notes[0].contains("SoRLa handoff context"));
     }
 
     #[test]
@@ -4778,11 +5252,7 @@ agent_endpoints:
         let second = export_agent_artifacts(&ir);
 
         assert_eq!(first, second);
-        assert!(
-            first
-                .agent_gateway_json
-                .contains(AGENT_GATEWAY_HANDOFF_SCHEMA)
-        );
+        assert!(first.agent_gateway_json.contains(SORX_AGENT_GATEWAY_SCHEMA));
         assert!(first.openapi_overlay_yaml.is_some());
         assert!(first.arazzo_yaml.is_none());
         assert!(first.mcp_tools_json.is_some());
@@ -4800,10 +5270,15 @@ agent_endpoints:
         )
         .expect("MCP export should be valid JSON");
 
-        assert_eq!(mcp["schema"], MCP_TOOLS_HANDOFF_SCHEMA);
+        assert_eq!(mcp["schema"], SORX_MCP_TOOLS_SCHEMA);
         assert_eq!(mcp["tools"][0]["name"], "create_customer_contact");
+        assert_eq!(mcp["tools"][0]["endpoint_id"], "create_customer_contact");
         assert_eq!(
             mcp["tools"][0]["inputSchema"]["required"][0],
+            "company_name"
+        );
+        assert_eq!(
+            mcp["tools"][0]["input_schema"]["required"][0],
             "company_name"
         );
         assert_eq!(mcp["tools"][0]["inputSchema"]["required"][1], "email");
