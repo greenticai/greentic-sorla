@@ -1,7 +1,7 @@
 use greentic_sorla_lang::ast::{
     AgentEndpointApprovalMode, AgentEndpointRisk, CardinalityValue, CompatibilityMode, ConceptKind,
-    ConfidenceScore, EventKind, FieldAuthority, Package, ProjectionMode, ProviderRequirement,
-    RecordSource,
+    ConfidenceScore, EventKind, FieldAuthority, MigrationOperationDecl, OperationalIndexKind,
+    Package, ProjectionMode, ProviderRequirement, RecordSource, ViewMode,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -31,12 +31,14 @@ pub struct CanonicalIr {
     pub ontology: Option<OntologyModelIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retrieval_bindings: Option<RetrievalBindingsIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operational_indexes: Option<OperationalIndexesIr>,
     pub records: Vec<RecordIr>,
     pub events: Vec<EventIr>,
     pub actions: Vec<NamedItemIr>,
     pub policies: Vec<NamedItemIr>,
     pub approvals: Vec<NamedItemIr>,
-    pub views: Vec<NamedItemIr>,
+    pub views: Vec<ViewIr>,
     pub flows: Vec<NamedItemIr>,
     pub projections: Vec<ProjectionIr>,
     pub external_sources: Vec<ExternalSourceIr>,
@@ -178,6 +180,48 @@ pub struct RetrievalBindingsIr {
     pub schema: String,
     pub providers: Vec<RetrievalProviderRequirementIr>,
     pub scopes: Vec<RetrievalScopeIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperationalIndexesIr {
+    pub schema: String,
+    pub indexes: Vec<OperationalIndexIr>,
+    pub query_requirements: Vec<QueryRequirementIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperationalIndexIr {
+    pub id: String,
+    pub record: String,
+    pub kind: OperationalIndexKindIr,
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OperationalIndexKindIr {
+    Exact,
+    Composite,
+    Text,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryRequirementIr {
+    pub id: String,
+    pub used_by: QueryRequirementTargetIr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires_index: Option<String>,
+    pub scan_ok: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryRequirementTargetIr {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projection: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,8 +384,14 @@ pub struct ExternalSourceIr {
 pub struct CompatibilityIr {
     pub name: String,
     pub compatibility: CompatibilityModeIr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_version: Option<String>,
     pub projection_updates: Vec<String>,
     pub backfills: Vec<MigrationBackfillIr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub operations: Vec<MigrationOperationIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idempotence_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -356,6 +406,21 @@ pub struct MigrationBackfillIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum MigrationOperationIr {
+    AddRecord {
+        record: String,
+    },
+    SplitRecord {
+        from_record: String,
+        into_records: Vec<String>,
+    },
+    RequireIndex {
+        index: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CompatibilityModeIr {
     Additive,
@@ -366,6 +431,37 @@ pub enum CompatibilityModeIr {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NamedItemIr {
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewIr {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub mode: ViewModeIr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maps_from: Option<ViewMappingIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub writes: Option<ViewWriteIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ViewModeIr {
+    ReadOnly,
+    ReadWrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewMappingIr {
+    pub record: String,
+    pub fields: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ViewWriteIr {
+    pub agent_endpoint: String,
+    pub input_mapping: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -566,6 +662,41 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
                     .cmp(&right.record)
                     .then(left.field.cmp(&right.field))
             });
+            let mut operations = migration
+                .operations
+                .iter()
+                .map(|operation| match operation {
+                    MigrationOperationDecl::AddRecord { record } => {
+                        MigrationOperationIr::AddRecord {
+                            record: record.clone(),
+                        }
+                    }
+                    MigrationOperationDecl::SplitRecord {
+                        from_record,
+                        into_records,
+                    } => {
+                        let mut into_records = into_records.clone();
+                        into_records.sort();
+                        MigrationOperationIr::SplitRecord {
+                            from_record: from_record.clone(),
+                            into_records,
+                        }
+                    }
+                    MigrationOperationDecl::RequireIndex { index } => {
+                        MigrationOperationIr::RequireIndex {
+                            index: index.clone(),
+                        }
+                    }
+                })
+                .collect::<Vec<_>>();
+            operations.sort_by(|left, right| {
+                serde_json::to_string(left)
+                    .expect("migration operation should serialize")
+                    .cmp(
+                        &serde_json::to_string(right)
+                            .expect("migration operation should serialize"),
+                    )
+            });
             CompatibilityIr {
                 name: migration.name.clone(),
                 compatibility: match migration.compatibility {
@@ -575,8 +706,11 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
                     }
                     CompatibilityMode::Breaking => CompatibilityModeIr::Breaking,
                 },
+                from_version: migration.from_version.clone(),
+                to_version: migration.to_version.clone(),
                 projection_updates,
                 backfills,
+                operations,
                 idempotence_key: migration.idempotence_key.clone(),
                 notes: migration.notes.clone(),
             }
@@ -595,6 +729,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         },
         ontology: lower_ontology(package),
         retrieval_bindings: lower_retrieval_bindings(package),
+        operational_indexes: lower_operational_indexes(package),
         records,
         events,
         actions: sorted_named_items(
@@ -618,13 +753,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
                 .map(|item| item.name.as_str())
                 .collect::<Vec<_>>(),
         ),
-        views: sorted_named_items(
-            &package
-                .views
-                .iter()
-                .map(|item| item.name.as_str())
-                .collect::<Vec<_>>(),
-        ),
+        views: sorted_views(package),
         flows: sorted_named_items(
             &package
                 .flows
@@ -721,6 +850,80 @@ fn lower_retrieval_bindings(package: &Package) -> Option<RetrievalBindingsIr> {
         schema: bindings.schema.clone(),
         providers,
         scopes,
+    })
+}
+
+fn sorted_views(package: &Package) -> Vec<ViewIr> {
+    let mut views = package
+        .views
+        .iter()
+        .map(|view| ViewIr {
+            name: view.name.clone(),
+            version: view.version.clone(),
+            mode: match view.mode.as_ref().unwrap_or(&ViewMode::ReadOnly) {
+                ViewMode::ReadOnly => ViewModeIr::ReadOnly,
+                ViewMode::ReadWrite => ViewModeIr::ReadWrite,
+            },
+            maps_from: view.maps_from.as_ref().map(|mapping| ViewMappingIr {
+                record: mapping.record.clone(),
+                fields: mapping.fields.clone(),
+            }),
+            writes: view.writes.as_ref().map(|writes| ViewWriteIr {
+                agent_endpoint: writes.agent_endpoint.clone(),
+                input_mapping: writes.input_mapping.clone(),
+            }),
+        })
+        .collect::<Vec<_>>();
+    views.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then(left.version.cmp(&right.version))
+    });
+    views
+}
+
+fn lower_operational_indexes(package: &Package) -> Option<OperationalIndexesIr> {
+    let indexes = package.operational_indexes.as_ref()?;
+    let mut lowered_indexes = indexes
+        .indexes
+        .iter()
+        .map(|index| {
+            let mut fields = index.fields.clone();
+            fields.dedup();
+            OperationalIndexIr {
+                id: index.id.clone(),
+                record: index.record.clone(),
+                kind: match index.kind {
+                    OperationalIndexKind::Exact => OperationalIndexKindIr::Exact,
+                    OperationalIndexKind::Composite => OperationalIndexKindIr::Composite,
+                    OperationalIndexKind::Text => OperationalIndexKindIr::Text,
+                },
+                fields,
+            }
+        })
+        .collect::<Vec<_>>();
+    lowered_indexes.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut query_requirements = indexes
+        .query_requirements
+        .iter()
+        .map(|requirement| QueryRequirementIr {
+            id: requirement.id.clone(),
+            used_by: QueryRequirementTargetIr {
+                projection: requirement.used_by.projection.clone(),
+                view: requirement.used_by.view.clone(),
+                agent_endpoint: requirement.used_by.agent_endpoint.clone(),
+            },
+            requires_index: requirement.requires_index.clone(),
+            scan_ok: requirement.scan_ok,
+        })
+        .collect::<Vec<_>>();
+    query_requirements.sort_by(|left, right| left.id.cmp(&right.id));
+
+    Some(OperationalIndexesIr {
+        schema: indexes.schema.clone(),
+        indexes: lowered_indexes,
+        query_requirements,
     })
 }
 
@@ -1393,6 +1596,198 @@ agent_endpoints:
             .expect("operation emit should lower");
         assert_eq!(emit.event, "TenantCreated");
         assert_eq!(emit.payload["full_name"], "$input.full_name");
+    }
+
+    #[test]
+    fn lowers_versioned_views_deterministically() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+records:
+  - name: Tenant
+    fields:
+      - name: id
+        type: string
+      - name: full_name
+        type: string
+events:
+  - name: TenantUpdated
+    record: Tenant
+agent_endpoints:
+  - id: update_tenant
+    title: Update tenant
+    intent: Update a tenant from view input.
+    inputs:
+      - name: tenant_id
+        type: string
+      - name: full_name
+        type: string
+    emits:
+      event: TenantUpdated
+      stream: "tenant/{tenant_id}"
+views:
+  - name: TenantWrite
+    version: 2.0.0
+    mode: read-write
+    maps_from:
+      record: Tenant
+      fields:
+        display_name: full_name
+        tenant_id: id
+    writes:
+      agent_endpoint: update_tenant
+      input_mapping:
+        full_name: display_name
+        tenant_id: tenant_id
+  - name: LegacyTenant
+"#,
+        )
+        .expect("versioned view fixture should parse");
+
+        let first = lower_package(&parsed.package);
+        let second = lower_package(&parsed.package);
+        assert_eq!(first.views, second.views);
+        assert_eq!(first.views[0].name, "LegacyTenant");
+        assert_eq!(first.views[0].mode, ViewModeIr::ReadOnly);
+        assert_eq!(first.views[1].name, "TenantWrite");
+        assert_eq!(first.views[1].version.as_deref(), Some("2.0.0"));
+        assert_eq!(first.views[1].mode, ViewModeIr::ReadWrite);
+        assert_eq!(
+            first.views[1]
+                .maps_from
+                .as_ref()
+                .expect("view mapping should lower")
+                .fields["display_name"],
+            "full_name"
+        );
+    }
+
+    #[test]
+    fn lowers_operational_indexes_deterministically() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+records:
+  - name: Tenant
+    fields:
+      - name: id
+        type: string
+      - name: email
+        type: string
+      - name: status
+        type: string
+events:
+  - name: TenantCreated
+    record: Tenant
+projections:
+  - name: ActiveTenants
+    record: Tenant
+    source_event: TenantCreated
+operational_indexes:
+  schema: greentic.sorla.operational-indexes.v1
+  indexes:
+    - id: tenant_status_lookup
+      record: Tenant
+      kind: composite
+      fields:
+        - status
+        - id
+    - id: tenant_by_email
+      record: Tenant
+      kind: exact
+      fields:
+        - email
+  query_requirements:
+    - id: active_tenant_lookup
+      used_by:
+        projection: ActiveTenants
+      requires_index: tenant_status_lookup
+"#,
+        )
+        .expect("operational indexes should parse");
+
+        let first = lower_package(&parsed.package);
+        let second = lower_package(&parsed.package);
+        assert_eq!(first.operational_indexes, second.operational_indexes);
+        let indexes = first
+            .operational_indexes
+            .expect("operational indexes should lower");
+        assert_eq!(indexes.indexes[0].id, "tenant_by_email");
+        assert_eq!(indexes.indexes[1].id, "tenant_status_lookup");
+        assert_eq!(
+            indexes.query_requirements[0].requires_index.as_deref(),
+            Some("tenant_status_lookup")
+        );
+    }
+
+    #[test]
+    fn lowers_typed_migration_operations() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+records:
+  - name: Tenant
+    fields:
+      - name: id
+        type: string
+      - name: property_id
+        type: string
+      - name: status
+        type: string
+  - name: Person
+    fields:
+      - name: id
+        type: string
+  - name: Tenancy
+    fields:
+      - name: id
+        type: string
+operational_indexes:
+  schema: greentic.sorla.operational-indexes.v1
+  indexes:
+    - id: active_tenants_by_property
+      record: Tenant
+      kind: composite
+      fields:
+        - property_id
+        - status
+migrations:
+  - name: tenant-v2
+    compatibility: backward-compatible
+    from_version: 1.1.0
+    to_version: 2.0.0
+    idempotence_key: tenant:1.1.0:2.0.0
+    operations:
+      - kind: split-record
+        from_record: Tenant
+        into_records:
+          - Tenancy
+          - Person
+      - kind: require-index
+        index: active_tenants_by_property
+"#,
+        )
+        .expect("typed migration operations should parse");
+
+        let ir = lower_package(&parsed.package);
+        let migration = &ir.compatibility[0];
+        assert_eq!(migration.from_version.as_deref(), Some("1.1.0"));
+        assert_eq!(migration.to_version.as_deref(), Some("2.0.0"));
+        assert_eq!(migration.operations.len(), 2);
+        assert!(migration.operations.iter().any(|operation| matches!(
+            operation,
+            MigrationOperationIr::RequireIndex { index } if index == "active_tenants_by_property"
+        )));
+        assert!(migration.operations.iter().any(|operation| matches!(
+            operation,
+            MigrationOperationIr::SplitRecord { into_records, .. } if into_records == &vec!["Person".to_string(), "Tenancy".to_string()]
+        )));
     }
 
     #[test]

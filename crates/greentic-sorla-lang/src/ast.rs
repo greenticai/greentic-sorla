@@ -1,5 +1,6 @@
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeMap;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +28,8 @@ pub struct Package {
     #[serde(default)]
     pub retrieval_bindings: Option<RetrievalBindings>,
     #[serde(default)]
+    pub operational_indexes: Option<OperationalIndexes>,
+    #[serde(default)]
     pub records: Vec<Record>,
     #[serde(default)]
     pub events: Vec<EventDecl>,
@@ -37,7 +40,7 @@ pub struct Package {
     #[serde(default)]
     pub approvals: Vec<NamedBlock>,
     #[serde(default)]
-    pub views: Vec<NamedBlock>,
+    pub views: Vec<ViewDecl>,
     #[serde(default)]
     pub flows: Vec<NamedBlock>,
     #[serde(default)]
@@ -225,6 +228,56 @@ pub struct RetrievalBindings {
     pub providers: Vec<RetrievalProviderRequirement>,
     #[serde(default)]
     pub scopes: Vec<RetrievalScope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperationalIndexes {
+    pub schema: String,
+    #[serde(default)]
+    pub indexes: Vec<OperationalIndexDecl>,
+    #[serde(default)]
+    pub query_requirements: Vec<QueryRequirementDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperationalIndexDecl {
+    pub id: String,
+    pub record: String,
+    pub kind: OperationalIndexKind,
+    #[serde(default)]
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OperationalIndexKind {
+    Exact,
+    Composite,
+    Text,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueryRequirementDecl {
+    pub id: String,
+    pub used_by: QueryRequirementTarget,
+    #[serde(default)]
+    pub requires_index: Option<String>,
+    #[serde(default)]
+    pub scan_ok: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueryRequirementTarget {
+    #[serde(default)]
+    pub projection: Option<String>,
+    #[serde(default)]
+    pub view: Option<String>,
+    #[serde(default)]
+    pub agent_endpoint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -646,9 +699,15 @@ pub struct MigrationDecl {
     #[serde(default)]
     pub compatibility: CompatibilityMode,
     #[serde(default)]
+    pub from_version: Option<String>,
+    #[serde(default)]
+    pub to_version: Option<String>,
+    #[serde(default)]
     pub projection_updates: Vec<String>,
     #[serde(default)]
     pub backfills: Vec<MigrationBackfillDecl>,
+    #[serde(default)]
+    pub operations: Vec<MigrationOperationDecl>,
     #[serde(default)]
     pub idempotence_key: Option<String>,
     #[serde(default)]
@@ -662,6 +721,59 @@ pub struct MigrationBackfillDecl {
     pub field: String,
     #[serde(default)]
     pub default: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum MigrationOperationDecl {
+    AddRecord {
+        record: String,
+    },
+    SplitRecord {
+        from_record: String,
+        #[serde(default)]
+        into_records: Vec<String>,
+    },
+    RequireIndex {
+        index: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewDecl {
+    pub name: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub mode: Option<ViewMode>,
+    #[serde(default)]
+    pub maps_from: Option<ViewMappingDecl>,
+    #[serde(default)]
+    pub writes: Option<ViewWriteDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ViewMode {
+    ReadOnly,
+    ReadWrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewMappingDecl {
+    pub record: String,
+    #[serde(default)]
+    pub fields: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewWriteDecl {
+    pub agent_endpoint: String,
+    #[serde(default)]
+    pub input_mapping: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

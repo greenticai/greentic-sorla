@@ -22,6 +22,7 @@ mod tests {
     use super::*;
     use crate::ast::{
         AgentEndpointApprovalMode, AgentEndpointRisk, FieldAuthority, ProjectionMode, RecordSource,
+        ViewMode,
     };
     use crate::parser::parse_package;
 
@@ -1253,5 +1254,262 @@ ontology:
         .expect_err("unknown ontology fields should be denied by serde");
 
         assert!(error.contains("unknown field"));
+    }
+
+    #[test]
+    fn parses_versioned_view_contracts_and_legacy_views() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+records:
+  - name: Tenant
+    fields:
+      - name: id
+        type: string
+      - name: full_name
+        type: string
+events:
+  - name: TenantUpdated
+    record: Tenant
+agent_endpoints:
+  - id: update_tenant
+    title: Update tenant
+    intent: Update a tenant from view input.
+    inputs:
+      - name: tenant_id
+        type: string
+      - name: full_name
+        type: string
+    emits:
+      event: TenantUpdated
+      stream: "tenant/{tenant_id}"
+views:
+  - name: LegacyTenant
+  - name: TenantWrite
+    version: 2.0.0
+    mode: read-write
+    maps_from:
+      record: Tenant
+      fields:
+        tenant_id: id
+        display_name: full_name
+    writes:
+      agent_endpoint: update_tenant
+      input_mapping:
+        tenant_id: tenant_id
+        full_name: display_name
+"#,
+        )
+        .expect("versioned view fixture should parse");
+
+        assert_eq!(parsed.package.views.len(), 2);
+        assert_eq!(parsed.package.views[0].name, "LegacyTenant");
+        assert_eq!(parsed.package.views[1].mode, Some(ViewMode::ReadWrite));
+        assert_eq!(
+            parsed.package.views[1]
+                .maps_from
+                .as_ref()
+                .expect("mapping should parse")
+                .fields["display_name"],
+            "full_name"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_versioned_view_references() {
+        let error = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+records:
+  - name: Tenant
+    fields:
+      - name: id
+        type: string
+views:
+  - name: BrokenTenant
+    maps_from:
+      record: Tenant
+      fields:
+        email: email
+"#,
+        )
+        .expect_err("unknown mapped record field should fail");
+
+        assert!(error.contains("views[0].maps_from.fields.email"));
+    }
+
+    #[test]
+    fn parses_operational_indexes_and_query_requirements() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+records:
+  - name: Tenant
+    fields:
+      - name: id
+        type: string
+      - name: email
+        type: string
+      - name: status
+        type: string
+events:
+  - name: TenantCreated
+    record: Tenant
+projections:
+  - name: ActiveTenants
+    record: Tenant
+    source_event: TenantCreated
+views:
+  - name: TenantSummary
+operational_indexes:
+  schema: greentic.sorla.operational-indexes.v1
+  indexes:
+    - id: tenant_by_email
+      record: Tenant
+      kind: exact
+      fields:
+        - email
+    - id: tenant_status_lookup
+      record: Tenant
+      kind: composite
+      fields:
+        - status
+        - id
+  query_requirements:
+    - id: active_tenant_lookup
+      used_by:
+        projection: ActiveTenants
+      requires_index: tenant_status_lookup
+    - id: tenant_summary_scan
+      used_by:
+        view: TenantSummary
+      scan_ok: true
+"#,
+        )
+        .expect("operational indexes should parse");
+
+        let indexes = parsed
+            .package
+            .operational_indexes
+            .expect("indexes should be present");
+        assert_eq!(indexes.indexes.len(), 2);
+        assert_eq!(indexes.query_requirements.len(), 2);
+    }
+
+    #[test]
+    fn rejects_query_requirement_without_index_or_scan_ok() {
+        let error = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+records:
+  - name: Tenant
+    fields:
+      - name: id
+        type: string
+events:
+  - name: TenantCreated
+    record: Tenant
+projections:
+  - name: ActiveTenants
+    record: Tenant
+    source_event: TenantCreated
+operational_indexes:
+  schema: greentic.sorla.operational-indexes.v1
+  query_requirements:
+    - id: active_tenant_lookup
+      used_by:
+        projection: ActiveTenants
+"#,
+        )
+        .expect_err("query requirement without index or scan_ok should fail");
+
+        assert!(error.contains("requires_index"));
+    }
+
+    #[test]
+    fn parses_typed_migration_operations() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+records:
+  - name: Tenant
+    fields:
+      - name: id
+        type: string
+      - name: property_id
+        type: string
+      - name: status
+        type: string
+  - name: Person
+    fields:
+      - name: id
+        type: string
+  - name: Tenancy
+    fields:
+      - name: id
+        type: string
+operational_indexes:
+  schema: greentic.sorla.operational-indexes.v1
+  indexes:
+    - id: active_tenants_by_property
+      record: Tenant
+      kind: composite
+      fields:
+        - property_id
+        - status
+migrations:
+  - name: tenant-v2
+    compatibility: backward-compatible
+    from_version: 1.1.0
+    to_version: 2.0.0
+    idempotence_key: tenant:1.1.0:2.0.0
+    operations:
+      - kind: add-record
+        record: Person
+      - kind: split-record
+        from_record: Tenant
+        into_records:
+          - Person
+          - Tenancy
+      - kind: require-index
+        index: active_tenants_by_property
+"#,
+        )
+        .expect("typed migration operations should parse");
+
+        assert_eq!(parsed.package.migrations[0].operations.len(), 3);
+        assert_eq!(
+            parsed.package.migrations[0].from_version.as_deref(),
+            Some("1.1.0")
+        );
+    }
+
+    #[test]
+    fn rejects_migration_operation_with_unknown_index() {
+        let error = parse_package(
+            r#"
+package:
+  name: leasing
+  version: 0.2.0
+migrations:
+  - name: tenant-v2
+    operations:
+      - kind: require-index
+        index: missing_index
+"#,
+        )
+        .expect_err("unknown migration index should fail");
+
+        assert!(error.contains("unknown operational index"));
     }
 }

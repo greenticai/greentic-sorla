@@ -1,7 +1,7 @@
 use crate::ast::{
     AgentEndpointApprovalMode, AgentEndpointDecl, AgentEndpointRisk, FieldAuthority,
-    OntologyBacking, OntologyProviderRequirement, Package, ParseWarning, ParsedPackage,
-    ProviderRequirement, Record, RecordSource,
+    MigrationOperationDecl, OntologyBacking, OntologyProviderRequirement, Package, ParseWarning,
+    ParsedPackage, ProviderRequirement, Record, RecordSource, ViewMode,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,12 +40,14 @@ fn validate_package(package: &Package) -> Result<Vec<ParseWarning>, String> {
     validate_record_references(package)?;
     validate_event_references(package)?;
     validate_projection_references(package)?;
+    validate_views(package)?;
     validate_migrations(package)?;
     validate_provider_requirements(&package.provider_requirements, "provider_requirements")?;
     let mut warnings = validate_ontology(package)?;
     warnings.extend(validate_semantic_aliases(package)?);
     validate_entity_linking(package)?;
     validate_retrieval_bindings(package)?;
+    validate_operational_indexes(package)?;
     warnings.extend(validate_agent_endpoints(package)?);
     Ok(warnings)
 }
@@ -225,6 +227,131 @@ fn validate_projection_references(package: &Package) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_views(package: &Package) -> Result<(), String> {
+    let record_fields = package
+        .records
+        .iter()
+        .map(|record| {
+            (
+                record.name.clone(),
+                declared_names(record.fields.iter().map(|field| field.name.as_str())),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let endpoint_inputs = package
+        .agent_endpoints
+        .iter()
+        .map(|endpoint| {
+            (
+                endpoint.id.clone(),
+                declared_names(endpoint.inputs.iter().map(|input| input.name.as_str())),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut view_keys = BTreeSet::new();
+
+    for (index, view) in package.views.iter().enumerate() {
+        let path = format!("views[{index}]");
+        require_non_empty(&view.name, &format!("{path}.name"), "view name")?;
+        if let Some(version) = &view.version {
+            require_non_empty(version, &format!("{path}.version"), "view version")?;
+        }
+        let key = (
+            view.name.clone(),
+            view.version.clone().unwrap_or_else(String::new),
+        );
+        if !view_keys.insert(key) {
+            return Err(format!(
+                "{path}.name: duplicate view `{}` with version `{}`",
+                view.name,
+                view.version.as_deref().unwrap_or("")
+            ));
+        }
+
+        if let Some(mapping) = &view.maps_from {
+            require_non_empty(
+                &mapping.record,
+                &format!("{path}.maps_from.record"),
+                "view source record",
+            )?;
+            let Some(fields) = record_fields.get(&mapping.record) else {
+                return Err(format!(
+                    "{path}.maps_from.record: unknown view source record `{}`",
+                    mapping.record
+                ));
+            };
+            for (view_field, record_field) in &mapping.fields {
+                require_non_empty(
+                    view_field,
+                    &format!("{path}.maps_from.fields.{view_field}"),
+                    "view field",
+                )?;
+                require_non_empty(
+                    record_field,
+                    &format!("{path}.maps_from.fields.{view_field}"),
+                    "record field",
+                )?;
+                if !fields.contains(record_field) {
+                    return Err(format!(
+                        "{path}.maps_from.fields.{view_field}: unknown field `{record_field}` on record `{}`",
+                        mapping.record
+                    ));
+                }
+            }
+        }
+
+        match (&view.mode, &view.writes) {
+            (Some(ViewMode::ReadOnly), Some(_)) => {
+                return Err(format!(
+                    "{path}.writes: read-only view `{}` cannot declare writes",
+                    view.name
+                ));
+            }
+            (Some(ViewMode::ReadWrite), None) => {
+                return Err(format!(
+                    "{path}.writes: read-write view `{}` must declare write mapping",
+                    view.name
+                ));
+            }
+            _ => {}
+        }
+
+        if let Some(writes) = &view.writes {
+            require_non_empty(
+                &writes.agent_endpoint,
+                &format!("{path}.writes.agent_endpoint"),
+                "view write endpoint",
+            )?;
+            let Some(inputs) = endpoint_inputs.get(&writes.agent_endpoint) else {
+                return Err(format!(
+                    "{path}.writes.agent_endpoint: unknown agent endpoint `{}`",
+                    writes.agent_endpoint
+                ));
+            };
+            for (input, source) in &writes.input_mapping {
+                require_non_empty(
+                    input,
+                    &format!("{path}.writes.input_mapping.{input}"),
+                    "write input",
+                )?;
+                require_non_empty(
+                    source,
+                    &format!("{path}.writes.input_mapping.{input}"),
+                    "write input source",
+                )?;
+                if !inputs.contains(input) {
+                    return Err(format!(
+                        "{path}.writes.input_mapping.{input}: unknown input `{input}` on agent endpoint `{}`",
+                        writes.agent_endpoint
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_migrations(package: &Package) -> Result<(), String> {
     let projection_names = declared_names(
         package
@@ -233,6 +360,11 @@ fn validate_migrations(package: &Package) -> Result<(), String> {
             .map(|projection| projection.name.as_str()),
     );
     let record_names = declared_names(package.records.iter().map(|record| record.name.as_str()));
+    let operational_index_ids = package
+        .operational_indexes
+        .as_ref()
+        .map(|indexes| declared_names(indexes.indexes.iter().map(|index| index.id.as_str())))
+        .unwrap_or_default();
 
     for (index, migration) in package.migrations.iter().enumerate() {
         let path = format!("migrations[{index}]");
@@ -242,6 +374,20 @@ fn validate_migrations(package: &Package) -> Result<(), String> {
                 idempotence_key,
                 &format!("{path}.idempotence_key"),
                 "migration idempotence key",
+            )?;
+        }
+        if let Some(from_version) = &migration.from_version {
+            require_non_empty(
+                from_version,
+                &format!("{path}.from_version"),
+                "migration from version",
+            )?;
+        }
+        if let Some(to_version) = &migration.to_version {
+            require_non_empty(
+                to_version,
+                &format!("{path}.to_version"),
+                "migration to version",
             )?;
         }
         for (update_index, projection) in migration.projection_updates.iter().enumerate() {
@@ -285,6 +431,79 @@ fn validate_migrations(package: &Package) -> Result<(), String> {
                     "{backfill_path}.field: unknown backfill field `{}` on record `{}`",
                     backfill.field, backfill.record
                 ));
+            }
+        }
+        for (operation_index, operation) in migration.operations.iter().enumerate() {
+            validate_migration_operation(
+                operation,
+                &record_names,
+                &operational_index_ids,
+                &format!("{path}.operations[{operation_index}]"),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_migration_operation(
+    operation: &MigrationOperationDecl,
+    record_names: &BTreeSet<String>,
+    operational_index_ids: &BTreeSet<String>,
+    path: &str,
+) -> Result<(), String> {
+    match operation {
+        MigrationOperationDecl::AddRecord { record } => {
+            require_non_empty(
+                record,
+                &format!("{path}.record"),
+                "migration operation record",
+            )?;
+            if !record_names.contains(record) {
+                return Err(format!("{path}.record: unknown record `{record}`"));
+            }
+        }
+        MigrationOperationDecl::SplitRecord {
+            from_record,
+            into_records,
+        } => {
+            require_non_empty(
+                from_record,
+                &format!("{path}.from_record"),
+                "migration split source record",
+            )?;
+            if !record_names.contains(from_record) {
+                return Err(format!(
+                    "{path}.from_record: unknown source record `{from_record}`"
+                ));
+            }
+            if into_records.is_empty() {
+                return Err(format!(
+                    "{path}.into_records: split-record operation must declare target records"
+                ));
+            }
+            let mut seen = BTreeSet::new();
+            for (index, record) in into_records.iter().enumerate() {
+                require_non_empty(
+                    record,
+                    &format!("{path}.into_records[{index}]"),
+                    "migration split target record",
+                )?;
+                if !record_names.contains(record) {
+                    return Err(format!(
+                        "{path}.into_records[{index}]: unknown target record `{record}`"
+                    ));
+                }
+                if !seen.insert(record) {
+                    return Err(format!(
+                        "{path}.into_records[{index}]: duplicate target record `{record}`"
+                    ));
+                }
+            }
+        }
+        MigrationOperationDecl::RequireIndex { index } => {
+            require_non_empty(index, &format!("{path}.index"), "migration required index")?;
+            if !operational_index_ids.contains(index) {
+                return Err(format!("{path}.index: unknown operational index `{index}`"));
             }
         }
     }
@@ -1135,6 +1354,189 @@ fn reject_secret_like_value(value: &str, path: &str) -> Result<(), String> {
         if lower.contains(marker) {
             return Err(format!(
                 "{path}: retrieval bindings must not include `{marker}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_operational_indexes(package: &Package) -> Result<(), String> {
+    let Some(indexes) = &package.operational_indexes else {
+        return Ok(());
+    };
+
+    require_non_empty(
+        &indexes.schema,
+        "operational_indexes.schema",
+        "operational indexes schema",
+    )?;
+    if indexes.schema != "greentic.sorla.operational-indexes.v1" {
+        return Err(format!(
+            "operational_indexes.schema: unsupported operational indexes schema `{}`",
+            indexes.schema
+        ));
+    }
+
+    let record_fields = package
+        .records
+        .iter()
+        .map(|record| {
+            (
+                record.name.clone(),
+                declared_names(record.fields.iter().map(|field| field.name.as_str())),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let projection_names = declared_names(
+        package
+            .projections
+            .iter()
+            .map(|projection| projection.name.as_str()),
+    );
+    let view_names = declared_names(package.views.iter().map(|view| view.name.as_str()));
+    let endpoint_ids = declared_names(
+        package
+            .agent_endpoints
+            .iter()
+            .map(|endpoint| endpoint.id.as_str()),
+    );
+
+    let mut index_ids = BTreeSet::new();
+    for (index, declaration) in indexes.indexes.iter().enumerate() {
+        let path = format!("operational_indexes.indexes[{index}]");
+        validate_stable_id(&declaration.id, &format!("{path}.id"))?;
+        if !index_ids.insert(declaration.id.clone()) {
+            return Err(format!(
+                "{path}.id: duplicate operational index id `{}`",
+                declaration.id
+            ));
+        }
+        require_non_empty(
+            &declaration.record,
+            &format!("{path}.record"),
+            "operational index record",
+        )?;
+        let Some(fields) = record_fields.get(&declaration.record) else {
+            return Err(format!(
+                "{path}.record: unknown operational index record `{}`",
+                declaration.record
+            ));
+        };
+        if declaration.fields.is_empty() {
+            return Err(format!(
+                "{path}.fields: operational index must include fields"
+            ));
+        }
+        let mut seen_fields = BTreeSet::new();
+        for (field_index, field) in declaration.fields.iter().enumerate() {
+            require_non_empty(
+                field,
+                &format!("{path}.fields[{field_index}]"),
+                "operational index field",
+            )?;
+            if !seen_fields.insert(field.clone()) {
+                return Err(format!(
+                    "{path}.fields[{field_index}]: duplicate operational index field `{field}`"
+                ));
+            }
+            if !fields.contains(field) {
+                return Err(format!(
+                    "{path}.fields[{field_index}]: unknown field `{field}` on record `{}`",
+                    declaration.record
+                ));
+            }
+        }
+    }
+
+    let mut requirement_ids = BTreeSet::new();
+    for (index, requirement) in indexes.query_requirements.iter().enumerate() {
+        let path = format!("operational_indexes.query_requirements[{index}]");
+        validate_stable_id(&requirement.id, &format!("{path}.id"))?;
+        if !requirement_ids.insert(requirement.id.clone()) {
+            return Err(format!(
+                "{path}.id: duplicate query requirement id `{}`",
+                requirement.id
+            ));
+        }
+        validate_query_requirement_target(
+            &requirement.used_by,
+            &projection_names,
+            &view_names,
+            &endpoint_ids,
+            &format!("{path}.used_by"),
+        )?;
+        match (&requirement.requires_index, requirement.scan_ok) {
+            (Some(index_id), _) => {
+                require_non_empty(
+                    index_id,
+                    &format!("{path}.requires_index"),
+                    "required index",
+                )?;
+                if !index_ids.contains(index_id) {
+                    return Err(format!(
+                        "{path}.requires_index: unknown operational index `{index_id}`"
+                    ));
+                }
+            }
+            (None, true) => {}
+            (None, false) => {
+                return Err(format!(
+                    "{path}: query requirement must declare `requires_index` or set `scan_ok: true`"
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_query_requirement_target(
+    target: &crate::ast::QueryRequirementTarget,
+    projection_names: &BTreeSet<String>,
+    view_names: &BTreeSet<String>,
+    endpoint_ids: &BTreeSet<String>,
+    path: &str,
+) -> Result<(), String> {
+    let populated = [
+        target.projection.as_ref(),
+        target.view.as_ref(),
+        target.agent_endpoint.as_ref(),
+    ]
+    .into_iter()
+    .filter(|value| value.is_some())
+    .count();
+    if populated != 1 {
+        return Err(format!(
+            "{path}: must declare exactly one of `projection`, `view`, or `agent_endpoint`"
+        ));
+    }
+    if let Some(projection) = &target.projection {
+        require_non_empty(
+            projection,
+            &format!("{path}.projection"),
+            "projection target",
+        )?;
+        if !projection_names.contains(projection) {
+            return Err(format!(
+                "{path}.projection: unknown projection `{projection}`"
+            ));
+        }
+    }
+    if let Some(view) = &target.view {
+        require_non_empty(view, &format!("{path}.view"), "view target")?;
+        if !view_names.contains(view) {
+            return Err(format!("{path}.view: unknown view `{view}`"));
+        }
+    }
+    if let Some(endpoint) = &target.agent_endpoint {
+        require_non_empty(
+            endpoint,
+            &format!("{path}.agent_endpoint"),
+            "agent endpoint target",
+        )?;
+        if !endpoint_ids.contains(endpoint) {
+            return Err(format!(
+                "{path}.agent_endpoint: unknown agent endpoint `{endpoint}`"
             ));
         }
     }
