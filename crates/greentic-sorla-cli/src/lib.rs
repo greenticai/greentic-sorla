@@ -1181,6 +1181,7 @@ fn run_interactive_wizard_with_provider(
             debug: false,
         },
         verbose: false,
+        env_id: String::new(),
     })
     .map_err(format_qa_error)?;
 
