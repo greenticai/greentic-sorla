@@ -312,9 +312,9 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "component-qa"
-version = "1.1.0-dev.25478199966"
+version = "1.1.0-dev.26147557540"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56676639c1c6248e9e2cda5e0c4b0be0cdf3d23eea16cd296bfb5c59b654689e"
+checksum = "767d36b82b5aaea48afa7d50068991a182d9a5e55b5cba61aec40f96155e1b8e"
 dependencies = [
  "greentic-interfaces-guest",
  "greentic-types",
@@ -758,9 +758,9 @@ dependencies = [
 
 [[package]]
 name = "greentic-interfaces-guest"
-version = "1.1.0-dev.25380112032"
+version = "1.1.0-dev.25540474673"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31869558530be66ec330013f12e47514d15b8c987c45f72b814c99864d88b833"
+checksum = "4a9871668ff192398dd4845399c83cca99e11a0411a6381184c9dfd8d696f424"
 dependencies = [
  "greentic-types",
  "wit-bindgen 0.57.1",
@@ -770,9 +770,9 @@ dependencies = [
 
 [[package]]
 name = "greentic-qa-lib"
-version = "1.1.0-dev.25478199966"
+version = "1.1.0-dev.26147557540"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a16690c324bf66033701a7e2ee58b25d1749a621daffd99fb2588dcb631c6d81"
+checksum = "5940c46fe2bb0e44123d203d1d6fba4a371b30e0a80733526cb18321af965eb8"
 dependencies = [
  "component-qa",
  "qa-spec",
@@ -845,9 +845,9 @@ dependencies = [
 
 [[package]]
 name = "greentic-types"
-version = "1.1.0-dev.25376259391"
+version = "1.1.0-dev.25540461571"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20f2d79fd4554b6985d5fd529c88884dec49985c14846bf10b43c9a58ee16e1e"
+checksum = "df38b70a9539e751664e0c3e0a21d6b9ea48e5345d9089d16c5058f122055d30"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1263,9 +1263,9 @@ dependencies = [
 
 [[package]]
 name = "qa-spec"
-version = "1.1.0-dev.25478199966"
+version = "1.1.0-dev.26147557540"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bddc65704f9796a089d32e1261e78ea68494a89d72f0ff303641a8e8bd649380"
+checksum = "0e7b904efa057a6c4e296ead92468d40b339f046779785ba8a34ce8452f951dc"
 dependencies = [
  "globset",
  "handlebars",
