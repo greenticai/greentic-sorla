@@ -15,6 +15,7 @@ The supported product surface is:
 greentic-sorla wizard --schema
 greentic-sorla wizard --answers answers.json
 greentic-sorla wizard --answers landlord-tenant-pack.json --pack-out landlord-tenant-sor.gtpack
+greentic-sorla prompt --answers-out answers.json --llm-provider <provider>
 ```
 
 For production composition, treat `gtc wizard --extensions ...` as the canonical
@@ -37,6 +38,25 @@ See `docs/agent-endpoints.md` for the authoring model, safety fields, and
 
 See `docs/agent-endpoint-handoff-contract.md` for the downstream `gtc` handoff
 contract.
+
+## Prompt Authoring
+
+`greentic-sorla prompt` interactively turns a business description into
+wizard-compatible `answers.json`.
+
+```text
+greentic-sorla prompt -> answers.json
+greentic-sorla wizard --answers answers.json -> sorla.yaml / optional .gtpack
+```
+
+The prompt engine lives in `greentic-sorla-lib` and is shared by the CLI and
+Designer extension. It requires an LLM capability, but provider implementations
+and credential resolution stay outside this repository or in host capability
+systems. The prompt engine only emits answers JSON; final production
+composition remains owned by `gtc`.
+
+See `docs/prompt-authoring.md` for the full boundary, CLI options, SDK usage,
+and Designer/WebChat/Teams integration notes.
 
 ## gtpack Handoff
 
@@ -88,6 +108,7 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 - `docs/agent-endpoint-handoff-contract.md`: downstream `gtc` handoff contract
 - `docs/landlord-tenant-e2e.md`: FoundationDB-backed landlord/tenant e2e scenario
 - `docs/product-shape.md`: wizard-first product contract
+- `docs/prompt-authoring.md`: interactive prompt-to-answers authoring contract
 - `docs/sorla-gtpack.md`: deterministic SoRLa `.gtpack` handoff contract
 - `docs/library-api.md`: reusable library and CLI boundary
 - `docs/sorla-lib.md`: stable facade API for Designer/tooling reuse

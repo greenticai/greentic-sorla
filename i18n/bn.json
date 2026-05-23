@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "মূল প্রম্পট",
   "cli.wizard.options.answers.description": "সংরক্ষিত উত্তরের ডকুমেন্ট প্রয়োগ করুন",
   "cli.wizard.options.locale.description": "উইজার্ড স্কিমা মেটাডেটা এবং ইন্টারঅ্যাক্টিভ প্রম্পটের জন্য ব্যবহৃত লোকেল",
-  "cli.wizard.options.pack_out.description": "উৎপন্ন sorla.yaml থেকে একটি নির্ধারিত .gtpack-ও তৈরি করুন",
+  "cli.wizard.options.pack_out.description": "sorla.yaml-এর পাশে তৈরি হওয়া নির্ধারিত .gtpack পাথটি ওভাররাইড করুন",
   "cli.wizard.options.schema.description": "উইজার্ড স্কিমা নির্ধারিত JSON হিসেবে নির্গত করুন",
   "wizard.actions.create": "প্যাকেজ তৈরি করুন",
   "wizard.actions.update": "প্যাকেজ আপডেট করুন",

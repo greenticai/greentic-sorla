@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Temel istemler",
   "cli.wizard.options.answers.description": "Kaydedilmiş bir yanıt belgesi uygulayın",
   "cli.wizard.options.locale.description": "Sihirbaz şeması meta verileri ve etkileşimli istemler için kullanılan yerel ayar",
-  "cli.wizard.options.pack_out.description": "Oluşturulan sorla.yaml dosyasından ayrıca deterministik bir .gtpack derleyin",
+  "cli.wizard.options.pack_out.description": "sorla.yaml yanında oluşturulan deterministik .gtpack yolunu geçersiz kıl",
   "cli.wizard.options.schema.description": "Sihirbaz şemasını deterministik JSON olarak üretin",
   "wizard.actions.create": "Paket oluştur",
   "wizard.actions.update": "Paketi güncelle",

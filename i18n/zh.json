@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "核心提示",
   "cli.wizard.options.answers.description": "应用已保存的答案文档",
   "cli.wizard.options.locale.description": "用于向导架构元数据和交互式提示的区域设置",
-  "cli.wizard.options.pack_out.description": "同时从生成的 sorla.yaml 构建确定性的 .gtpack",
+  "cli.wizard.options.pack_out.description": "覆盖在 sorla.yaml 旁生成的确定性 .gtpack 路径",
   "cli.wizard.options.schema.description": "将向导架构输出为确定性 JSON",
   "wizard.actions.create": "创建包",
   "wizard.actions.update": "更新包",

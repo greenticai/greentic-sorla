@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Grundläggande frågor",
   "cli.wizard.options.answers.description": "Tillämpa ett sparat svarsdokument",
   "cli.wizard.options.locale.description": "Språkvariant som används för guidens schemametadata och interaktiva frågor",
-  "cli.wizard.options.pack_out.description": "Bygg även en deterministisk .gtpack från den genererade sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Åsidosätt den deterministiska .gtpack-sökvägen som genereras bredvid sorla.yaml",
   "cli.wizard.options.schema.description": "Skriv ut guidens schema som deterministisk JSON",
   "wizard.actions.create": "Skapa paket",
   "wizard.actions.update": "Uppdatera paket",

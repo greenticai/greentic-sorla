@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "मुख्य prompts",
   "cli.wizard.options.answers.description": "सुरक्षित गरिएको answers document लागू गर्नुहोस्",
   "cli.wizard.options.locale.description": "wizard schema metadata र interactive prompts का लागि प्रयोग हुने locale",
-  "cli.wizard.options.pack_out.description": "बनाइएको sorla.yaml बाट deterministic .gtpack पनि बनाउनुहोस्",
+  "cli.wizard.options.pack_out.description": "sorla.yaml को छेउमा उत्पन्न गरिएको deterministic .gtpack पथलाई ओभरराइड गर्नुहोस्",
   "cli.wizard.options.schema.description": "wizard schema लाई deterministic JSON का रूपमा निकाल्नुहोस्",
   "wizard.actions.create": "प्याकेज सिर्जना गर्नुहोस्",
   "wizard.actions.update": "प्याकेज अद्यावधिक गर्नुहोस्",

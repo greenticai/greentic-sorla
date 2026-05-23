@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Alapvető promptok",
   "cli.wizard.options.answers.description": "Mentett válaszdokumentum alkalmazása",
   "cli.wizard.options.locale.description": "A varázsló sémametaadataihoz és interaktív promptjaihoz használt területi beállítás",
-  "cli.wizard.options.pack_out.description": "Determinisztikus .gtpack összeállítása is a generált sorla.yaml fájlból",
+  "cli.wizard.options.pack_out.description": "A sorla.yaml mellett generált determinisztikus .gtpack elérési út felülírása",
   "cli.wizard.options.schema.description": "A varázsló sémájának kibocsátása determinisztikus JSON-ként",
   "wizard.actions.create": "Csomag létrehozása",
   "wizard.actions.update": "Csomag frissítése",

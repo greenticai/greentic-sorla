@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Основные подсказки",
   "cli.wizard.options.answers.description": "Применить сохраненный документ с ответами",
   "cli.wizard.options.locale.description": "Локаль, используемая для метаданных схемы мастера и интерактивных подсказок",
-  "cli.wizard.options.pack_out.description": "Также собрать детерминированный .gtpack из созданного sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Переопределить детерминированный путь .gtpack, создаваемый рядом с sorla.yaml",
   "cli.wizard.options.schema.description": "Вывести схему мастера как детерминированный JSON",
   "wizard.actions.create": "Создать пакет",
   "wizard.actions.update": "Обновить пакет",

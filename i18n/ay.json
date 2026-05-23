@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Nayrïr jiskt'awinaka",
   "cli.wizard.options.answers.description": "Imat jaysawinak qillqat apnaqma",
   "cli.wizard.options.locale.description": "Wizard schema metadata ukat interactive jiskt'awinakatak locale apnaqata",
-  "cli.wizard.options.pack_out.description": "Lurat sorla.yaml ukat determinista .gtpack ukhamarak lurma",
+  "cli.wizard.options.pack_out.description": "sorla.yaml jak'ana lurata determinístico .gtpack thakhi turkaña",
   "cli.wizard.options.schema.description": "Wizard schema determinista JSONjam mistuyma",
   "wizard.actions.create": "Paquete luraña",
   "wizard.actions.update": "Paquete machaqar apt'ayaña",

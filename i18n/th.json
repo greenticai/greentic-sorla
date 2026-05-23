@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "พรอมป์หลัก",
   "cli.wizard.options.answers.description": "ใช้เอกสารคำตอบที่บันทึกไว้",
   "cli.wizard.options.locale.description": "โลแคลที่ใช้สำหรับเมทาดาทาสคีมาของวิซาร์ดและพรอมป์แบบโต้ตอบ",
-  "cli.wizard.options.pack_out.description": "สร้าง .gtpack แบบกำหนดแน่นอนจาก sorla.yaml ที่สร้างขึ้นด้วย",
+  "cli.wizard.options.pack_out.description": "แทนที่พาธ .gtpack แบบกำหนดได้แน่นอนที่สร้างไว้ถัดจาก sorla.yaml",
   "cli.wizard.options.schema.description": "ส่งออกสคีมาของวิซาร์ดเป็น JSON แบบกำหนดแน่นอน",
   "wizard.actions.create": "สร้างแพ็กเกจ",
   "wizard.actions.update": "อัปเดตแพ็กเกจ",

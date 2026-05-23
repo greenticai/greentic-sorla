@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "အဓိက prompt များ",
   "cli.wizard.options.answers.description": "သိမ်းဆည်းထားသော အဖြေစာရွက်စာတမ်းကို အသုံးပြုပါ",
   "cli.wizard.options.locale.description": "wizard schema metadata နှင့် အပြန်အလှန် prompt များအတွက် အသုံးပြုမည့် locale",
-  "cli.wizard.options.pack_out.description": "ထုတ်လုပ်ထားသော sorla.yaml မှ ဆုံးဖြတ်နိုင်သော .gtpack ကိုလည်း တည်ဆောက်ပါ",
+  "cli.wizard.options.pack_out.description": "sorla.yaml အနီးတွင် ဖန်တီးထားသော deterministic .gtpack လမ်းကြောင်းကို အစားထိုးသတ်မှတ်ပါ",
   "cli.wizard.options.schema.description": "wizard schema ကို ဆုံးဖြတ်နိုင်သော JSON အဖြစ် ထုတ်ပေးပါ",
   "wizard.actions.create": "ပက်ကေ့ချ် ဖန်တီးရန်",
   "wizard.actions.update": "ပက်ကေ့ချ် အပ်ဒိတ်လုပ်ရန်",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "ਮੁੱਖ ਪ੍ਰੌਮਪਟ",
   "cli.wizard.options.answers.description": "ਸੰਭਾਲਿਆ ਹੋਇਆ ਜਵਾਬ ਦਸਤਾਵੇਜ਼ ਲਾਗੂ ਕਰੋ",
   "cli.wizard.options.locale.description": "ਵਿਜ਼ਰਡ ਸਕੀਮਾ ਮੈਟਾਡਾਟਾ ਅਤੇ ਇੰਟਰੈਕਟਿਵ ਪ੍ਰੌਮਪਟਾਂ ਲਈ ਵਰਤੀ ਗਈ ਲੋਕੇਲ",
-  "cli.wizard.options.pack_out.description": "ਤਿਆਰ ਕੀਤੇ sorla.yaml ਤੋਂ ਇੱਕ ਨਿਰਧਾਰਤ .gtpack ਵੀ ਬਣਾਓ",
+  "cli.wizard.options.pack_out.description": "sorla.yaml ਦੇ ਨਾਲ ਬਣਾਏ ਗਏ ਨਿਰਧਾਰਤ .gtpack ਪਾਥ ਨੂੰ ਓਵਰਰਾਈਡ ਕਰੋ",
   "cli.wizard.options.schema.description": "ਵਿਜ਼ਰਡ ਸਕੀਮਾ ਨੂੰ ਨਿਰਧਾਰਤ JSON ਵਜੋਂ ਜਾਰੀ ਕਰੋ",
   "wizard.actions.create": "ਪੈਕੇਜ ਬਣਾਓ",
   "wizard.actions.update": "ਪੈਕੇਜ ਅੱਪਡੇਟ ਕਰੋ",

@@ -26,8 +26,8 @@ pub use validation_generator::{
 use greentic_sorla_ir::{
     AgentEndpointApprovalModeIr, AgentEndpointInputIr, AgentEndpointIr, AgentEndpointOutputIr,
     AgentEndpointRiskIr, CanonicalIr, EntityLinkingIr, IrVersion, OntologyModelIr,
-    OperationalIndexesIr, ProviderRequirementIr, RetrievalBindingsIr, SemanticAliasesIr, ViewIr,
-    agent_tools_json, canonical_cbor, canonical_hash_hex, inspect_ir, lower_package,
+    OperationalIndexesIr, ProviderRequirementIr, RecordIr, RetrievalBindingsIr, SemanticAliasesIr,
+    ViewIr, agent_tools_json, canonical_cbor, canonical_hash_hex, inspect_ir, lower_package,
 };
 use greentic_sorla_lang::parser::parse_package;
 use serde::{Deserialize, Serialize};
@@ -169,6 +169,8 @@ pub struct AgentGatewayEndpointRef {
     pub endpoint_id: String,
     pub operation_id: String,
     pub operation: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<serde_json::Value>,
     pub method: String,
     pub path: String,
     pub entity: String,
@@ -3385,39 +3387,44 @@ pub fn agent_gateway_handoff_manifest(ir: &CanonicalIr) -> AgentGatewayHandoffMa
     let endpoints: Vec<AgentGatewayEndpointRef> = ir
         .agent_endpoints
         .iter()
-        .map(|endpoint| AgentGatewayEndpointRef {
-            endpoint_id: endpoint.id.clone(),
-            operation_id: endpoint.id.clone(),
-            operation: sorx_runtime_operation(endpoint).to_string(),
-            method: sorx_runtime_method(endpoint).to_string(),
-            path: sorx_runtime_path(endpoint, ir),
-            entity: sorx_runtime_entity(endpoint, ir),
-            collection: sorx_runtime_collection(endpoint, ir),
-            provider_binding: "store".to_string(),
-            id: endpoint.id.clone(),
-            title: endpoint.title.clone(),
-            intent: endpoint.intent.clone(),
-            risk: agent_endpoint_risk_label(&endpoint.risk).to_string(),
-            approval: agent_endpoint_approval_label(&endpoint.approval).to_string(),
-            input_schema: object_schema_value(&endpoint.inputs),
-            output_schema: output_object_schema_value(&endpoint.outputs),
-            inputs: endpoint
-                .inputs
-                .iter()
-                .map(|input| input.name.clone())
-                .collect(),
-            outputs: endpoint
-                .outputs
-                .iter()
-                .map(|output| output.name.clone())
-                .collect(),
-            side_effects: endpoint.side_effects.clone(),
-            exports: AgentGatewayEndpointExports {
-                openapi: endpoint.agent_visibility.openapi,
-                arazzo: endpoint.agent_visibility.arazzo,
-                mcp: endpoint.agent_visibility.mcp,
-                llms_txt: endpoint.agent_visibility.llms_txt,
-            },
+        .map(|endpoint| {
+            let command = sorx_runtime_command_spec(endpoint, ir);
+            let method = sorx_runtime_method(endpoint, command.as_ref()).to_string();
+            AgentGatewayEndpointRef {
+                endpoint_id: endpoint.id.clone(),
+                operation_id: endpoint.id.clone(),
+                operation: sorx_runtime_operation(endpoint, command.as_ref()).to_string(),
+                command,
+                method,
+                path: sorx_runtime_path(endpoint, ir),
+                entity: sorx_runtime_entity(endpoint, ir),
+                collection: sorx_runtime_collection(endpoint, ir),
+                provider_binding: "store".to_string(),
+                id: endpoint.id.clone(),
+                title: endpoint.title.clone(),
+                intent: endpoint.intent.clone(),
+                risk: agent_endpoint_risk_label(&endpoint.risk).to_string(),
+                approval: agent_endpoint_approval_label(&endpoint.approval).to_string(),
+                input_schema: object_schema_value(&endpoint.inputs),
+                output_schema: output_object_schema_value(&endpoint.outputs),
+                inputs: endpoint
+                    .inputs
+                    .iter()
+                    .map(|input| input.name.clone())
+                    .collect(),
+                outputs: endpoint
+                    .outputs
+                    .iter()
+                    .map(|output| output.name.clone())
+                    .collect(),
+                side_effects: endpoint.side_effects.clone(),
+                exports: AgentGatewayEndpointExports {
+                    openapi: endpoint.agent_visibility.openapi,
+                    arazzo: endpoint.agent_visibility.arazzo,
+                    mcp: endpoint.agent_visibility.mcp,
+                    llms_txt: endpoint.agent_visibility.llms_txt,
+                },
+            }
         })
         .collect();
 
@@ -3449,8 +3456,13 @@ pub fn agent_gateway_handoff_manifest(ir: &CanonicalIr) -> AgentGatewayHandoffMa
     }
 }
 
-fn sorx_runtime_operation(endpoint: &AgentEndpointIr) -> &'static str {
-    if endpoint.id.starts_with("update_") || endpoint.id.contains("_update_") {
+fn sorx_runtime_operation(
+    endpoint: &AgentEndpointIr,
+    command: Option<&serde_json::Value>,
+) -> &'static str {
+    if command.is_some() {
+        "command"
+    } else if endpoint.id.starts_with("update_") || endpoint.id.contains("_update_") {
         "update"
     } else if endpoint.id.starts_with("delete_")
         || endpoint.id.starts_with("remove_")
@@ -3459,8 +3471,17 @@ fn sorx_runtime_operation(endpoint: &AgentEndpointIr) -> &'static str {
         "delete"
     } else if endpoint.id.starts_with("create_")
         || endpoint.id.starts_with("add_")
+        || endpoint.id.starts_with("join_")
+        || endpoint.id.starts_with("leave_")
+        || endpoint.id.starts_with("cancel_")
         || endpoint.id.starts_with("record_")
         || endpoint.id.starts_with("assign_")
+        || endpoint.id.starts_with("generate_")
+        || endpoint.id.starts_with("apply_")
+        || endpoint.id.starts_with("submit_")
+        || endpoint.id.starts_with("approve_")
+        || endpoint.id.starts_with("grant_")
+        || endpoint.id.starts_with("link_")
         || endpoint.emits.is_some()
     {
         "create"
@@ -3469,8 +3490,11 @@ fn sorx_runtime_operation(endpoint: &AgentEndpointIr) -> &'static str {
     }
 }
 
-fn sorx_runtime_method(endpoint: &AgentEndpointIr) -> &'static str {
-    match sorx_runtime_operation(endpoint) {
+fn sorx_runtime_method(
+    endpoint: &AgentEndpointIr,
+    command: Option<&serde_json::Value>,
+) -> &'static str {
+    match sorx_runtime_operation(endpoint, command) {
         "query" => "GET",
         "update" => "PATCH",
         "delete" => "DELETE",
@@ -3480,7 +3504,7 @@ fn sorx_runtime_method(endpoint: &AgentEndpointIr) -> &'static str {
 
 fn sorx_runtime_path(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
     let collection = sorx_runtime_collection(endpoint, ir);
-    match sorx_runtime_operation(endpoint) {
+    match sorx_runtime_operation(endpoint, sorx_runtime_command_spec(endpoint, ir).as_ref()) {
         "query" => format!("/v1/agent/{collection}/query/{}", endpoint.id),
         "update" => match sorx_runtime_id_input(endpoint, &sorx_runtime_entity(endpoint, ir)) {
             Some(id_input) => format!("/v1/agent/{collection}/{{{id_input}}}"),
@@ -3490,8 +3514,419 @@ fn sorx_runtime_path(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
             Some(id_input) => format!("/v1/agent/{collection}/{{{id_input}}}"),
             None => format!("/v1/agent/{collection}/{}", endpoint.id),
         },
-        _ => format!("/v1/agent/{collection}/create"),
+        _ if endpoint.id.starts_with("create_") => format!("/v1/agent/{collection}/create"),
+        _ => format!("/v1/agent/{collection}/{}", endpoint.id),
     }
+}
+
+fn sorx_runtime_command_spec(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    if let Some(command) = sorx_runtime_bulk_import_command(endpoint) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_archive_restore_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_approval_status_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_generate_field_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_side_effect_event_command(endpoint) {
+        return Some(command);
+    }
+
+    if !(endpoint.id.starts_with("leave_")
+        || endpoint.id.starts_with("cancel_")
+        || endpoint.id.starts_with("revoke_")
+        || endpoint.id.starts_with("unlink_"))
+    {
+        return None;
+    }
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let record_fields = record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let filters = endpoint
+        .inputs
+        .iter()
+        .filter(|input| record_fields.contains(input.name.as_str()))
+        .map(|input| {
+            (
+                input.name.clone(),
+                serde_json::json!(format!("$input.{}", input.name)),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+
+    if filters.is_empty() {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_mutation",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "delete_where",
+                "entity": entity,
+                "collection": collection,
+                "where": filters
+            }
+        ]
+    }))
+}
+
+fn sorx_runtime_approval_status_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    let desired_status = if endpoint.id.starts_with("reject_") {
+        "rejected".to_string()
+    } else if endpoint.id.starts_with("approve_") {
+        "approved".to_string()
+    } else {
+        return None;
+    };
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let status_field = record
+        .fields
+        .iter()
+        .find(|field| matches!(field.name.as_str(), "status" | "state"))
+        .map(|field| field.name.clone())?;
+    let desired_status = if desired_status == "approved"
+        && record
+            .fields
+            .iter()
+            .find(|field| field.name == status_field)
+            .is_some_and(|field| field.enum_values.iter().any(|value| value == "active"))
+    {
+        "active".to_string()
+    } else {
+        desired_status
+    };
+    let filters = sorx_runtime_identity_filters(endpoint, record, &[status_field.as_str()]);
+
+    if filters.is_empty() {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_mutation",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "update_where",
+                "as": "update",
+                "entity": entity,
+                "collection": collection,
+                "where": filters,
+                "set": {
+                    status_field.clone(): desired_status
+                }
+            }
+        ],
+        "return": {
+            "updated_count": "$steps.update.updated_count",
+            "records": "$steps.update.records"
+        }
+    }))
+}
+
+fn sorx_runtime_side_effect_event_command(endpoint: &AgentEndpointIr) -> Option<serde_json::Value> {
+    if endpoint.side_effects.is_empty() {
+        return None;
+    }
+    if !(endpoint.id.starts_with("trigger_")
+        || endpoint.id.starts_with("invoke_")
+        || endpoint.id.starts_with("run_")
+        || endpoint.id.contains("workflow")
+        || endpoint.id.ends_with("_action"))
+    {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "side_effect",
+        "action": endpoint.id,
+        "steps": [
+            {
+                "op": "emit_event",
+                "as": "event",
+                "event": format!("action.{}", endpoint.id),
+                "stream": endpoint.id,
+                "payload": {
+                    "endpoint_id": endpoint.id,
+                    "operation_id": endpoint.id,
+                    "input": "$input",
+                    "side_effects": endpoint.side_effects
+                }
+            }
+        ],
+        "return": {
+            "event": "$steps.event",
+            "side_effects": endpoint.side_effects
+        }
+    }))
+}
+
+fn sorx_runtime_archive_restore_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    let active_value = if endpoint.id.starts_with("archive_") {
+        false
+    } else if endpoint.id.starts_with("restore_") {
+        true
+    } else {
+        return None;
+    };
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let active_field = record
+        .fields
+        .iter()
+        .find(|field| matches!(field.name.as_str(), "is_active" | "active" | "archived"))
+        .map(|field| field.name.clone())?;
+    let filters = sorx_runtime_identity_filters(endpoint, record, &[active_field.as_str()]);
+
+    if filters.is_empty() {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_mutation",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "update_where",
+                "as": "update",
+                "entity": entity,
+                "collection": collection,
+                "where": filters,
+                "set": {
+                    active_field.clone(): active_value
+                }
+            }
+        ],
+        "return": {
+            "updated_count": "$steps.update.updated_count",
+            "records": "$steps.update.records"
+        }
+    }))
+}
+
+fn sorx_runtime_identity_filters(
+    endpoint: &AgentEndpointIr,
+    record: &RecordIr,
+    exclude: &[&str],
+) -> serde_json::Map<String, serde_json::Value> {
+    let record_fields = record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let preferred_id = format!("{}_id", snake_case_identifier(&record.name));
+    let identity_inputs = endpoint
+        .inputs
+        .iter()
+        .filter(|input| !exclude.contains(&input.name.as_str()))
+        .filter(|input| record_fields.contains(input.name.as_str()))
+        .filter(|input| {
+            input.name == "id"
+                || input.name == preferred_id
+                || input.name.ends_with("_id")
+                || input.name.contains("external_id")
+        })
+        .map(|input| {
+            (
+                input.name.clone(),
+                serde_json::json!(format!("$input.{}", input.name)),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+
+    if !identity_inputs.is_empty() {
+        return identity_inputs;
+    }
+
+    endpoint
+        .inputs
+        .iter()
+        .filter(|input| !exclude.contains(&input.name.as_str()))
+        .filter(|input| record_fields.contains(input.name.as_str()))
+        .map(|input| {
+            (
+                input.name.clone(),
+                serde_json::json!(format!("$input.{}", input.name)),
+            )
+        })
+        .collect()
+}
+
+fn sorx_runtime_bulk_import_command(endpoint: &AgentEndpointIr) -> Option<serde_json::Value> {
+    if !(endpoint.id.starts_with("bulk_") || endpoint.id.starts_with("bulk_import_")) {
+        return None;
+    }
+    if !endpoint.inputs.iter().any(|input| input.name == "items") {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "bulk_mutation",
+        "action": endpoint.id,
+        "steps": [
+            {
+                "op": "foreach",
+                "as": "imported",
+                "items": "$input.items",
+                "do": [
+                    {
+                        "op": "create",
+                        "entity": "$item.entity",
+                        "collection": "$item.collection",
+                        "input": "$item.data"
+                    }
+                ]
+            }
+        ],
+        "return": {
+            "imported_count": "$steps.imported.count",
+            "records": "$steps.imported.records"
+        }
+    }))
+}
+
+fn sorx_runtime_generate_field_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    if !endpoint.id.starts_with("generate_") {
+        return None;
+    }
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let record_fields = record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let generated_field = endpoint
+        .outputs
+        .iter()
+        .find(|output| {
+            record_fields.contains(output.name.as_str())
+                && (endpoint.id.contains(&output.name)
+                    || output.name.ends_with("_code")
+                    || output.name.ends_with("_token")
+                    || output.name.ends_with("_key"))
+        })
+        .map(|output| output.name.clone())
+        .or_else(|| inferred_generated_field_from_endpoint(endpoint))?;
+    let input_id = sorx_runtime_record_id_input(endpoint, record)?;
+    let input_path = format!("$input.{input_id}");
+    let existing_value_path = format!("$steps.entry.data.{generated_field}");
+    let generated_value_path = format!("$generated.{generated_field}");
+    let updated_value_path = format!("$steps.update.records.0.data.{generated_field}");
+    let where_field = if record_fields.contains(input_id.as_str()) {
+        input_id.clone()
+    } else {
+        "id".to_string()
+    };
+
+    Some(serde_json::json!({
+        "kind": "record_mutation",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "find_one",
+                "as": "entry",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    where_field.clone(): input_path
+                },
+                "required": true
+            },
+            {
+                "op": "update_where",
+                "as": "update",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    where_field: input_path
+                },
+                "set": {
+                    generated_field.clone(): {
+                        "coalesce": [
+                            existing_value_path,
+                            generated_value_path
+                        ]
+                    }
+                }
+            }
+        ],
+        "return": {
+            input_id: input_path,
+            generated_field: updated_value_path
+        }
+    }))
+}
+
+fn inferred_generated_field_from_endpoint(endpoint: &AgentEndpointIr) -> Option<String> {
+    let rest = endpoint.id.strip_prefix("generate_")?;
+    let field = rest
+        .strip_suffix("_code")
+        .map(|prefix| format!("{prefix}_code"))
+        .or_else(|| {
+            rest.strip_suffix("_token")
+                .map(|prefix| format!("{prefix}_token"))
+        })
+        .or_else(|| {
+            rest.strip_suffix("_key")
+                .map(|prefix| format!("{prefix}_key"))
+        })
+        .unwrap_or_else(|| format!("{rest}_value"));
+    Some(field)
+}
+
+fn sorx_runtime_record_id_input(endpoint: &AgentEndpointIr, record: &RecordIr) -> Option<String> {
+    let record_id = format!("{}_id", snake_case_identifier(&record.name));
+    endpoint
+        .inputs
+        .iter()
+        .find(|input| input.name == "id")
+        .or_else(|| endpoint.inputs.iter().find(|input| input.name == record_id))
+        .or_else(|| {
+            endpoint
+                .inputs
+                .iter()
+                .find(|input| input.name.ends_with("_id"))
+        })
+        .map(|input| input.name.clone())
 }
 
 fn sorx_runtime_id_input(endpoint: &AgentEndpointIr, entity: &str) -> Option<String> {
@@ -3499,11 +3934,16 @@ fn sorx_runtime_id_input(endpoint: &AgentEndpointIr, entity: &str) -> Option<Str
     endpoint
         .inputs
         .iter()
-        .find(|input| input.name == entity_id || input.name == "id")
+        .find(|input| input.name == "id")
+        .or_else(|| endpoint.inputs.iter().find(|input| input.name == entity_id))
         .map(|input| input.name.clone())
 }
 
 fn sorx_runtime_entity(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
+    if let Some(record) = link_endpoint_record(endpoint, ir) {
+        return record.name.clone();
+    }
+
     if let Some(emit) = &endpoint.emits
         && let Some(event) = ir.events.iter().find(|event| event.name == emit.event)
     {
@@ -3519,12 +3959,7 @@ fn sorx_runtime_entity(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
         return record.name.clone();
     }
 
-    let haystack = endpoint_entity_haystack(endpoint);
-    if let Some(record) = ir
-        .records
-        .iter()
-        .find(|record| haystack.contains(&snake_case_identifier(&record.name)))
-    {
+    if let Some(record) = best_scored_record_for_endpoint(endpoint, ir) {
         return record.name.clone();
     }
 
@@ -3534,11 +3969,83 @@ fn sorx_runtime_entity(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
         .unwrap_or_else(|| "Record".to_string())
 }
 
+fn link_endpoint_record<'a>(
+    endpoint: &AgentEndpointIr,
+    ir: &'a CanonicalIr,
+) -> Option<&'a RecordIr> {
+    if !endpoint.id.starts_with("link_") {
+        return None;
+    }
+    let endpoint_fields = endpoint
+        .inputs
+        .iter()
+        .map(|input| input.name.as_str())
+        .collect::<BTreeSet<_>>();
+    if endpoint_fields.is_empty() {
+        return None;
+    }
+    ir.records
+        .iter()
+        .filter(|record| record.fields.len() == endpoint_fields.len())
+        .find(|record| {
+            record
+                .fields
+                .iter()
+                .all(|field| endpoint_fields.contains(field.name.as_str()))
+        })
+}
+
 fn endpoint_entity_haystack(endpoint: &AgentEndpointIr) -> String {
     let mut parts = vec![endpoint.id.clone()];
     parts.extend(endpoint.inputs.iter().map(|input| input.name.clone()));
     parts.extend(endpoint.outputs.iter().map(|output| output.name.clone()));
     parts.join(" ")
+}
+
+fn best_scored_record_for_endpoint<'a>(
+    endpoint: &AgentEndpointIr,
+    ir: &'a CanonicalIr,
+) -> Option<&'a RecordIr> {
+    let haystack = endpoint_entity_haystack(endpoint);
+    let endpoint_fields = endpoint
+        .inputs
+        .iter()
+        .map(|input| input.name.as_str())
+        .chain(endpoint.outputs.iter().map(|output| output.name.as_str()))
+        .collect::<BTreeSet<_>>();
+    let endpoint_id_tokens = endpoint
+        .id
+        .split(|ch: char| !(ch.is_ascii_alphanumeric()))
+        .filter(|token| !token.is_empty())
+        .collect::<BTreeSet<_>>();
+
+    ir.records
+        .iter()
+        .filter_map(|record| {
+            let record_name = snake_case_identifier(&record.name);
+            let mut score = 0usize;
+            let exact_record_match = if record_name.contains('_') {
+                haystack.contains(&record_name)
+            } else {
+                endpoint_id_tokens.contains(record_name.as_str())
+            };
+            if exact_record_match {
+                score += 10;
+            }
+            for token in record_name.split('_').filter(|token| token.len() > 2) {
+                if haystack.contains(token) {
+                    score += 2;
+                }
+            }
+            for field in &record.fields {
+                if endpoint_fields.contains(field.name.as_str()) {
+                    score += 1;
+                }
+            }
+            (score > 0).then_some((score, record))
+        })
+        .max_by_key(|(score, record)| (*score, record.name.len()))
+        .map(|(_, record)| record)
 }
 
 fn sorx_runtime_collection(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
@@ -3939,6 +4446,44 @@ mod tests {
                 .artifact_references
                 .contains(&"provider-contract.cbor".to_string())
         );
+    }
+
+    fn repo_fixture_path(path: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(path)
+    }
+
+    fn gateway_manifest_from_repo_fixture(path: &str) -> AgentGatewayHandoffManifest {
+        let fixture_path = repo_fixture_path(path);
+        let fixture = fs::read_to_string(&fixture_path)
+            .unwrap_or_else(|err| panic!("read fixture {}: {err}", fixture_path.display()));
+        let parsed = parse_package(&fixture)
+            .unwrap_or_else(|err| panic!("parse fixture {}: {err}", fixture_path.display()));
+        let ir = lower_package(&parsed.package);
+        agent_gateway_handoff_manifest(&ir)
+    }
+
+    fn endpoint_json(
+        manifest: &AgentGatewayHandoffManifest,
+        endpoint_id: &str,
+    ) -> serde_json::Value {
+        let endpoint = manifest
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.id == endpoint_id)
+            .unwrap_or_else(|| panic!("endpoint {endpoint_id} should exist"));
+        serde_json::to_value(endpoint).expect("endpoint should serialize")
+    }
+
+    fn command_json(endpoint: &serde_json::Value) -> &serde_json::Value {
+        assert_eq!(endpoint["operation"], "command");
+        assert_eq!(endpoint["method"], "POST");
+        endpoint
+            .get("command")
+            .and_then(serde_json::Value::as_object)
+            .map(|_| &endpoint["command"])
+            .expect("endpoint should include a command spec")
     }
 
     #[test]
@@ -5243,6 +5788,672 @@ agent_endpoints:
             ["contacts.read", "contacts.write"]
         );
         assert_eq!(first.provider_contract.categories[2].category, "storage");
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_command_for_leave_endpoints() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: WaitingListEntry
+    fields:
+      - name: lab_id
+        type: string
+      - name: user_id
+        type: string
+      - name: joined_at
+        type: timestamp
+agent_endpoints:
+  - id: leave_waiting_list
+    title: Leave waiting list
+    intent: Remove a user from a lab waiting list.
+    inputs:
+      - name: lab_id
+        type: string
+        required: true
+      - name: user_id
+        type: string
+        required: true
+      - name: reason
+        type: string
+        required: false
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "command");
+        assert_eq!(endpoint.method, "POST");
+        assert_eq!(
+            endpoint.path,
+            "/v1/agent/waiting_list_entries/leave_waiting_list"
+        );
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "delete_where");
+        assert_eq!(command["steps"][0]["entity"], "WaitingListEntry");
+        assert_eq!(command["steps"][0]["collection"], "waiting_list_entries");
+        assert_eq!(command["steps"][0]["where"]["lab_id"], "$input.lab_id");
+        assert_eq!(command["steps"][0]["where"]["user_id"], "$input.user_id");
+        assert!(
+            command["steps"][0]["where"].get("reason").is_none(),
+            "only record fields should become delete filters"
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_command_for_generate_field_endpoints() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: WaitingListEntry
+    fields:
+      - name: id
+        type: string
+      - name: referral_code
+        type: string
+      - name: user_id
+        type: string
+agent_endpoints:
+  - id: generate_referral_code
+    title: Generate referral code
+    intent: Generate or retrieve a referral code for an entry.
+    inputs:
+      - name: entry_id
+        type: string
+        required: true
+    outputs:
+      - name: referral_code
+        type: string
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "command");
+        assert_eq!(endpoint.method, "POST");
+        assert_eq!(
+            endpoint.path,
+            "/v1/agent/waiting_list_entries/generate_referral_code"
+        );
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "find_one");
+        assert_eq!(command["steps"][0]["as"], "entry");
+        assert_eq!(command["steps"][0]["where"]["id"], "$input.entry_id");
+        assert_eq!(command["steps"][1]["op"], "update_where");
+        assert_eq!(command["steps"][1]["as"], "update");
+        assert_eq!(
+            command["steps"][1]["set"]["referral_code"]["coalesce"][0],
+            "$steps.entry.data.referral_code"
+        );
+        assert_eq!(
+            command["steps"][1]["set"]["referral_code"]["coalesce"][1],
+            "$generated.referral_code"
+        );
+        assert_eq!(
+            command["return"]["referral_code"],
+            "$steps.update.records.0.data.referral_code"
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_generates_field_commands_without_referral_special_case() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: invite-system
+  version: 0.1.0
+records:
+  - name: Invite
+    fields:
+      - name: id
+        type: string
+      - name: invite_code
+        type: string
+      - name: email
+        type: string
+agent_endpoints:
+  - id: generate_invite_code
+    title: Generate invite code
+    intent: Generate or retrieve an invite code for an invite.
+    inputs:
+      - name: invite_id
+        type: string
+        required: true
+    outputs:
+      - name: invite_code
+        type: string
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "command");
+        assert_eq!(endpoint.path, "/v1/agent/invites/generate_invite_code");
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+        assert_eq!(command["steps"][0]["where"]["id"], "$input.invite_id");
+        assert_eq!(
+            command["steps"][1]["set"]["invite_code"]["coalesce"][0],
+            "$steps.entry.data.invite_code"
+        );
+        assert_eq!(
+            command["steps"][1]["set"]["invite_code"]["coalesce"][1],
+            "$generated.invite_code"
+        );
+        assert_eq!(command["return"]["invite_id"], "$input.invite_id");
+        assert_eq!(
+            command["return"]["invite_code"],
+            "$steps.update.records.0.data.invite_code"
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_command_for_bulk_import_endpoints() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: bulk-system
+  version: 0.1.0
+records:
+  - name: entity_a
+    fields:
+      - name: entity_a_id
+        type: string
+agent_endpoints:
+  - id: bulk_import_entities
+    title: Bulk import entities
+    intent: Import arbitrary entity records.
+    inputs:
+      - name: items
+        type: array
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "command");
+        assert_eq!(endpoint.method, "POST");
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+        assert_eq!(command["kind"], "bulk_mutation");
+        assert_eq!(command["steps"][0]["op"], "foreach");
+        assert_eq!(command["steps"][0]["as"], "imported");
+        assert_eq!(command["steps"][0]["items"], "$input.items");
+        assert_eq!(command["steps"][0]["do"][0]["op"], "create");
+        assert_eq!(command["steps"][0]["do"][0]["entity"], "$item.entity");
+        assert_eq!(
+            command["steps"][0]["do"][0]["collection"],
+            "$item.collection"
+        );
+        assert_eq!(command["steps"][0]["do"][0]["input"], "$item.data");
+        assert_eq!(command["return"]["imported_count"], "$steps.imported.count");
+        assert_eq!(command["return"]["records"], "$steps.imported.records");
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_commands_for_archive_and_restore_endpoints() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: lifecycle-system
+  version: 0.1.0
+records:
+  - name: sample_entity
+    fields:
+      - name: entity_id
+        type: string
+      - name: is_active
+        type: boolean
+      - name: name
+        type: string
+agent_endpoints:
+  - id: archive_sample_entity
+    title: Archive sample entity
+    intent: Archive the entity.
+    inputs:
+      - name: entity_id
+        type: string
+        required: true
+      - name: is_active
+        type: boolean
+        required: false
+  - id: restore_sample_entity
+    title: Restore sample entity
+    intent: Restore the entity.
+    inputs:
+      - name: entity_id
+        type: string
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+
+        let archive = &manifest.endpoints[0];
+        assert_eq!(archive.operation, "command");
+        assert_eq!(archive.method, "POST");
+        assert_eq!(
+            archive.path,
+            "/v1/agent/sample_entities/archive_sample_entity"
+        );
+        let command = archive.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "update_where");
+        assert_eq!(
+            command["steps"][0]["where"]["entity_id"],
+            "$input.entity_id"
+        );
+        assert_eq!(command["steps"][0]["set"]["is_active"], false);
+
+        let restore = &manifest.endpoints[1];
+        assert_eq!(restore.operation, "command");
+        let command = restore.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["set"]["is_active"], true);
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_commands_for_approve_reject_and_unlink_endpoints() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: assignment-system
+  version: 0.1.0
+records:
+  - name: bug_assignment
+    fields:
+      - name: assignment_id
+        type: string
+      - name: status
+        type: enum
+        enum_values:
+          - pending
+          - active
+          - rejected
+  - name: bug_asset
+    fields:
+      - name: asset_id
+        type: string
+      - name: case_id
+        type: string
+agent_endpoints:
+  - id: approve_assignment
+    title: Approve assignment
+    intent: Approve an assignment.
+    inputs:
+      - name: assignment_id
+        type: string
+        required: true
+      - name: status
+        type: string
+        required: false
+  - id: reject_assignment
+    title: Reject assignment
+    intent: Reject an assignment.
+    inputs:
+      - name: assignment_id
+        type: string
+        required: true
+      - name: status
+        type: string
+        required: false
+  - id: unlink_asset
+    title: Unlink asset
+    intent: Unlink an asset.
+    inputs:
+      - name: asset_id
+        type: string
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+
+        let approve = &manifest.endpoints[0];
+        assert_eq!(approve.operation, "command");
+        let command = approve.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "update_where");
+        assert_eq!(
+            command["steps"][0]["where"]["assignment_id"],
+            "$input.assignment_id"
+        );
+        assert_eq!(command["steps"][0]["set"]["status"], "active");
+
+        let reject = &manifest.endpoints[1];
+        assert_eq!(reject.operation, "command");
+        let command = reject.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["set"]["status"], "rejected");
+
+        let unlink = &manifest.endpoints[2];
+        assert_eq!(unlink.operation, "command");
+        let command = unlink.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "delete_where");
+        assert_eq!(command["steps"][0]["where"]["asset_id"], "$input.asset_id");
+    }
+
+    #[test]
+    fn agent_gateway_manifest_generates_token_command_without_output_field() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: token-system
+  version: 0.1.0
+records:
+  - name: bug_case
+    fields:
+      - name: case_id
+        type: string
+      - name: title
+        type: string
+agent_endpoints:
+  - id: generate_case_token
+    title: Generate case token
+    intent: Generate a case token.
+    inputs:
+      - name: case_id
+        type: string
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "command");
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "find_one");
+        assert_eq!(command["steps"][0]["where"]["case_id"], "$input.case_id");
+        assert_eq!(
+            command["steps"][1]["set"]["case_token"]["coalesce"][1],
+            "$generated.case_token"
+        );
+        assert_eq!(
+            command["return"]["case_token"],
+            "$steps.update.records.0.data.case_token"
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_command_for_generic_side_effect_actions() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: workflow-system
+  version: 0.1.0
+records:
+  - name: workflow_log
+    fields:
+      - name: id
+        type: string
+agent_endpoints:
+  - id: custom_workflow_action
+    title: Custom workflow action
+    intent: Trigger a custom workflow.
+    side_effects:
+      - action.custom_workflow_action
+  - id: trigger_policy_action
+    title: Trigger policy action
+    intent: Exercise policy hooks.
+    side_effects:
+      - action.trigger_policy_action
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+
+        for endpoint in &manifest.endpoints {
+            assert_eq!(endpoint.operation, "command");
+            assert_eq!(endpoint.method, "POST");
+            let command = endpoint
+                .command
+                .as_ref()
+                .expect("command should be emitted");
+            assert_eq!(command["kind"], "side_effect");
+            assert_eq!(command["steps"][0]["op"], "emit_event");
+            assert_eq!(command["steps"][0]["as"], "event");
+            assert_eq!(
+                command["steps"][0]["event"],
+                format!("action.{}", endpoint.id)
+            );
+            assert_eq!(command["steps"][0]["payload"]["input"], "$input");
+            assert_eq!(command["return"]["event"], "$steps.event");
+        }
+    }
+
+    #[test]
+    fn agent_gateway_manifest_routes_link_endpoints_to_join_record() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: complex
+  version: 0.1.0
+records:
+  - name: entity_b
+    fields:
+      - name: entity_b_id
+        type: string
+  - name: entity_c
+    fields:
+      - name: entity_c_id
+        type: string
+  - name: join_bc
+    fields:
+      - name: entity_b_id
+        type: string
+        references:
+          record: entity_b
+          field: entity_b_id
+      - name: entity_c_id
+        type: string
+        references:
+          record: entity_c
+          field: entity_c_id
+agent_endpoints:
+  - id: link_b_to_c
+    title: Link B to C
+    intent: Establish a join row.
+    inputs:
+      - name: entity_b_id
+        type: string
+        required: true
+      - name: entity_c_id
+        type: string
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "create");
+        assert_eq!(endpoint.method, "POST");
+        assert_eq!(endpoint.entity, "join_bc");
+        assert_eq!(endpoint.collection, "join_bcs");
+        assert_eq!(endpoint.path, "/v1/agent/join_bcs/link_b_to_c");
+    }
+
+    #[test]
+    fn stress_generated_sorla_fixtures_build_and_doctor_gtpacks() {
+        let fixtures = [
+            (
+                "packages/complex_sorla_test_system/0.1.0/sorla.yaml",
+                "complex-sorla-stress",
+            ),
+            (
+                "packages/demo_sorla_full_coverage-v0.1.0-output/sorla.yaml",
+                "demo-sorla-full-coverage-stress",
+            ),
+            (
+                "packages/bug_sor_edgecase-pack/sorla.yaml",
+                "bug-sor-edgecase-stress",
+            ),
+        ];
+
+        for (fixture, name) in fixtures {
+            let temp = tempdir().expect("tempdir");
+            let out = temp.path().join(format!("{name}.gtpack"));
+            let summary = build_sorla_gtpack(&SorlaGtpackOptions {
+                input_path: repo_fixture_path(fixture),
+                name: name.to_string(),
+                version: "0.1.0".to_string(),
+                out_path: out.clone(),
+            })
+            .unwrap_or_else(|err| panic!("{fixture} should build: {err}"));
+
+            assert_eq!(summary.name, name);
+            assert!(
+                summary
+                    .assets
+                    .contains(&format!("assets/sorla/{AGENT_GATEWAY_HANDOFF_FILENAME}"))
+            );
+            assert!(
+                summary
+                    .assets
+                    .contains(&DESIGNER_NODE_TYPES_PATH.to_string())
+            );
+            assert!(
+                summary
+                    .assets
+                    .contains(&AGENT_ENDPOINT_ACTION_CATALOG_PATH.to_string())
+            );
+            let inspection = inspect_sorla_gtpack(&out)
+                .unwrap_or_else(|err| panic!("{fixture} should inspect: {err}"));
+            assert_eq!(inspection.extension, SORX_RUNTIME_EXTENSION_ID);
+            let mut archive =
+                ZipArchive::new(fs::File::open(&out).expect("open pack")).expect("read pack");
+            let gateway: AgentGatewayHandoffManifest = serde_json::from_str(
+                &zip_text(
+                    &mut archive,
+                    &format!("assets/sorla/{AGENT_GATEWAY_HANDOFF_FILENAME}"),
+                )
+                .expect("agent gateway asset should exist"),
+            )
+            .expect("agent gateway asset should parse");
+            assert!(!gateway.endpoints.is_empty());
+            assert!(
+                inspection
+                    .agent_endpoint_action_catalog
+                    .as_ref()
+                    .expect("action catalog should inspect")
+                    .count
+                    >= 1
+            );
+            doctor_sorla_gtpack(&out)
+                .unwrap_or_else(|err| panic!("{fixture} should pass doctor: {err}"));
+        }
+    }
+
+    #[test]
+    fn stress_generated_sorla_fixtures_cover_sorx_command_semantics() {
+        let complex = gateway_manifest_from_repo_fixture(
+            "packages/complex_sorla_test_system/0.1.0/sorla.yaml",
+        );
+        let complex_bulk = endpoint_json(&complex, "bulk_import_entities");
+        let command = command_json(&complex_bulk);
+        assert_eq!(command["kind"], "bulk_mutation");
+        assert_eq!(command["steps"][0]["op"], "foreach");
+        assert_eq!(command["steps"][0]["items"], "$input.items");
+        assert_eq!(command["steps"][0]["do"][0]["op"], "create");
+        assert_eq!(command["steps"][0]["do"][0]["entity"], "$item.entity");
+        assert_eq!(command["return"]["imported_count"], "$steps.imported.count");
+
+        let demo = gateway_manifest_from_repo_fixture(
+            "packages/demo_sorla_full_coverage-v0.1.0-output/sorla.yaml",
+        );
+        let archive = endpoint_json(&demo, "archive_sample_entity");
+        let command = command_json(&archive);
+        assert_eq!(command["steps"][0]["op"], "update_where");
+        assert_eq!(command["steps"][0]["set"]["is_active"], false);
+        let restore = endpoint_json(&demo, "restore_sample_entity");
+        let command = command_json(&restore);
+        assert_eq!(command["steps"][0]["op"], "update_where");
+        assert_eq!(command["steps"][0]["set"]["is_active"], true);
+        for endpoint_id in ["trigger_policy_action", "custom_workflow_action"] {
+            let endpoint = endpoint_json(&demo, endpoint_id);
+            let command = command_json(&endpoint);
+            assert_eq!(command["kind"], "side_effect");
+            assert_eq!(command["steps"][0]["op"], "emit_event");
+            assert_eq!(command["steps"][0]["payload"]["input"], "$input");
+        }
+
+        let bug = gateway_manifest_from_repo_fixture("packages/bug_sor_edgecase-pack/sorla.yaml");
+        let generate = endpoint_json(&bug, "generate_case_token");
+        let command = command_json(&generate);
+        assert_eq!(command["steps"][0]["op"], "find_one");
+        assert_eq!(command["steps"][0]["where"]["case_id"], "$input.case_id");
+        assert_eq!(command["steps"][1]["op"], "update_where");
+        assert_eq!(
+            command["steps"][1]["set"]["case_token"]["coalesce"][1],
+            "$generated.case_token"
+        );
+        assert_eq!(
+            command["return"]["case_token"],
+            "$steps.update.records.0.data.case_token"
+        );
+
+        let approve = endpoint_json(&bug, "approve_assignment");
+        let command = command_json(&approve);
+        assert_eq!(command["steps"][0]["op"], "update_where");
+        assert_eq!(
+            command["steps"][0]["where"]["assignment_id"],
+            "$input.assignment_id"
+        );
+        assert_eq!(command["steps"][0]["set"]["status"], "active");
+
+        let reject = endpoint_json(&bug, "reject_assignment");
+        let command = command_json(&reject);
+        assert_eq!(command["steps"][0]["op"], "update_where");
+        assert_eq!(command["steps"][0]["set"]["status"], "rejected");
+
+        let unlink = endpoint_json(&bug, "unlink_asset");
+        let command = command_json(&unlink);
+        assert_eq!(command["steps"][0]["op"], "delete_where");
+        assert_eq!(command["steps"][0]["where"]["asset_id"], "$input.asset_id");
+
+        let bug_bulk = endpoint_json(&bug, "bulk_import_assignments");
+        let command = command_json(&bug_bulk);
+        assert_eq!(command["kind"], "bulk_mutation");
+        assert_eq!(command["steps"][0]["op"], "foreach");
     }
 
     #[test]

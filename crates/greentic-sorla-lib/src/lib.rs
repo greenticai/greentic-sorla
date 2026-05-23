@@ -35,6 +35,10 @@ mod embedded_i18n {
     include!(concat!(env!("OUT_DIR"), "/embedded_i18n.rs"));
 }
 
+pub mod prompt;
+
+use crate::prompt::PromptAuthoringEngine;
+
 const GENERATED_BEGIN: &str = "# --- BEGIN GREENTIC-SORLA GENERATED ---";
 const GENERATED_END: &str = "# --- END GREENTIC-SORLA GENERATED ---";
 const LOCK_FILENAME: &str = "answers.lock.json";
@@ -54,6 +58,35 @@ pub struct PreviewOptions;
 pub struct PackBuildOptions {
     pub name: Option<String>,
     pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyAnswersInput {
+    pub answers: serde_json::Value,
+    pub pack_out: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplyAnswersOutput {
+    pub mode: String,
+    pub output_dir: String,
+    pub package_name: String,
+    pub locale: String,
+    pub written_files: Vec<String>,
+    pub pack_path: Option<String>,
+    pub preserved_user_content: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackFromAnswersInput {
+    pub answers: serde_json::Value,
+    pub output_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackFromAnswersOutput {
+    pub gtpack_path: PathBuf,
+    pub summary: PackBuildResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,7 +223,7 @@ fn doctor_sorla_gtpack(
 #[command(
     name = "greentic-sorla",
     about = "Wizard-first tooling for Greentic SoRLa source layouts and handoff artifacts.",
-    long_about = "greentic-sorla is a wizard-first tool for authoring SoRLa source layouts, extension handoff artifacts, and deterministic handoff packs.\n\nSupported product surface:\n  greentic-sorla wizard --schema\n  greentic-sorla wizard --answers <file>\n  greentic-sorla wizard --answers <file> --pack-out <file.gtpack>\n  greentic-sorla pack <file> --name <name> --version <version> --out <file.gtpack>\n",
+    long_about = "greentic-sorla is a wizard-first tool for authoring SoRLa source layouts, extension handoff artifacts, and deterministic handoff packs.\n\nSupported product surface:\n  greentic-sorla wizard --schema\n  greentic-sorla wizard --answers <file>\n  greentic-sorla wizard --answers <file> --pack-out <file.gtpack>\n  greentic-sorla prompt --answers-out answers.json --llm-provider <provider>\n  greentic-sorla prompt --sorla-yaml <file> --answers-out answers.json --llm-provider <provider>\n  greentic-sorla pack <file> --name <name> --version <version> --out <file.gtpack>\n",
     after_help = "Internal helper commands may exist, but the supported UX is the wizard flow plus deterministic pack handoff."
 )]
 pub struct Cli {
@@ -202,10 +235,67 @@ pub struct Cli {
 enum Commands {
     /// Generate wizard schema or apply a saved answers document.
     Wizard(WizardArgs),
+    /// Interactively turn a business prompt into wizard answers JSON.
+    Prompt(PromptArgs),
     /// Build, inspect, or doctor deterministic SoRLa gtpack handoff artifacts.
     Pack(PackArgs),
     #[command(name = "__inspect-product-shape", hide = true)]
     InspectProductShape,
+}
+
+#[derive(Args)]
+struct PromptArgs {
+    /// File to write generated answers JSON to.
+    #[arg(long, value_name = "FILE", default_value = "answers.json")]
+    answers_out: PathBuf,
+    /// Existing sorla.yaml to update instead of creating a new package.
+    #[arg(long, value_name = "FILE")]
+    sorla_yaml: Option<PathBuf>,
+    /// Resume a saved prompt session state.
+    #[arg(long, value_name = "FILE")]
+    resume: Option<PathBuf>,
+    /// File to write prompt session state to after each turn.
+    #[arg(long, value_name = "FILE")]
+    session_out: Option<PathBuf>,
+    /// Locale used for prompt session metadata.
+    #[arg(long)]
+    locale: Option<String>,
+    /// LLM provider identifier to resolve.
+    #[arg(long)]
+    llm_provider: Option<String>,
+    /// LLM model identifier.
+    #[arg(long)]
+    llm_model: Option<String>,
+    /// Development-only inline LLM API key.
+    #[arg(long)]
+    llm_api_key: Option<String>,
+    /// LLM endpoint URL.
+    #[arg(long)]
+    llm_endpoint: Option<String>,
+    /// Greentic LLM capability ID to resolve.
+    #[arg(long)]
+    llm_capability_id: Option<String>,
+}
+
+impl std::fmt::Debug for PromptArgs {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PromptArgs")
+            .field("answers_out", &self.answers_out)
+            .field("sorla_yaml", &self.sorla_yaml)
+            .field("resume", &self.resume)
+            .field("session_out", &self.session_out)
+            .field("locale", &self.locale)
+            .field("llm_provider", &self.llm_provider)
+            .field("llm_model", &self.llm_model)
+            .field(
+                "llm_api_key",
+                &self.llm_api_key.as_ref().map(|_| "<redacted>"),
+            )
+            .field("llm_endpoint", &self.llm_endpoint)
+            .field("llm_capability_id", &self.llm_capability_id)
+            .finish()
+    }
 }
 
 #[derive(Debug, Args)]
@@ -219,7 +309,7 @@ struct WizardArgs {
     /// Apply a saved answers document.
     #[arg(long, value_name = "FILE")]
     answers: Option<PathBuf>,
-    /// Also build a deterministic .gtpack from the generated sorla.yaml.
+    /// Override the deterministic .gtpack path generated next to sorla.yaml.
     #[arg(long, value_name = "FILE")]
     pack_out: Option<PathBuf>,
 }
@@ -451,10 +541,12 @@ struct ExternalRefAnswer {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct FieldAnswer {
     name: String,
-    #[serde(rename = "type")]
+    #[serde(rename = "type", alias = "type_name")]
     type_name: String,
     #[serde(default)]
     required: Option<bool>,
+    #[serde(default)]
+    optional: Option<bool>,
     #[serde(default)]
     sensitive: Option<bool>,
     #[serde(default)]
@@ -693,6 +785,7 @@ struct ProjectionAnswers {
 struct ProjectionItemAnswer {
     name: String,
     record: String,
+    #[serde(default)]
     source_event: String,
     #[serde(default)]
     mode: Option<String>,
@@ -739,6 +832,14 @@ struct ProviderRequirementAnswer {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct NamedAnswer {
     name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    input_fields: Vec<FieldAnswer>,
+    #[serde(default)]
+    output_fields: Vec<FieldAnswer>,
+    #[serde(default)]
+    risk: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -910,6 +1011,22 @@ pub fn main() -> std::process::ExitCode {
 
 pub fn schema_for_answers() -> Result<serde_json::Value, SorlaError> {
     serde_json::to_value(default_schema()).map_err(|err| err.to_string())
+}
+
+pub fn apply_answers(input: ApplyAnswersInput) -> Result<ApplyAnswersOutput, SorlaError> {
+    let answers: AnswersDocument = serde_json::from_value(input.answers)
+        .map_err(|err| format!("failed to parse answers document: {err}"))?;
+    apply_answers_document(answers, input.pack_out).map(ApplyAnswersOutput::from)
+}
+
+#[cfg(feature = "pack-zip")]
+pub fn pack_from_answers(input: PackFromAnswersInput) -> Result<PackFromAnswersOutput, SorlaError> {
+    let model = normalize_answers(input.answers, NormalizeOptions)?;
+    let summary = build_gtpack_file(&model, &input.output_path, PackBuildOptions::default())?;
+    Ok(PackFromAnswersOutput {
+        gtpack_path: input.output_path,
+        summary,
+    })
 }
 
 pub fn normalize_answers(
@@ -1217,6 +1334,7 @@ where
 
     match cli.command {
         Commands::Wizard(args) => run_wizard(args),
+        Commands::Prompt(args) => run_prompt(args),
         Commands::Pack(args) => run_pack(args),
         Commands::InspectProductShape => {
             println!("wizard-first-plus-pack");
@@ -1244,6 +1362,7 @@ fn localized_help_for_args(args: &[OsString]) -> Option<String> {
 
     match help_command(args) {
         HelpCommand::Wizard => Some(render_wizard_help(&localized, &fallback)),
+        HelpCommand::Prompt => Some(render_prompt_help(&localized, &fallback)),
         HelpCommand::Pack => Some(render_pack_help(&localized, &fallback)),
         HelpCommand::Root => Some(render_root_help(&localized, &fallback)),
     }
@@ -1253,6 +1372,7 @@ fn localized_help_for_args(args: &[OsString]) -> Option<String> {
 enum HelpCommand {
     Root,
     Wizard,
+    Prompt,
     Pack,
 }
 
@@ -1262,6 +1382,7 @@ fn help_command(args: &[OsString]) -> HelpCommand {
         let arg = arg.to_string_lossy();
         match arg.as_ref() {
             "wizard" => return HelpCommand::Wizard,
+            "prompt" => return HelpCommand::Prompt,
             "pack" => return HelpCommand::Pack,
             "--help" | "-h" => return HelpCommand::Root,
             "--locale" => {
@@ -1297,7 +1418,7 @@ fn catalog_text<'a>(
     catalog: &'a BTreeMap<String, String>,
     fallback: &'a BTreeMap<String, String>,
     key: &str,
-    default: &'static str,
+    default: &'a str,
 ) -> &'a str {
     catalog
         .get(key)
@@ -1306,12 +1427,58 @@ fn catalog_text<'a>(
         .unwrap_or(default)
 }
 
+fn localized_options_placeholder<'a>(
+    catalog: &'a BTreeMap<String, String>,
+    fallback: &'a BTreeMap<String, String>,
+    placeholder_key: &str,
+    options_label: &'a str,
+) -> &'a str {
+    let placeholder = catalog_text(catalog, fallback, placeholder_key, "OPTIONS");
+    let fallback_placeholder = fallback
+        .get(placeholder_key)
+        .map(String::as_str)
+        .unwrap_or("OPTIONS");
+    let fallback_options = fallback
+        .get("cli.options")
+        .map(String::as_str)
+        .unwrap_or("Options");
+
+    if placeholder == fallback_placeholder && options_label != fallback_options {
+        options_label
+    } else {
+        placeholder
+    }
+}
+
+fn catalog_string(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+    key: &str,
+    default: &str,
+) -> String {
+    catalog_text(catalog, fallback, key, default).to_string()
+}
+
+fn render_catalog_template(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+    key: &str,
+    default: &str,
+    replacements: &[(&str, String)],
+) -> String {
+    let mut rendered = catalog_string(catalog, fallback, key, default);
+    for (name, value) in replacements {
+        rendered = rendered.replace(&format!("{{{name}}}"), value);
+    }
+    rendered
+}
+
 fn render_root_help(
     catalog: &BTreeMap<String, String>,
     fallback: &BTreeMap<String, String>,
 ) -> String {
     format!(
-        "{title}\n\n{description}\n\n{usage}: greentic-sorla <COMMAND>\n\n{commands}:\n  wizard  {wizard_description}\n  pack    {pack_description}\n  help    {help_description}\n\n{options}:\n  -h, --help  {help_option}",
+        "{title}\n\n{description}\n\n{usage}: greentic-sorla <COMMAND>\n\n{commands}:\n  wizard  {wizard_description}\n  prompt  {prompt_description}\n  pack    {pack_description}\n  help    {help_description}\n\n{options}:\n  -h, --help  {help_option}",
         title = catalog_text(catalog, fallback, "wizard.title", "SoRLa wizard"),
         description = catalog_text(
             catalog,
@@ -1331,6 +1498,12 @@ fn render_root_help(
             "cli.commands.pack.description",
             "Build, inspect, or doctor deterministic SoRLa gtpack handoff artifacts."
         ),
+        prompt_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.commands.prompt.description",
+            "Interactively turn a business prompt into wizard answers JSON."
+        ),
         help_description = catalog_text(
             catalog,
             fallback,
@@ -1349,10 +1522,102 @@ fn render_root_help(
     )
 }
 
+fn render_prompt_help(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+) -> String {
+    let options = catalog_text(catalog, fallback, "cli.options", "Options");
+    let options_placeholder =
+        localized_options_placeholder(catalog, fallback, "cli.options.placeholder", options);
+
+    format!(
+        "{description}\n\n{usage}: greentic-sorla prompt [{options_placeholder}]\n\n{options}:\n      --answers-out <FILE>       {answers_out_description}\n      --sorla-yaml <FILE>        {sorla_yaml_description}\n      --resume <FILE>            {resume_description}\n      --session-out <FILE>       {session_out_description}\n      --locale <LOCALE>          {locale_description}\n      --llm-provider <PROVIDER>  {llm_provider_description}\n      --llm-model <MODEL>        {llm_model_description}\n      --llm-api-key <KEY>        {llm_api_key_description}\n      --llm-endpoint <URL>       {llm_endpoint_description}\n      --llm-capability-id <ID>   {llm_capability_id_description}\n  -h, --help                     {help_option}",
+        description = catalog_text(
+            catalog,
+            fallback,
+            "cli.commands.prompt.description",
+            "Interactively turn a business prompt into wizard answers JSON."
+        ),
+        usage = catalog_text(catalog, fallback, "cli.usage", "Usage"),
+        options_placeholder = options_placeholder,
+        options = options,
+        answers_out_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.answers_out.description",
+            "File to write generated answers JSON to."
+        ),
+        sorla_yaml_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.sorla_yaml.description",
+            "Existing sorla.yaml to update instead of creating a new package."
+        ),
+        resume_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.resume.description",
+            "Resume a saved prompt session state."
+        ),
+        session_out_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.session_out.description",
+            "File to write prompt session state to after each turn."
+        ),
+        locale_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.wizard.options.locale.description",
+            "Locale used for wizard schema metadata and interactive prompts"
+        ),
+        llm_provider_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.llm_provider.description",
+            "LLM provider identifier to resolve."
+        ),
+        llm_model_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.llm_model.description",
+            "LLM model identifier."
+        ),
+        llm_api_key_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.llm_api_key.description",
+            "Development-only inline LLM API key."
+        ),
+        llm_endpoint_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.llm_endpoint.description",
+            "LLM endpoint URL."
+        ),
+        llm_capability_id_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.llm_capability_id.description",
+            "Greentic LLM capability ID to resolve."
+        ),
+        help_option = catalog_text(
+            catalog,
+            fallback,
+            "cli.options.help.description",
+            "Print help"
+        )
+    )
+}
+
 fn render_wizard_help(
     catalog: &BTreeMap<String, String>,
     fallback: &BTreeMap<String, String>,
 ) -> String {
+    let options = catalog_text(catalog, fallback, "cli.options", "Options");
+    let options_placeholder =
+        localized_options_placeholder(catalog, fallback, "cli.options.placeholder", options);
+
     format!(
         "{description}\n\n{usage}: greentic-sorla wizard [{options_placeholder}]\n\n{options}:\n      --schema           {schema_description}\n      --locale <LOCALE>  {locale_description}\n      --answers <FILE>   {answers_description}\n      --pack-out <FILE>  {pack_out_description}\n  -h, --help             {help_option}\n\n{core_prompts}:\n  {flow_label}\n  {output_dir_label}\n  {package_name_label}\n  {package_version_label}\n  {storage_provider_label}\n  {default_source_label}\n  {events_enabled_label}\n  {projection_mode_label}\n  {compatibility_mode_label}\n  {include_agent_tools_label}",
         description = catalog_text(
@@ -1362,8 +1627,8 @@ fn render_wizard_help(
             "Generate schema or apply answers documents."
         ),
         usage = catalog_text(catalog, fallback, "cli.usage", "Usage"),
-        options_placeholder = catalog_text(catalog, fallback, "cli.options.placeholder", "OPTIONS"),
-        options = catalog_text(catalog, fallback, "cli.options", "Options"),
+        options_placeholder = options_placeholder,
+        options = options,
         schema_description = catalog_text(
             catalog,
             fallback,
@@ -1386,7 +1651,7 @@ fn render_wizard_help(
             catalog,
             fallback,
             "cli.wizard.options.pack_out.description",
-            "Also build a deterministic .gtpack from the generated sorla.yaml"
+            "Override the deterministic .gtpack path generated next to sorla.yaml"
         ),
         help_option = catalog_text(
             catalog,
@@ -1457,6 +1722,10 @@ fn render_pack_help(
     catalog: &BTreeMap<String, String>,
     fallback: &BTreeMap<String, String>,
 ) -> String {
+    let options = catalog_text(catalog, fallback, "cli.options", "Options");
+    let options_placeholder =
+        localized_options_placeholder(catalog, fallback, "cli.options.placeholder", options);
+
     format!(
         "{description}\n\n{usage}: greentic-sorla pack [{options_placeholder}] [FILE] [COMMAND]\n\n{commands}:\n  doctor               {doctor_description}\n  inspect              {inspect_description}\n  schema               {schema_command_description}\n  validation-inspect   {validation_inspect_description}\n  validation-doctor    {validation_doctor_description}\n  help                 {help_description}\n\n{options}:\n      --name <NAME>     {name_description}\n      --version <VER>   {version_description}\n      --out <FILE>      {out_description}\n  -h, --help            {help_option}",
         description = catalog_text(
@@ -1466,9 +1735,9 @@ fn render_pack_help(
             "Build, inspect, or doctor deterministic SoRLa gtpack handoff artifacts."
         ),
         usage = catalog_text(catalog, fallback, "cli.usage", "Usage"),
-        options_placeholder = catalog_text(catalog, fallback, "cli.options.placeholder", "OPTIONS"),
+        options_placeholder = options_placeholder,
         commands = catalog_text(catalog, fallback, "cli.commands", "Commands"),
-        options = catalog_text(catalog, fallback, "cli.options", "Options"),
+        options = options,
         doctor_description = catalog_text(
             catalog,
             fallback,
@@ -1615,6 +1884,532 @@ fn validation_inspection_json(inspection: &SorlaGtpackInspection) -> serde_json:
         "compatibility": inspection.compatibility,
         "ontology": inspection.ontology,
         "retrieval_bindings": inspection.retrieval_bindings
+    })
+}
+
+fn run_prompt(args: PromptArgs) -> Result<(), String> {
+    let locale = selected_locale(args.locale.as_deref(), None);
+    let catalog = locale_catalog(&locale).unwrap_or_default();
+    let fallback = locale_catalog("en").unwrap_or_default();
+    let update_target = args
+        .sorla_yaml
+        .as_ref()
+        .map(|path| prompt_update_target_from_sorla_yaml(path))
+        .transpose()?;
+
+    if args.llm_provider.is_none() && args.llm_capability_id.is_none() {
+        return Err(catalog_string(
+            &catalog,
+            &fallback,
+            "cli.prompt.errors.llm_required",
+            "`prompt` requires `--llm-provider <PROVIDER>` or `--llm-capability-id <ID>`",
+        ));
+    }
+
+    let engine = prompt::DefaultPromptAuthoringEngine::new(CliPromptLlm);
+    let config = prompt::PromptSessionConfig {
+        locale: Some(locale),
+        schema_version: Some(default_schema().schema_version.to_string()),
+        package_name_hint: update_target
+            .as_ref()
+            .map(|target| target.previous.package_name.clone()),
+        package_version_hint: update_target
+            .as_ref()
+            .map(|target| target.previous.package_version.clone()),
+        llm: prompt::LlmCapabilityConfig {
+            provider: args
+                .llm_provider
+                .unwrap_or_else(|| "capability".to_string()),
+            model: args.llm_model,
+            api_key: args.llm_api_key,
+            endpoint: args.llm_endpoint,
+            capability_id: args.llm_capability_id,
+        },
+    };
+    let current_llm_config = config.llm.clone();
+
+    let mut session = if let Some(path) = &args.resume {
+        let contents = fs::read_to_string(path).map_err(|err| {
+            render_catalog_template(
+                &catalog,
+                &fallback,
+                "cli.prompt.errors.session_read",
+                "failed to read prompt session {path}: {error}",
+                &[
+                    ("path", path.display().to_string()),
+                    ("error", err.to_string()),
+                ],
+            )
+        })?;
+        serde_json::from_str::<prompt::PromptSessionState>(&contents).map_err(|err| {
+            render_catalog_template(
+                &catalog,
+                &fallback,
+                "cli.prompt.errors.session_parse",
+                "failed to parse prompt session {path}: {error}",
+                &[
+                    ("path", path.display().to_string()),
+                    ("error", err.to_string()),
+                ],
+            )
+        })?
+    } else {
+        engine.start_session(config)?
+    };
+    session.llm = Some(current_llm_config);
+
+    if session.phase == prompt::PromptPhase::AwaitingBusinessPrompt {
+        println!(
+            "{}",
+            catalog_text(
+                &catalog,
+                &fallback,
+                "cli.prompt.responses.describe_system",
+                "Describe the System of Record you want to create."
+            )
+        );
+    }
+
+    loop {
+        let mut user_message = if matches!(
+            session.phase,
+            prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers
+        ) {
+            "generate answers".to_string()
+        } else {
+            print!("> ");
+            io::stdout().flush().map_err(|err| {
+                render_catalog_template(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.errors.stdout_flush",
+                    "failed to flush prompt output: {error}",
+                    &[("error", err.to_string())],
+                )
+            })?;
+            read_stdin_line(&catalog_string(
+                &catalog,
+                &fallback,
+                "cli.prompt.errors.input_ended",
+                "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
+            ))?
+        };
+        if matches!(session.phase, prompt::PromptPhase::AwaitingBusinessPrompt)
+            && let Some(target) = &update_target
+        {
+            user_message = prompt_update_business_prompt(&user_message, target);
+        }
+
+        let output = engine
+            .next_turn(prompt::PromptTurnInput {
+                session,
+                user_message,
+            })
+            .map_err(|err| localized_prompt_error(&catalog, &fallback, &err))?;
+        session = output.session;
+
+        if let Some(path) = &args.session_out {
+            write_json_file(path, &session, &catalog, &fallback)?;
+        }
+
+        if output.answers_document.is_none() {
+            println!(
+                "{}",
+                localized_prompt_assistant_message(&catalog, &fallback, &output.assistant_message)
+            );
+        }
+        for (index, question) in output.next_questions.iter().enumerate() {
+            println!();
+            println!(
+                "{}",
+                render_catalog_template(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.responses.question_heading",
+                    "Question {number}:",
+                    &[("number", (index + 1).to_string())],
+                )
+            );
+            println!(
+                "{}",
+                localized_prompt_question_text(&catalog, &fallback, &question.id, &question.text)
+            );
+        }
+
+        if let Some(mut answers) = output.answers_document {
+            if let Some(target) = &update_target {
+                apply_prompt_update_target(&mut answers, target);
+            } else {
+                set_prompt_cli_output_dir(&mut answers, &args.answers_out);
+            }
+            write_json_file(&args.answers_out, &answers, &catalog, &fallback)?;
+            println!();
+            println!(
+                "{}",
+                render_catalog_template(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.responses.generated",
+                    "Generated {path}.",
+                    &[("path", args.answers_out.display().to_string())],
+                )
+            );
+            println!();
+            println!(
+                "{}",
+                catalog_text(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.responses.next_possible_step",
+                    "Next possible step:"
+                )
+            );
+            println!(
+                "{}",
+                prompt_next_step_command(&args.answers_out, update_target.as_ref())
+            );
+            return Ok(());
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PromptUpdateTarget {
+    sorla_yaml: PathBuf,
+    output_dir: PathBuf,
+    previous: ResolvedAnswers,
+    yaml_context: String,
+}
+
+fn prompt_update_target_from_sorla_yaml(path: &Path) -> Result<PromptUpdateTarget, String> {
+    let yaml_context = fs::read_to_string(path).map_err(|err| {
+        format!(
+            "failed to read existing sorla.yaml {}: {err}",
+            path.display()
+        )
+    })?;
+    let output_dir = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let lock_path = output_dir
+        .join(".greentic-sorla")
+        .join("generated")
+        .join(LOCK_FILENAME);
+    let previous = read_lock_file(&lock_path).map_err(|err| {
+        format!(
+            "`--sorla-yaml {}` requires existing wizard state next to the YAML: {err}",
+            path.display()
+        )
+    })?;
+    Ok(PromptUpdateTarget {
+        sorla_yaml: path.to_path_buf(),
+        output_dir,
+        previous,
+        yaml_context,
+    })
+}
+
+fn prompt_update_business_prompt(user_message: &str, target: &PromptUpdateTarget) -> String {
+    format!(
+        "Update the existing Greentic SoRLa package at {} instead of creating a new package.\nExisting package: {} {}.\nExisting sorla.yaml:\n{}\n\nRequested change:\n{}",
+        target.sorla_yaml.display(),
+        target.previous.package_name,
+        target.previous.package_version,
+        target.yaml_context,
+        user_message
+    )
+}
+
+fn apply_prompt_update_target(answers: &mut serde_json::Value, target: &PromptUpdateTarget) {
+    answers["flow"] = serde_json::Value::String("update".to_string());
+    answers["output_dir"] = serde_json::Value::String(target.output_dir.display().to_string());
+    answers["package"] = serde_json::json!({
+        "name": target.previous.package_name,
+        "version": target.previous.package_version
+    });
+}
+
+fn prompt_next_step_command(
+    answers_out: &Path,
+    update_target: Option<&PromptUpdateTarget>,
+) -> String {
+    if update_target.is_some() {
+        format!("greentic-sorla wizard --answers {}", answers_out.display())
+    } else {
+        format!(
+            "greentic-sorla wizard --answers {} --pack-out {}",
+            answers_out.display(),
+            default_prompt_pack_out_path(answers_out).display()
+        )
+    }
+}
+
+fn default_prompt_pack_out_path(answers_out: &Path) -> PathBuf {
+    answers_out.with_extension("gtpack")
+}
+
+fn set_prompt_cli_output_dir(answers: &mut serde_json::Value, answers_out: &Path) {
+    let default_output_dir = "target/greentic-sorla-prompt-generated";
+    if answers
+        .get("output_dir")
+        .and_then(serde_json::Value::as_str)
+        != Some(default_output_dir)
+    {
+        return;
+    }
+
+    let output_dir = answers_out
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(|parent| parent.join("sorla-output"))
+        .unwrap_or_else(|| PathBuf::from("sorla-output"));
+    answers["output_dir"] = serde_json::Value::String(output_dir.display().to_string());
+}
+
+fn localized_prompt_assistant_message(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+    message: &str,
+) -> String {
+    let key = match message {
+        "I found an initial system-of-record shape and need a few decisions." => {
+            "prompt.assistant.initial_shape"
+        }
+        "Review the draft design plan." => "prompt.assistant.review_design_plan",
+        "I have enough to propose a draft design plan." => "prompt.assistant.enough_for_plan",
+        "Thanks. I adjusted the draft and have one more question." => {
+            "prompt.assistant.adjusted_draft"
+        }
+        "Generated answers.json." => "prompt.assistant.generated_answers",
+        "This prompt session is already complete." => "prompt.assistant.already_complete",
+        _ => return message.to_string(),
+    };
+    catalog_string(catalog, fallback, key, message)
+}
+
+fn localized_prompt_question_text(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+    question_id: &str,
+    default_text: &str,
+) -> String {
+    let key = match question_id {
+        "lease.multiple_tenants" => "prompt.questions.lease.multiple_tenants",
+        "lease.liability" => "prompt.questions.lease.liability",
+        "payments.immutable" => "prompt.questions.payments.immutable",
+        "maintenance.uses_suppliers" => "prompt.questions.maintenance.uses_suppliers",
+        "supplier.approval_required" => "prompt.questions.supplier.approval_required",
+        _ => return default_text.to_string(),
+    };
+    catalog_string(catalog, fallback, key, default_text)
+}
+
+fn localized_prompt_error(
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+    error: &str,
+) -> String {
+    if error == "business prompt must not be empty" {
+        return catalog_string(
+            catalog,
+            fallback,
+            "cli.prompt.errors.empty_business_prompt",
+            "business prompt must not be empty",
+        );
+    }
+    if let Some(message) = error.strip_prefix("generated answers failed validation: ") {
+        return render_catalog_template(
+            catalog,
+            fallback,
+            "cli.prompt.errors.generated_answers_invalid",
+            "generated answers failed validation: {message}",
+            &[("message", message.to_string())],
+        );
+    }
+    error.to_string()
+}
+
+struct CliPromptLlm;
+
+impl prompt::LlmCapability for CliPromptLlm {
+    fn complete(&self, request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
+        if request.provider == "fake" {
+            return Ok(prompt::LlmResponse {
+                content: "{}".to_string(),
+            });
+        }
+        if request.provider != "openai" {
+            return Err(format!(
+                "unsupported prompt LLM provider `{}`; supported providers: openai, fake",
+                request.provider
+            ));
+        }
+        complete_openai_prompt(request)
+    }
+}
+
+#[cfg(feature = "cli")]
+fn complete_openai_prompt(request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
+    let api_key = request
+        .api_key
+        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+        .ok_or_else(|| {
+            "OpenAI prompt provider requires --llm-api-key or OPENAI_API_KEY".to_string()
+        })?;
+    let model = request.model.unwrap_or_else(|| "gpt-4.1-mini".to_string());
+    let endpoint = request
+        .endpoint
+        .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_string());
+
+    let mut messages = vec![serde_json::json!({
+        "role": "system",
+        "content": request.system_prompt,
+    })];
+    messages.extend(request.messages.into_iter().map(|message| {
+        serde_json::json!({
+            "role": match message.role {
+                prompt::LlmRole::System => "system",
+                prompt::LlmRole::User => "user",
+                prompt::LlmRole::Assistant => "assistant",
+            },
+            "content": message.content,
+        })
+    }));
+
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+    });
+    match request.response_format {
+        Some(prompt::LlmResponseFormat::Json) => {
+            body["response_format"] = serde_json::json!({ "type": "json_object" });
+        }
+        Some(prompt::LlmResponseFormat::JsonSchema {
+            name,
+            schema,
+            strict,
+        }) => {
+            body["response_format"] = serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": name,
+                    "strict": strict,
+                    "schema": schema
+                }
+            });
+        }
+        Some(prompt::LlmResponseFormat::Text) | None => {}
+    }
+
+    let mut response = ureq::post(&endpoint)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .send_json(&body)
+        .map_err(openai_request_error_message)?;
+    if !response.status().is_success() {
+        return Err(openai_status_error_message(response));
+    }
+    let value: serde_json::Value = response
+        .body_mut()
+        .read_json()
+        .map_err(|err| format!("OpenAI prompt response was not valid JSON: {err}"))?;
+    let content = value["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| format!("OpenAI prompt response did not contain message content: {value}"))?
+        .to_string();
+    Ok(prompt::LlmResponse { content })
+}
+
+#[cfg(feature = "cli")]
+fn openai_request_error_message(error: ureq::Error) -> String {
+    format!("OpenAI prompt request failed: {error}")
+}
+
+#[cfg(feature = "cli")]
+fn openai_status_error_message(mut response: ureq::http::Response<ureq::Body>) -> String {
+    let status = response.status();
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+    if body.trim().is_empty() {
+        return format!("OpenAI prompt request failed with status {status}");
+    }
+    let message = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|value| {
+            value["error"]["message"]
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| value["message"].as_str().map(str::to_string))
+        })
+        .unwrap_or(body);
+    format!("OpenAI prompt request failed with status {status}: {message}")
+}
+
+#[cfg(not(feature = "cli"))]
+fn complete_openai_prompt(_request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
+    Err("OpenAI prompt provider requires the `cli` feature".to_string())
+}
+
+fn read_stdin_line(eof_message: &str) -> Result<String, String> {
+    let mut line = String::new();
+    let bytes_read = io::stdin()
+        .read_line(&mut line)
+        .map_err(|err| format!("failed to read prompt input: {err}"))?;
+    if bytes_read == 0 {
+        return Err(eof_message.to_string());
+    }
+    Ok(line.trim_end().to_string())
+}
+
+fn write_json_file<T>(
+    path: &Path,
+    value: &T,
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+) -> Result<(), String>
+where
+    T: Serialize,
+{
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|err| {
+            render_catalog_template(
+                catalog,
+                fallback,
+                "cli.prompt.errors.create_dir",
+                "failed to create directory {path}: {error}",
+                &[
+                    ("path", parent.display().to_string()),
+                    ("error", err.to_string()),
+                ],
+            )
+        })?;
+    }
+    let bytes = serde_json::to_vec_pretty(value).map_err(|err| {
+        render_catalog_template(
+            catalog,
+            fallback,
+            "cli.prompt.errors.serialize_json",
+            "failed to serialize JSON: {error}",
+            &[("error", err.to_string())],
+        )
+    })?;
+    fs::write(path, bytes).map_err(|err| {
+        render_catalog_template(
+            catalog,
+            fallback,
+            "cli.prompt.errors.write_json",
+            "failed to write JSON file {path}: {error}",
+            &[
+                ("path", path.display().to_string()),
+                ("error", err.to_string()),
+            ],
+        )
     })
 }
 
@@ -1798,7 +2593,7 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
             if args.locale.is_some() {
                 answers.locale = args.locale;
             }
-            let summary = apply_answers(answers, pack_out)?;
+            let summary = apply_answers_document(answers, pack_out)?;
             let rendered = serde_json::to_string_pretty(&summary).map_err(|err| err.to_string())?;
             println!("{rendered}");
             Ok(())
@@ -1890,10 +2685,10 @@ fn run_interactive_wizard_with_provider(
     let result = driver.finish().map_err(format_qa_error)?;
 
     let answers = answers_document_from_qa_answers(result.answer_set.answers)?;
-    apply_answers(answers, pack_out)
+    apply_answers_document(answers, pack_out)
 }
 
-fn apply_answers(
+fn apply_answers_document(
     answers: AnswersDocument,
     pack_out: Option<PathBuf>,
 ) -> Result<ExecutionSummary, String> {
@@ -1978,6 +2773,8 @@ fn apply_answers(
             .map(|path| relative_to_output(&output_dir, &path)),
     );
 
+    let pack_out =
+        pack_out.or_else(|| Some(PathBuf::from(format!("{}.gtpack", resolved.package_name))));
     let pack_path = if let Some(pack_out) = pack_out {
         let validation_manifest_path =
             write_generated_sorx_validation_manifest(&generated_dir, &generated_yaml)?;
@@ -1988,12 +2785,21 @@ fn apply_answers(
         } else {
             pack_out
         };
-        build_sorla_gtpack(&SorlaGtpackOptions {
-            input_path: package_path.clone(),
+        let pack_input_path = generated_dir.join(".pack-input.sorla.yaml");
+        fs::write(&pack_input_path, &generated_yaml).map_err(|err| {
+            format!(
+                "failed to write temporary pack input {}: {err}",
+                pack_input_path.display()
+            )
+        })?;
+        let build_result = build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: pack_input_path.clone(),
             name: resolved.package_name.clone(),
             version: resolved.package_version.clone(),
             out_path: pack_path.clone(),
-        })?;
+        });
+        let _ = fs::remove_file(&pack_input_path);
+        build_result?;
         written_files.push(relative_to_output(&output_dir, &pack_path));
         Some(relative_to_output(&output_dir, &pack_path))
     } else {
@@ -2016,6 +2822,20 @@ fn apply_answers(
         pack_path,
         preserved_user_content,
     })
+}
+
+impl From<ExecutionSummary> for ApplyAnswersOutput {
+    fn from(summary: ExecutionSummary) -> Self {
+        Self {
+            mode: summary.mode.to_string(),
+            output_dir: summary.output_dir,
+            package_name: summary.package_name,
+            locale: summary.locale,
+            written_files: summary.written_files,
+            pack_path: summary.pack_path,
+            preserved_user_content: summary.preserved_user_content,
+        }
+    }
 }
 
 fn write_generated_sorx_validation_manifest(
@@ -2365,7 +3185,10 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
                     projection.record
                 ));
             }
-            if !event_names.is_empty() && !event_names.contains(&projection.source_event) {
+            if !projection.source_event.trim().is_empty()
+                && !event_names.is_empty()
+                && !event_names.contains(&projection.source_event)
+            {
                 return Err(format!(
                     "projections.items[{projection_index}].source_event points to unknown event `{}`",
                     projection.source_event
@@ -3058,6 +3881,154 @@ fn normalize_text_list(values: Vec<String>) -> Vec<String> {
     normalized
 }
 
+fn normalize_external_ref_system(
+    default_source: &str,
+    value: Option<String>,
+    fallback: Option<String>,
+) -> Option<String> {
+    value
+        .or(fallback)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            if matches!(default_source, "external" | "hybrid") {
+                Some("external-system".to_string())
+            } else {
+                None
+            }
+        })
+}
+
+fn normalize_record_items_for_source(
+    default_source: &str,
+    records: Vec<RecordItemAnswer>,
+) -> Vec<RecordItemAnswer> {
+    records
+        .into_iter()
+        .map(|mut record| {
+            let source = record.source.as_deref().unwrap_or(default_source);
+            if source == "hybrid" {
+                normalize_hybrid_record_fields(&mut record.fields);
+            }
+            record
+        })
+        .collect()
+}
+
+fn normalize_hybrid_record_fields(fields: &mut Vec<FieldAnswer>) {
+    for (index, field) in fields.iter_mut().enumerate() {
+        if field.authority.is_none() {
+            let authority = if field.name == "id"
+                || field.name.ends_with("_id")
+                || field.name.contains("external")
+                || index == 0
+            {
+                "external"
+            } else {
+                "local"
+            };
+            field.authority = Some(authority.to_string());
+        }
+    }
+
+    let has_external = fields
+        .iter()
+        .any(|field| field.authority.as_deref() == Some("external"));
+    if !has_external {
+        fields.push(synthetic_authority_field(
+            fields,
+            "external_record_id",
+            "external",
+        ));
+    }
+
+    let has_local = fields
+        .iter()
+        .any(|field| field.authority.as_deref() == Some("local"));
+    if !has_local {
+        fields.push(synthetic_authority_field(fields, "local_state", "local"));
+    }
+}
+
+fn synthetic_authority_field(
+    existing_fields: &[FieldAnswer],
+    preferred_name: &str,
+    authority: &str,
+) -> FieldAnswer {
+    let existing_names = existing_fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut name = preferred_name.to_string();
+    let mut suffix = 2;
+    while existing_names.contains(name.as_str()) {
+        name = format!("{preferred_name}_{suffix}");
+        suffix += 1;
+    }
+    FieldAnswer {
+        name,
+        type_name: "string".to_string(),
+        required: Some(false),
+        optional: Some(true),
+        sensitive: Some(false),
+        enum_values: Vec::new(),
+        references: None,
+        authority: Some(authority.to_string()),
+        description: Some(format!(
+            "Generated {authority} authority marker for hybrid record validation."
+        )),
+    }
+}
+
+fn normalize_events_and_projections(
+    mut events: Vec<EventItemAnswer>,
+    mut projections: Vec<ProjectionItemAnswer>,
+) -> (Vec<EventItemAnswer>, Vec<ProjectionItemAnswer>) {
+    for projection in &mut projections {
+        if !projection.source_event.trim().is_empty() {
+            projection.source_event = projection.source_event.trim().to_string();
+            continue;
+        }
+
+        if let Some(event) = events
+            .iter()
+            .find(|event| event.record == projection.record)
+        {
+            projection.source_event = event.name.clone();
+            continue;
+        }
+        if let Some(event) = events.first() {
+            projection.source_event = event.name.clone();
+            continue;
+        }
+
+        let event_name = unique_event_name(&events, &format!("{}_changed", projection.record));
+        events.push(EventItemAnswer {
+            name: event_name.clone(),
+            record: projection.record.clone(),
+            kind: Some("fact".to_string()),
+            emits: Vec::new(),
+        });
+        projection.source_event = event_name;
+    }
+
+    (events, projections)
+}
+
+fn unique_event_name(existing_events: &[EventItemAnswer], preferred_name: &str) -> String {
+    let existing_names = existing_events
+        .iter()
+        .map(|event| event.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut name = preferred_name.to_string();
+    let mut suffix = 2;
+    while existing_names.contains(name.as_str()) {
+        name = format!("{preferred_name}_{suffix}");
+        suffix += 1;
+    }
+    name
+}
+
 fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, String> {
     let package = answers.package.as_ref().ok_or_else(|| {
         "create flow requires the `package` section with at least `package.name` and `package.version`".to_string()
@@ -3067,22 +4038,14 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
         .as_ref()
         .and_then(|records| records.default_source.clone())
         .unwrap_or_else(|| "native".to_string());
-    let external_ref_system = answers
-        .records
-        .as_ref()
-        .and_then(|records| records.external_ref_system.clone());
-
-    if matches!(default_source.as_str(), "external" | "hybrid")
-        && external_ref_system
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .is_empty()
-    {
-        return Err(format!(
-            "field `records.external_ref_system` is required when `records.default_source` is `{default_source}`"
-        ));
-    }
+    let external_ref_system = normalize_external_ref_system(
+        &default_source,
+        answers
+            .records
+            .as_ref()
+            .and_then(|records| records.external_ref_system.clone()),
+        None,
+    );
 
     let mut artifacts = normalize_artifacts(
         answers
@@ -3109,7 +4072,50 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
     }
     artifacts.sort();
     artifacts.dedup();
-    let agent_endpoint_values = resolve_agent_endpoint_answers(answers.agent_endpoints.as_ref());
+    let mut agent_endpoint_values =
+        resolve_agent_endpoint_answers(answers.agent_endpoints.as_ref());
+    if agent_endpoint_values.items.is_empty() && !answers.actions.is_empty() {
+        agent_endpoint_values.enabled = true;
+        agent_endpoint_values.ids = Vec::new();
+        let record_items = answers
+            .records
+            .as_ref()
+            .map(|records| records.items.as_slice())
+            .unwrap_or(&[]);
+        agent_endpoint_values.items = action_endpoints_from_answers(&answers.actions, record_items);
+        if agent_endpoint_values.exports.is_empty() {
+            agent_endpoint_values.exports = default_agent_endpoint_exports();
+        }
+        if agent_endpoint_values.provider_category.is_none() {
+            agent_endpoint_values.provider_category = Some(
+                answers
+                    .providers
+                    .as_ref()
+                    .and_then(|providers| providers.storage_category.clone())
+                    .unwrap_or_else(|| "storage".to_string()),
+            );
+        }
+    }
+    let resolved_record_items = normalize_record_items_for_source(
+        &default_source,
+        answers
+            .records
+            .as_ref()
+            .map(|records| records.items.clone())
+            .unwrap_or_default(),
+    );
+    let (resolved_event_items, resolved_projection_items) = normalize_events_and_projections(
+        answers
+            .events
+            .as_ref()
+            .map(|events| events.items.clone())
+            .unwrap_or_default(),
+        answers
+            .projections
+            .as_ref()
+            .map(|projections| projections.items.clone())
+            .unwrap_or_default(),
+    );
 
     let resolved = ResolvedAnswers {
         schema_version: answers.schema_version.clone(),
@@ -3141,26 +4147,14 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
             .unwrap_or_default(),
         default_source,
         external_ref_system,
-        record_items: answers
-            .records
-            .as_ref()
-            .map(|records| records.items.clone())
-            .unwrap_or_default(),
+        record_items: resolved_record_items,
         ontology: answers.ontology.clone(),
         semantic_aliases: answers.semantic_aliases.clone(),
         entity_linking: answers.entity_linking.clone(),
         retrieval_bindings: answers.retrieval_bindings.clone(),
         actions: answers.actions.clone(),
-        event_items: answers
-            .events
-            .as_ref()
-            .map(|events| events.items.clone())
-            .unwrap_or_default(),
-        projection_items: answers
-            .projections
-            .as_ref()
-            .map(|projections| projections.items.clone())
-            .unwrap_or_default(),
+        event_items: resolved_event_items,
+        projection_items: resolved_projection_items,
         provider_requirements: answers.provider_requirements.clone(),
         policies: answers.policies.clone(),
         approvals: answers.approvals.clone(),
@@ -3217,23 +4211,14 @@ fn resolve_update_answers(
         .as_ref()
         .and_then(|records| records.default_source.clone())
         .unwrap_or_else(|| previous.default_source.clone());
-    let external_ref_system = answers
-        .records
-        .as_ref()
-        .and_then(|records| records.external_ref_system.clone())
-        .or_else(|| previous.external_ref_system.clone());
-
-    if matches!(default_source.as_str(), "external" | "hybrid")
-        && external_ref_system
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .is_empty()
-    {
-        return Err(format!(
-            "field `records.external_ref_system` is required when `records.default_source` is `{default_source}`"
-        ));
-    }
+    let external_ref_system = normalize_external_ref_system(
+        &default_source,
+        answers
+            .records
+            .as_ref()
+            .and_then(|records| records.external_ref_system.clone()),
+        previous.external_ref_system.clone(),
+    );
 
     let include_agent_tools = answers
         .output
@@ -3260,8 +4245,75 @@ fn resolve_update_answers(
     }
     artifacts.sort();
     artifacts.dedup();
-    let agent_endpoint_values =
+    let resolved_actions = if answers.actions.is_empty() {
+        previous.actions.clone()
+    } else {
+        answers.actions.clone()
+    };
+    let mut agent_endpoint_values =
         resolve_agent_endpoint_update_answers(answers.agent_endpoints.as_ref(), &previous);
+    if agent_endpoint_values.items.is_empty() && !resolved_actions.is_empty() {
+        agent_endpoint_values.enabled = true;
+        agent_endpoint_values.ids = Vec::new();
+        let record_items = answers
+            .records
+            .as_ref()
+            .filter(|records| !records.items.is_empty())
+            .map(|records| records.items.as_slice())
+            .unwrap_or(previous.record_items.as_slice());
+        agent_endpoint_values.items =
+            action_endpoints_from_answers(&resolved_actions, record_items);
+        if agent_endpoint_values.exports.is_empty() {
+            agent_endpoint_values.exports = default_agent_endpoint_exports();
+        }
+        if agent_endpoint_values.provider_category.is_none() {
+            agent_endpoint_values.provider_category = Some(
+                answers
+                    .providers
+                    .as_ref()
+                    .and_then(|providers| providers.storage_category.clone())
+                    .unwrap_or_else(|| previous.storage_category.clone()),
+            );
+        }
+    }
+    let resolved_record_items = normalize_record_items_for_source(
+        &default_source,
+        answers
+            .records
+            .as_ref()
+            .and_then(|records| {
+                if records.items.is_empty() {
+                    None
+                } else {
+                    Some(records.items.clone())
+                }
+            })
+            .unwrap_or_else(|| previous.record_items.clone()),
+    );
+    let event_items = answers
+        .events
+        .as_ref()
+        .and_then(|events| {
+            if events.items.is_empty() {
+                None
+            } else {
+                Some(events.items.clone())
+            }
+        })
+        .unwrap_or_else(|| previous.event_items.clone());
+    let projection_items = answers
+        .projections
+        .as_ref()
+        .and_then(|projections| {
+            if projections.items.is_empty() {
+                None
+            } else {
+                Some(projections.items.clone())
+            }
+        })
+        .unwrap_or_else(|| previous.projection_items.clone());
+    let (resolved_event_items, resolved_projection_items) =
+        normalize_events_and_projections(event_items, projection_items);
 
     Ok(ResolvedAnswers {
         schema_version: answers.schema_version.clone(),
@@ -3298,17 +4350,7 @@ fn resolve_update_answers(
             .unwrap_or(previous.provider_hints),
         default_source,
         external_ref_system,
-        record_items: answers
-            .records
-            .as_ref()
-            .and_then(|records| {
-                if records.items.is_empty() {
-                    None
-                } else {
-                    Some(records.items.clone())
-                }
-            })
-            .unwrap_or(previous.record_items),
+        record_items: resolved_record_items,
         ontology: answers.ontology.clone().or(previous.ontology),
         semantic_aliases: answers
             .semantic_aliases
@@ -3319,33 +4361,9 @@ fn resolve_update_answers(
             .retrieval_bindings
             .clone()
             .or(previous.retrieval_bindings),
-        actions: if answers.actions.is_empty() {
-            previous.actions
-        } else {
-            answers.actions.clone()
-        },
-        event_items: answers
-            .events
-            .as_ref()
-            .and_then(|events| {
-                if events.items.is_empty() {
-                    None
-                } else {
-                    Some(events.items.clone())
-                }
-            })
-            .unwrap_or(previous.event_items),
-        projection_items: answers
-            .projections
-            .as_ref()
-            .and_then(|projections| {
-                if projections.items.is_empty() {
-                    None
-                } else {
-                    Some(projections.items.clone())
-                }
-            })
-            .unwrap_or(previous.projection_items),
+        actions: resolved_actions,
+        event_items: resolved_event_items,
+        projection_items: resolved_projection_items,
         provider_requirements: if answers.provider_requirements.is_empty() {
             previous.provider_requirements
         } else {
@@ -3456,6 +4474,224 @@ fn resolve_agent_endpoint_answers(
             Vec::new()
         },
     }
+}
+
+fn action_endpoints_from_answers(
+    actions: &[NamedAnswer],
+    records: &[RecordItemAnswer],
+) -> Vec<AgentEndpointItemAnswer> {
+    actions
+        .iter()
+        .map(|action| {
+            let title = title_from_identifier(&action.name);
+            let inferred_inputs;
+            let source_inputs = if action.input_fields.is_empty() {
+                inferred_inputs = infer_action_endpoint_inputs(action, records);
+                &inferred_inputs
+            } else {
+                &action.input_fields
+            };
+            let inputs = source_inputs
+                .iter()
+                .cloned()
+                .map(normalize_endpoint_input_field)
+                .collect();
+            AgentEndpointItemAnswer {
+                id: action.name.clone(),
+                title: title.clone(),
+                intent: action
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| format!("Run the {title} business action.")),
+                description: action.description.clone(),
+                inputs,
+                outputs: action.output_fields.clone(),
+                side_effects: vec![format!("action.{}", action.name)],
+                emits: None,
+                risk: action.risk.clone(),
+                approval: None,
+                provider_requirements: Vec::new(),
+                backing: AgentEndpointBackingAnswer {
+                    actions: vec![action.name.clone()],
+                    events: Vec::new(),
+                    flows: Vec::new(),
+                    policies: Vec::new(),
+                    approvals: Vec::new(),
+                },
+                agent_visibility: Some(AgentVisibilityAnswer {
+                    openapi: Some(true),
+                    arazzo: Some(true),
+                    mcp: Some(true),
+                    llms_txt: Some(true),
+                }),
+                examples: Vec::new(),
+            }
+        })
+        .collect()
+}
+
+fn normalize_endpoint_input_field(mut field: FieldAnswer) -> FieldAnswer {
+    if field.required.is_none() {
+        field.required = Some(!field.optional.unwrap_or(false));
+    }
+    field.references = None;
+    field.authority = None;
+    field
+}
+
+fn infer_action_endpoint_inputs(
+    action: &NamedAnswer,
+    records: &[RecordItemAnswer],
+) -> Vec<FieldAnswer> {
+    if action.name.starts_with("bulk_") || action.name.starts_with("bulk_import_") {
+        return vec![FieldAnswer {
+            name: "items".to_string(),
+            type_name: "array".to_string(),
+            required: Some(true),
+            ..FieldAnswer::default()
+        }];
+    }
+
+    let Some(record) = infer_action_record(action, records) else {
+        return Vec::new();
+    };
+
+    if action.name.starts_with("delete_")
+        || action.name.starts_with("remove_")
+        || action.name.starts_with("revoke_")
+    {
+        return vec![required_string_field("id")];
+    }
+
+    if action.name.starts_with("update_") || action.name.contains("_update_") {
+        let mut fields = vec![required_string_field("id")];
+        fields.extend(record.fields.iter().cloned().map(|mut field| {
+            field.required = Some(false);
+            field.optional = Some(true);
+            field
+        }));
+        return dedup_fields(fields);
+    }
+
+    record
+        .fields
+        .iter()
+        .cloned()
+        .map(|mut field| {
+            field.required = Some(true);
+            field.optional = Some(false);
+            field
+        })
+        .collect()
+}
+
+fn required_string_field(name: &str) -> FieldAnswer {
+    FieldAnswer {
+        name: name.to_string(),
+        type_name: "string".to_string(),
+        required: Some(true),
+        ..FieldAnswer::default()
+    }
+}
+
+fn dedup_fields(fields: Vec<FieldAnswer>) -> Vec<FieldAnswer> {
+    let mut seen = std::collections::BTreeSet::new();
+    fields
+        .into_iter()
+        .filter(|field| seen.insert(field.name.clone()))
+        .collect()
+}
+
+fn infer_action_record<'a>(
+    action: &NamedAnswer,
+    records: &'a [RecordItemAnswer],
+) -> Option<&'a RecordItemAnswer> {
+    let action_tokens = identifier_tokens(&action.name);
+    if let Some(record) = infer_link_action_record(&action.name, records) {
+        return Some(record);
+    }
+
+    let preferred_suffixes = [
+        "create_", "update_", "delete_", "remove_", "revoke_", "grant_", "show_",
+    ];
+    for prefix in preferred_suffixes {
+        if let Some(record_name) = action.name.strip_prefix(prefix)
+            && let Some(record) = records.iter().find(|record| record.name == record_name)
+        {
+            return Some(record);
+        }
+    }
+
+    records
+        .iter()
+        .filter_map(|record| {
+            let mut score = 0usize;
+            let record_tokens = identifier_tokens(&record.name);
+            if record.name == action.name {
+                score += 20;
+            }
+            if action.name.contains(&record.name) {
+                score += 12;
+            }
+            score += record_tokens
+                .iter()
+                .filter(|token| action_tokens.contains(*token))
+                .count()
+                * 3;
+            for field in &record.fields {
+                let field_tokens = identifier_tokens(&field.name);
+                score += field_tokens
+                    .iter()
+                    .filter(|token| action_tokens.contains(*token))
+                    .count();
+                if let Some(reference) = &field.references {
+                    score += identifier_tokens(&reference.record)
+                        .iter()
+                        .filter(|token| action_tokens.contains(*token))
+                        .count()
+                        * 2;
+                }
+            }
+            (score > 0).then_some((score, record))
+        })
+        .max_by_key(|(score, record)| (*score, record.fields.len()))
+        .map(|(_, record)| record)
+}
+
+fn infer_link_action_record<'a>(
+    action_name: &str,
+    records: &'a [RecordItemAnswer],
+) -> Option<&'a RecordItemAnswer> {
+    let link_tail = action_name.strip_prefix("link_")?;
+    let (left, right) = link_tail.split_once("_to_")?;
+    let targets = [left, right];
+    records
+        .iter()
+        .filter_map(|record| {
+            let matched_targets = targets
+                .iter()
+                .filter(|target| {
+                    record.fields.iter().any(|field| {
+                        field.name.contains(*target)
+                            || field
+                                .references
+                                .as_ref()
+                                .is_some_and(|reference| reference.record.contains(*target))
+                    })
+                })
+                .count();
+            (matched_targets == targets.len()).then_some((record.fields.len(), record))
+        })
+        .min_by_key(|(field_count, record)| (*field_count, record.name.len()))
+        .map(|(_, record)| record)
+}
+
+fn identifier_tokens(value: &str) -> std::collections::BTreeSet<String> {
+    value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(|token| token.to_ascii_lowercase())
+        .collect()
 }
 
 fn resolve_agent_endpoint_update_answers(
@@ -6149,15 +7385,350 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
+    fn action_endpoint_inference_uses_join_record_for_link_actions() {
+        let action = NamedAnswer {
+            name: "link_b_to_c".to_string(),
+            description: Some("Link b to c.".to_string()),
+            ..NamedAnswer::default()
+        };
+        let records = vec![
+            RecordItemAnswer {
+                name: "entity_b".to_string(),
+                fields: vec![FieldAnswer {
+                    name: "entity_b_id".to_string(),
+                    type_name: "string".to_string(),
+                    ..FieldAnswer::default()
+                }],
+                ..RecordItemAnswer::default()
+            },
+            RecordItemAnswer {
+                name: "join_bc".to_string(),
+                fields: vec![
+                    FieldAnswer {
+                        name: "entity_b_id".to_string(),
+                        type_name: "string".to_string(),
+                        references: Some(FieldReferenceAnswer {
+                            record: "entity_b".to_string(),
+                            field: "entity_b_id".to_string(),
+                        }),
+                        ..FieldAnswer::default()
+                    },
+                    FieldAnswer {
+                        name: "entity_c_id".to_string(),
+                        type_name: "string".to_string(),
+                        references: Some(FieldReferenceAnswer {
+                            record: "entity_c".to_string(),
+                            field: "entity_c_id".to_string(),
+                        }),
+                        ..FieldAnswer::default()
+                    },
+                ],
+                ..RecordItemAnswer::default()
+            },
+        ];
+
+        let endpoints = action_endpoints_from_answers(&[action], &records);
+
+        assert_eq!(
+            endpoints[0]
+                .inputs
+                .iter()
+                .map(|field| field.name.as_str())
+                .collect::<Vec<_>>(),
+            ["entity_b_id", "entity_c_id"]
+        );
+        assert!(
+            endpoints[0]
+                .inputs
+                .iter()
+                .all(|field| field.required == Some(true))
+        );
+        assert!(
+            endpoints[0]
+                .inputs
+                .iter()
+                .all(|field| field.references.is_none())
+        );
+    }
+
+    #[test]
+    fn action_endpoint_inference_adds_bulk_items_input_without_record_target() {
+        let action = NamedAnswer {
+            name: "bulk_import_entities".to_string(),
+            ..NamedAnswer::default()
+        };
+
+        let endpoints = action_endpoints_from_answers(&[action], &[]);
+
+        assert_eq!(endpoints[0].inputs.len(), 1);
+        assert_eq!(endpoints[0].inputs[0].name, "items");
+        assert_eq!(endpoints[0].inputs[0].type_name, "array");
+        assert_eq!(endpoints[0].inputs[0].required, Some(true));
+    }
+
+    #[test]
     fn public_help_includes_wizard_and_pack_surface() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("wizard"));
+        assert!(help.contains("prompt"));
         assert!(help.contains("--schema"));
         assert!(help.contains("--answers"));
         assert!(help.contains("--pack-out"));
+        assert!(help.contains("--answers-out"));
+        assert!(help.contains("--sorla-yaml"));
+        assert!(help.contains("--llm-provider"));
         assert!(help.contains("pack"));
         assert!(help.contains("--out"));
         assert!(!help.contains("__inspect-product-shape"));
+    }
+
+    #[test]
+    fn prompt_command_parses_provider_options_without_no_llm() {
+        let cli = Cli::try_parse_from([
+            "greentic-sorla",
+            "prompt",
+            "--answers-out",
+            "answers.json",
+            "--llm-provider",
+            "fake",
+            "--llm-model",
+            "fixture",
+        ])
+        .expect("prompt command parses");
+        let Commands::Prompt(args) = cli.command else {
+            panic!("expected prompt command");
+        };
+        assert_eq!(args.answers_out, PathBuf::from("answers.json"));
+        assert_eq!(args.llm_provider.as_deref(), Some("fake"));
+        assert!(args.sorla_yaml.is_none());
+
+        let err = Cli::try_parse_from(["greentic-sorla", "prompt", "--no-llm"])
+            .expect_err("prompt command should not accept --no-llm");
+        assert!(err.to_string().contains("unexpected argument"));
+    }
+
+    #[test]
+    fn prompt_cli_rewrites_default_output_dir_next_to_answers_file() {
+        let mut answers = serde_json::json!({
+            "output_dir": "target/greentic-sorla-prompt-generated"
+        });
+        set_prompt_cli_output_dir(&mut answers, Path::new("/tmp/example/answers.json"));
+        assert_eq!(answers["output_dir"], "/tmp/example/sorla-output");
+        assert_eq!(
+            default_prompt_pack_out_path(Path::new("/tmp/example/answers.json")),
+            PathBuf::from("/tmp/example/answers.gtpack")
+        );
+    }
+
+    #[test]
+    fn prompt_cli_sorla_yaml_turns_generated_answers_into_update() {
+        let output_dir = unique_temp_dir().join("workspace");
+        fs::create_dir_all(&output_dir).unwrap();
+        let create_answers: AnswersDocument = serde_json::from_value(serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": output_dir,
+            "package": { "name": "existing-sor", "version": "0.1.0" },
+            "providers": { "storage_category": "storage" },
+            "records": { "default_source": "native" },
+            "events": { "enabled": false },
+            "projections": { "mode": "current-state" },
+            "migrations": { "compatibility": "additive" },
+            "output": { "include_agent_tools": true }
+        }))
+        .unwrap();
+        apply_answers_document(create_answers, None).unwrap();
+
+        let target = prompt_update_target_from_sorla_yaml(&output_dir.join("sorla.yaml")).unwrap();
+        let mut generated = serde_json::json!({
+            "flow": "create",
+            "output_dir": "target/greentic-sorla-prompt-generated",
+            "package": { "name": "new-sor", "version": "9.9.9" }
+        });
+        apply_prompt_update_target(&mut generated, &target);
+
+        assert_eq!(generated["flow"], "update");
+        assert_eq!(generated["output_dir"], output_dir.display().to_string());
+        assert_eq!(generated["package"]["name"], "existing-sor");
+        assert_eq!(generated["package"]["version"], "0.1.0");
+        assert_eq!(
+            prompt_next_step_command(Path::new("answers.json"), Some(&target)),
+            "greentic-sorla wizard --answers answers.json"
+        );
+        assert!(
+            prompt_update_business_prompt("add referrals", &target)
+                .contains("Update the existing Greentic SoRLa package")
+        );
+    }
+
+    #[test]
+    fn prompt_generated_answers_apply_through_public_facade() {
+        struct FakeLlm;
+
+        impl prompt::LlmCapability for FakeLlm {
+            fn complete(
+                &self,
+                _request: prompt::LlmRequest,
+            ) -> Result<prompt::LlmResponse, SorlaError> {
+                Ok(prompt::LlmResponse {
+                    content: "{}".to_string(),
+                })
+            }
+        }
+
+        let engine = prompt::DefaultPromptAuthoringEngine::new(FakeLlm);
+        let session = engine
+            .start_session(prompt::PromptSessionConfig {
+                locale: Some("en".to_string()),
+                schema_version: Some("0.5".to_string()),
+                package_name_hint: None,
+                package_version_hint: None,
+                llm: prompt::LlmCapabilityConfig {
+                    provider: "fake".to_string(),
+                    model: None,
+                    api_key: None,
+                    endpoint: None,
+                    capability_id: None,
+                },
+            })
+            .unwrap();
+        let mut output = engine
+            .next_turn(prompt::PromptTurnInput {
+                session,
+                user_message: "We manage rental properties for landlords and tenants.".to_string(),
+            })
+            .unwrap();
+        for answer in [
+            "yes",
+            "joint",
+            "yes, payments are immutable",
+            "yes, suppliers do the work",
+            "supplier work requires approval",
+        ] {
+            output = engine
+                .next_turn(prompt::PromptTurnInput {
+                    session: output.session,
+                    user_message: answer.to_string(),
+                })
+                .unwrap();
+        }
+
+        let mut answers = engine.generate_answers(output.session).unwrap();
+        let output_dir = unique_temp_dir().join("prompt-apply");
+        answers["output_dir"] = serde_json::Value::String(output_dir.display().to_string());
+        let summary = apply_answers(ApplyAnswersInput {
+            answers,
+            pack_out: None,
+        })
+        .expect("prompt-generated answers apply");
+
+        assert!(
+            summary
+                .written_files
+                .iter()
+                .any(|path| path == "sorla.yaml")
+        );
+        let yaml = fs::read_to_string(output_dir.join("sorla.yaml")).unwrap();
+        assert!(yaml.contains("landlord"));
+        assert!(yaml.contains("maintenance_request"));
+        assert_eq!(
+            summary.pack_path.as_deref(),
+            Some("prompt-generated-sor.gtpack")
+        );
+        assert!(output_dir.join("prompt-generated-sor.gtpack").exists());
+        assert!(!output_dir.join("src").exists());
+        assert!(!output_dir.join("assets").exists());
+        assert!(!output_dir.join("build-answers.json").exists());
+    }
+
+    #[test]
+    fn normalize_answers_fills_missing_projection_source_event() {
+        let input = serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": "projection-out",
+            "package": {
+                "name": "projection_demo",
+                "version": "0.1.0"
+            },
+            "providers": {},
+            "records": {
+                "default_source": "native",
+                "items": [{
+                    "name": "bug_case",
+                    "fields": [{
+                        "name": "bug_case_id",
+                        "type": "string",
+                        "required": true
+                    }]
+                }]
+            },
+            "actions": [],
+            "events": {
+                "items": [{
+                    "name": "bug_case_created",
+                    "record": "bug_case"
+                }]
+            },
+            "projections": {
+                "items": [{
+                    "name": "bug_case_list",
+                    "record": "bug_case"
+                }]
+            },
+            "policies": [],
+            "approvals": [],
+            "migrations": {},
+            "agent_endpoints": {},
+            "output": {}
+        });
+
+        let model = normalize_answers(input, NormalizeOptions).expect("answers normalize");
+
+        assert!(model.source_yaml.contains("source_event: bug_case_created"));
+    }
+
+    #[test]
+    fn normalize_answers_synthesizes_event_for_projection_without_events() {
+        let input = serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": "projection-out",
+            "package": {
+                "name": "projection_demo",
+                "version": "0.1.0"
+            },
+            "providers": {},
+            "records": {
+                "default_source": "native",
+                "items": [{
+                    "name": "bug_case",
+                    "fields": [{
+                        "name": "bug_case_id",
+                        "type": "string",
+                        "required": true
+                    }]
+                }]
+            },
+            "actions": [],
+            "events": {},
+            "projections": {
+                "items": [{
+                    "name": "bug_case_list",
+                    "record": "bug_case"
+                }]
+            },
+            "policies": [],
+            "approvals": [],
+            "migrations": {},
+            "agent_endpoints": {},
+            "output": {}
+        });
+
+        let model = normalize_answers(input, NormalizeOptions).expect("answers normalize");
+
+        assert!(model.source_yaml.contains("name: bug_case_changed"));
+        assert!(model.source_yaml.contains("source_event: bug_case_changed"));
     }
 
     #[test]
@@ -6275,6 +7846,46 @@ mod tests {
 
         let doctor = doctor_gtpack_bytes(&pack.bytes);
         assert!(!doctor.has_errors(), "{doctor:?}");
+    }
+
+    #[test]
+    fn normalize_answers_defaults_external_ref_system_for_hybrid_records() {
+        let input = serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": "demo-out",
+            "package": {
+                "name": "feature_coverage_demo",
+                "version": "0.1.0"
+            },
+            "providers": {},
+            "records": {
+                "default_source": "hybrid",
+                "items": [{
+                    "name": "entity_a",
+                    "fields": [{
+                        "name": "entity_a_id",
+                        "type": "string",
+                        "required": true
+                    }]
+                }]
+            },
+            "actions": [],
+            "events": {},
+            "projections": {},
+            "policies": [],
+            "approvals": [],
+            "migrations": {},
+            "agent_endpoints": {},
+            "output": {}
+        });
+
+        let model = normalize_answers(input, NormalizeOptions).expect("answers normalize");
+
+        assert!(model.source_yaml.contains("source: hybrid"));
+        assert!(model.source_yaml.contains("system: external-system"));
+        assert!(model.source_yaml.contains("authority: external"));
+        assert!(model.source_yaml.contains("authority: local"));
     }
 
     #[test]
@@ -6410,6 +8021,46 @@ mod tests {
         assert!(wizard_help.contains("Schema generieren oder Antwortdokumente anwenden."));
         assert!(wizard_help.contains("Paketname"));
         assert!(wizard_help.contains("Kategorie des Speicher-Providers"));
+
+        let prompt_help = localized_help_for_args(&[
+            OsString::from("greentic-sorla"),
+            OsString::from("prompt"),
+            OsString::from("--help"),
+            OsString::from("--locale"),
+            OsString::from("nl"),
+        ])
+        .expect("prompt help should localize");
+        assert!(prompt_help.contains("Zet interactief een zakelijke prompt"));
+        assert!(prompt_help.contains("Bestand waar de gegenereerde JSON-antwoorden"));
+        assert!(prompt_help.contains("LLM-provider-ID"));
+    }
+
+    #[test]
+    fn prompt_runtime_errors_can_be_localized() {
+        let catalog = locale_catalog("nl").expect("Dutch locale should load");
+        let fallback = locale_catalog("en").expect("English locale should load");
+        assert_eq!(
+            catalog_text(
+                &catalog,
+                &fallback,
+                "cli.prompt.errors.llm_required",
+                "missing"
+            ),
+            "`prompt` vereist `--llm-provider <PROVIDER>` of `--llm-capability-id <ID>`"
+        );
+        assert_eq!(
+            localized_prompt_error(&catalog, &fallback, "business prompt must not be empty"),
+            "zakelijke prompt mag niet leeg zijn"
+        );
+        assert_eq!(
+            localized_prompt_question_text(
+                &catalog,
+                &fallback,
+                "lease.multiple_tenants",
+                "Can a lease have more than one tenant?"
+            ),
+            "Kan een huurcontract meer dan één huurder hebben?"
+        );
     }
 
     #[test]
@@ -6539,6 +8190,58 @@ mod tests {
         .unwrap();
         assert!(provider_manifest.contains("\"name\": \"storage\""));
         assert!(provider_manifest.contains("\"handoff_kind\": \"provider-requirements\""));
+    }
+
+    #[test]
+    fn public_apply_answers_facade_reuses_wizard_pipeline() {
+        let dir = unique_temp_dir();
+        let output_dir = dir.join("workspace");
+        let answers = serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": output_dir,
+            "package": {
+                "name": "facade-test",
+                "version": "0.1.0"
+            },
+            "records": {
+                "default_source": "native"
+            },
+            "events": {
+                "enabled": true
+            },
+            "projections": {
+                "mode": "current-state"
+            },
+            "migrations": {
+                "compatibility": "additive"
+            },
+            "output": {
+                "include_agent_tools": false
+            }
+        });
+
+        let summary = apply_answers(ApplyAnswersInput {
+            answers,
+            pack_out: None,
+        })
+        .expect("public apply facade succeeds");
+
+        assert_eq!(summary.mode, "create");
+        assert_eq!(summary.package_name, "facade-test");
+        assert!(
+            summary
+                .written_files
+                .iter()
+                .any(|path| path == "sorla.yaml")
+        );
+        assert!(Path::new(&summary.output_dir).join("sorla.yaml").exists());
+        assert_eq!(summary.pack_path.as_deref(), Some("facade-test.gtpack"));
+        assert!(
+            Path::new(&summary.output_dir)
+                .join("facade-test.gtpack")
+                .exists()
+        );
     }
 
     #[test]

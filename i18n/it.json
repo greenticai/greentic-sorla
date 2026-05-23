@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Prompt principali",
   "cli.wizard.options.answers.description": "Applica un documento di risposte salvate",
   "cli.wizard.options.locale.description": "Locale usato per i metadati dello schema della procedura guidata e i prompt interattivi",
-  "cli.wizard.options.pack_out.description": "Crea anche un .gtpack deterministico dal sorla.yaml generato",
+  "cli.wizard.options.pack_out.description": "Sovrascrivi il percorso .gtpack deterministico generato accanto a sorla.yaml",
   "cli.wizard.options.schema.description": "Emetti lo schema della procedura guidata come JSON deterministico",
   "wizard.actions.create": "Crea pacchetto",
   "wizard.actions.update": "Aggiorna pacchetto",

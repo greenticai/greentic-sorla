@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Lời nhắc cốt lõi",
   "cli.wizard.options.answers.description": "Áp dụng một tài liệu câu trả lời đã lưu",
   "cli.wizard.options.locale.description": "Locale dùng cho siêu dữ liệu schema wizard và lời nhắc tương tác",
-  "cli.wizard.options.pack_out.description": "Đồng thời xây dựng một .gtpack tất định từ sorla.yaml đã tạo",
+  "cli.wizard.options.pack_out.description": "Ghi đè đường dẫn .gtpack xác định được tạo bên cạnh sorla.yaml",
   "cli.wizard.options.schema.description": "Xuất schema wizard dưới dạng JSON tất định",
   "wizard.actions.create": "Tạo gói",
   "wizard.actions.update": "Cập nhật gói",

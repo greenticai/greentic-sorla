@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Hatun tapuykuna",
   "cli.wizard.options.answers.description": "Waqaychasqa kutichiy qillqata churay",
   "cli.wizard.options.locale.description": "Wizard schema metadata-paq hinaspa interactivo tapuykunapaq locale",
-  "cli.wizard.options.pack_out.description": "Rurasqa sorla.yaml-manta deterministic .gtpack-ta ima ruray",
+  "cli.wizard.options.pack_out.description": "sorla.yaml-pa waqtanpi ruwasqa determinístico .gtpack ñanta tikray",
   "cli.wizard.options.schema.description": "Wizard schema deterministic JSON hina lluqsichiy",
   "wizard.actions.create": "Paqueteta ruway",
   "wizard.actions.update": "Paqueteta musuqyachiy",

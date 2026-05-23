@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Yoltlajtolmej",
   "cli.wizard.options.answers.description": "Motequiwis se saved answers document",
   "cli.wizard.options.locale.description": "Locale tlen motequiwia para wizard schema metadata wan interactive prompts",
-  "cli.wizard.options.pack_out.description": "Noijki chiwa se deterministic .gtpack desde generated sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Mopatla in deterministic .gtpack ohtli tlen mochihua inakastlan sorla.yaml",
   "cli.wizard.options.schema.description": "Kisa wizard schema kej deterministic JSON",
   "wizard.actions.create": "Xicchihua paquete",
   "wizard.actions.update": "Xicpatla paquete",

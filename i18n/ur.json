@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "بنیادی prompts",
   "cli.wizard.options.answers.description": "محفوظ شدہ answers document لاگو کریں",
   "cli.wizard.options.locale.description": "wizard schema metadata اور interactive prompts کے لیے استعمال ہونے والا locale",
-  "cli.wizard.options.pack_out.description": "generated sorla.yaml سے ایک متعین .gtpack بھی بنائیں",
+  "cli.wizard.options.pack_out.description": "sorla.yaml کے ساتھ generated deterministic .gtpack path کو اوور رائیڈ کریں",
   "cli.wizard.options.schema.description": "wizard schema کو متعین JSON کے طور پر خارج کریں",
   "wizard.actions.create": "پیکیج بنائیں",
   "wizard.actions.update": "پیکیج اپ ڈیٹ کریں",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "मुख्य प्रॉम्प्ट्स",
   "cli.wizard.options.answers.description": "जतन केलेला उत्तर दस्तऐवज लागू करा",
   "cli.wizard.options.locale.description": "विझार्ड स्कीमा मेटाडेटा आणि संवादात्मक प्रॉम्प्ट्ससाठी वापरलेली लोकेल",
-  "cli.wizard.options.pack_out.description": "तयार केलेल्या sorla.yaml मधून निर्धारित .gtpack देखील तयार करा",
+  "cli.wizard.options.pack_out.description": "sorla.yaml च्या शेजारी तयार होणारा deterministic .gtpack पथ ओव्हरराइड करा",
   "cli.wizard.options.schema.description": "विझार्ड स्कीमा निर्धारित JSON म्हणून उत्सर्जित करा",
   "wizard.actions.create": "पॅकेज तयार करा",
   "wizard.actions.update": "पॅकेज अद्यतनित करा",

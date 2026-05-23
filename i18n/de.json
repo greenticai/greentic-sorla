@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Kernfragen",
   "cli.wizard.options.answers.description": "Ein gespeichertes Antwortdokument anwenden",
   "cli.wizard.options.locale.description": "Gebietsschema für Wizard-Schemametadaten und interaktive Fragen",
-  "cli.wizard.options.pack_out.description": "Zusätzlich eine deterministische .gtpack-Datei aus dem generierten sorla.yaml erstellen",
+  "cli.wizard.options.pack_out.description": "Den deterministischen .gtpack-Pfad überschreiben, der neben sorla.yaml generiert wird",
   "cli.wizard.options.schema.description": "Das Wizard-Schema als deterministisches JSON ausgeben",
   "wizard.actions.create": "Paket erstellen",
   "wizard.actions.update": "Paket aktualisieren",

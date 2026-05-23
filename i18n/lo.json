@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "ພຣອມຫຼັກ",
   "cli.wizard.options.answers.description": "ນຳໃຊ້ເອກະສານຄຳຕອບທີ່ບັນທຶກໄວ້",
   "cli.wizard.options.locale.description": "ໂລແຄລທີ່ໃຊ້ສຳລັບເມຕາດາຕາຂອງ wizard schema ແລະພຣອມໂຕ້ຕອບ",
-  "cli.wizard.options.pack_out.description": "ສ້າງ .gtpack ແບບກຳນົດແນ່ນອນຈາກ sorla.yaml ທີ່ສ້າງຂຶ້ນນຳອີກ",
+  "cli.wizard.options.pack_out.description": "ແທນທີ່ເສັ້ນທາງ .gtpack ແບບກຳນົດໄດ້ຄົງທີ່ ທີ່ສ້າງຂຶ້ນຂ້າງ sorla.yaml",
   "cli.wizard.options.schema.description": "ສົ່ງອອກ wizard schema ເປັນ JSON ແບບກຳນົດແນ່ນອນ",
   "wizard.actions.create": "ສ້າງແພັກເກດ",
   "wizard.actions.update": "ອັບເດດແພັກເກດ",

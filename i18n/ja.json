@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "コアプロンプト",
   "cli.wizard.options.answers.description": "保存済みの回答ドキュメントを適用します",
   "cli.wizard.options.locale.description": "ウィザードスキーマのメタデータと対話型プロンプトに使用するロケール",
-  "cli.wizard.options.pack_out.description": "生成された sorla.yaml から決定的 .gtpack もビルドします",
+  "cli.wizard.options.pack_out.description": "sorla.yaml の隣に生成される決定論的な .gtpack パスを上書きします",
   "cli.wizard.options.schema.description": "ウィザードスキーマを決定的 JSON として出力します",
   "wizard.actions.create": "パッケージを作成",
   "wizard.actions.update": "パッケージを更新",

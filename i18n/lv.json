@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Pamata uzvednes",
   "cli.wizard.options.answers.description": "Lietot saglabātu atbilžu dokumentu",
   "cli.wizard.options.locale.description": "Lokāle, ko izmanto vedņa shēmas metadatiem un interaktīvajām uzvednēm",
-  "cli.wizard.options.pack_out.description": "Papildus izveidot deterministisku .gtpack no ģenerētā sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Ignorēt deterministisko .gtpack ceļu, kas ģenerēts blakus sorla.yaml",
   "cli.wizard.options.schema.description": "Izvadīt vedņa shēmu kā deterministisku JSON",
   "wizard.actions.create": "Izveidot pakotni",
   "wizard.actions.update": "Atjaunināt pakotni",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Prompt inti",
   "cli.wizard.options.answers.description": "Terapkan dokumen jawaban tersimpan",
   "cli.wizard.options.locale.description": "Lokal yang digunakan untuk metadata skema wizard dan prompt interaktif",
-  "cli.wizard.options.pack_out.description": "Juga bangun .gtpack deterministik dari sorla.yaml yang dihasilkan",
+  "cli.wizard.options.pack_out.description": "Timpa path .gtpack deterministik yang dibuat di samping sorla.yaml",
   "cli.wizard.options.schema.description": "Keluarkan skema wizard sebagai JSON deterministik",
   "wizard.actions.create": "Buat paket",
   "wizard.actions.update": "Perbarui paket",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Ydinkehotteet",
   "cli.wizard.options.answers.description": "Käytä tallennettua vastausasiakirjaa",
   "cli.wizard.options.locale.description": "Ohjatun toiminnon skeemametatiedoissa ja interaktiivisissa kehotteissa käytettävä lokaali",
-  "cli.wizard.options.pack_out.description": "Koosta myös deterministinen .gtpack luodusta sorla.yaml-tiedostosta",
+  "cli.wizard.options.pack_out.description": "Ohita deterministinen .gtpack-polku, joka luodaan sorla.yaml-tiedoston viereen",
   "cli.wizard.options.schema.description": "Tulosta ohjatun toiminnon skeema deterministisenä JSONina",
   "wizard.actions.create": "Luo paketti",
   "wizard.actions.update": "Päivitä paketti",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "ಮುಖ್ಯ ಪ್ರಾಂಪ್ಟ್‌ಗಳು",
   "cli.wizard.options.answers.description": "ಉಳಿಸಿದ ಉತ್ತರಗಳ ಡಾಕ್ಯುಮೆಂಟ್ ಅನ್ನು ಅನ್ವಯಿಸಿ",
   "cli.wizard.options.locale.description": "ವಿಜಾರ್ಡ್ ಸ್ಕೀಮಾ ಮೆಟಾಡೇಟಾ ಮತ್ತು ಸಂವಹನಾತ್ಮಕ ಪ್ರಾಂಪ್ಟ್‌ಗಳಿಗೆ ಬಳಸುವ ಲೊಕೇಲ್",
-  "cli.wizard.options.pack_out.description": "ರಚಿಸಲಾದ sorla.yaml ನಿಂದ ನಿರ್ಣಾಯಕ .gtpack ಅನ್ನು ಸಹ ನಿರ್ಮಿಸಿ",
+  "cli.wizard.options.pack_out.description": "sorla.yaml ಪಕ್ಕದಲ್ಲಿ ರಚಿಸಲಾದ ನಿರ್ಧಾರಾತ್ಮಕ .gtpack ಮಾರ್ಗವನ್ನು ಅತಿಕ್ರಮಿಸಿ",
   "cli.wizard.options.schema.description": "ವಿಜಾರ್ಡ್ ಸ್ಕೀಮಾವನ್ನು ನಿರ್ಣಾಯಕ JSON ಆಗಿ ಹೊರಹಾಕಿ",
   "wizard.actions.create": "ಪ್ಯಾಕೇಜ್ ರಚಿಸಿ",
   "wizard.actions.update": "ಪ್ಯಾಕೇಜ್ ನವೀಕರಿಸಿ",

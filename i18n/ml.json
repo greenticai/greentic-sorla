@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "പ്രധാന പ്രോംപ്റ്റുകൾ",
   "cli.wizard.options.answers.description": "സംരക്ഷിച്ച ഉത്തരങ്ങളുടെ ഡോക്യുമെന്റ് പ്രയോഗിക്കുക",
   "cli.wizard.options.locale.description": "വിസാർഡ് സ്കീമ മെറ്റാഡാറ്റയ്ക്കും ഇന്ററാക്ടീവ് പ്രോംപ്റ്റുകൾക്കും ഉപയോഗിക്കുന്ന ലോക്കേൽ",
-  "cli.wizard.options.pack_out.description": "സൃഷ്ടിച്ച sorla.yaml-ൽ നിന്ന് ഒരു നിർണ്ണയാത്മക .gtpack കൂടി നിർമ്മിക്കുക",
+  "cli.wizard.options.pack_out.description": "sorla.yaml-ന്റെ അടുത്തായി സൃഷ്ടിക്കുന്ന നിശ്ചിത .gtpack പാത ഓവർറൈഡ് ചെയ്യുക",
   "cli.wizard.options.schema.description": "വിസാർഡ് സ്കീമ നിർണ്ണയാത്മക JSON ആയി പുറപ്പെടുവിക്കുക",
   "wizard.actions.create": "പാക്കേജ് സൃഷ്ടിക്കുക",
   "wizard.actions.update": "പാക്കേജ് പുതുക്കുക",
