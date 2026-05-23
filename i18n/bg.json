@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Основни подкани",
   "cli.wizard.options.answers.description": "Прилагане на запазен документ с отговори",
   "cli.wizard.options.locale.description": "Локал, използван за метаданните на схемата на съветника и интерактивните подкани",
-  "cli.wizard.options.pack_out.description": "Също така създаване на детерминиран .gtpack от генерирания sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Презаписване на детерминирания път до .gtpack, генериран до sorla.yaml",
   "cli.wizard.options.schema.description": "Извеждане на схемата на съветника като детерминиран JSON",
   "wizard.actions.create": "Създаване на пакет",
   "wizard.actions.update": "Актуализиране на пакет",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Gesaan teras",
   "cli.wizard.options.answers.description": "Gunakan dokumen jawapan yang disimpan",
   "cli.wizard.options.locale.description": "Lokal yang digunakan untuk metadata skema wizard dan gesaan interaktif",
-  "cli.wizard.options.pack_out.description": "Bina juga .gtpack deterministik daripada sorla.yaml yang dijana",
+  "cli.wizard.options.pack_out.description": "Gantikan laluan .gtpack deterministik yang dijana bersebelahan sorla.yaml",
   "cli.wizard.options.schema.description": "Keluarkan skema wizard sebagai JSON deterministik",
   "wizard.actions.create": "Cipta pakej",
   "wizard.actions.update": "Kemas kini pakej",

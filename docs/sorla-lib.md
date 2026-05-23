@@ -37,6 +37,11 @@ The facade returns typed diagnostics and preview structures. It does not shell
 out to the CLI. The CLI uses the same implementation and only handles argument
 parsing, rendering, and exit codes.
 
+Prompt authoring also lives behind this facade. The prompt engine produces
+wizard-compatible `answers.json` only; callers should continue through
+`normalize_answers`, `validate_model`, and `apply_answers` or the existing
+wizard CLI when they need `sorla.yaml`.
+
 ## WASM Profile
 
 The facade crate defines a `wasm` feature for Designer extension builds:
@@ -50,8 +55,9 @@ cargo build -p greentic-sorla-lib \
 
 `schema_for_answers`, `normalize_answers`, `validate_model`, `generate_preview`,
 and `build_gtpack_entries` are the preferred WASM-safe subset. Native callers
-can also use `build_gtpack_bytes` and `build_gtpack_file` when they need a ZIP
-archive directly. If a host cannot provide filesystem-backed ZIP output,
+can also use `apply_answers`, `pack_from_answers`, `build_gtpack_bytes`, and
+`build_gtpack_file` when they need filesystem output or a ZIP archive directly.
+If a host cannot provide filesystem-backed ZIP output,
 Designer extensions should return deterministic `PackEntry` values and let the
 host package them.
 

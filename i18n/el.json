@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Βασικές προτροπές",
   "cli.wizard.options.answers.description": "Εφαρμογή ενός αποθηκευμένου εγγράφου απαντήσεων",
   "cli.wizard.options.locale.description": "Τοπική ρύθμιση που χρησιμοποιείται για τα μεταδεδομένα σχήματος του οδηγού και τις διαδραστικές προτροπές",
-  "cli.wizard.options.pack_out.description": "Επίσης δημιουργία ενός ντετερμινιστικού .gtpack από το παραγόμενο sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Παράκαμψη της ντετερμινιστικής διαδρομής .gtpack που δημιουργείται δίπλα στο sorla.yaml",
   "cli.wizard.options.schema.description": "Εκπομπή του σχήματος του οδηγού ως ντετερμινιστικό JSON",
   "wizard.actions.create": "Δημιουργία πακέτου",
   "wizard.actions.update": "Ενημέρωση πακέτου",

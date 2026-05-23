@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Pagrindiniai raginimai",
   "cli.wizard.options.answers.description": "Taikyti išsaugotą atsakymų dokumentą",
   "cli.wizard.options.locale.description": "Lokalė, naudojama vedlio schemos metaduomenims ir interaktyviems raginimams",
-  "cli.wizard.options.pack_out.description": "Taip pat sukurti deterministinį .gtpack iš sugeneruoto sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Nepaisyti deterministinio .gtpack kelio, sugeneruoto šalia sorla.yaml",
   "cli.wizard.options.schema.description": "Išvesti vedlio schemą kaip deterministinį JSON",
   "wizard.actions.create": "Kurti paketą",
   "wizard.actions.update": "Atnaujinti paketą",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Mga pangunahing prompt",
   "cli.wizard.options.answers.description": "Ilapat ang isang naka-save na dokumento ng mga sagot",
   "cli.wizard.options.locale.description": "Locale na ginagamit para sa wizard schema metadata at mga interactive na prompt",
-  "cli.wizard.options.pack_out.description": "Bumuo rin ng deterministic na .gtpack mula sa nabuong sorla.yaml",
+  "cli.wizard.options.pack_out.description": "I-override ang deterministikong .gtpack path na binuo sa tabi ng sorla.yaml",
   "cli.wizard.options.schema.description": "Ilabas ang wizard schema bilang deterministic na JSON",
   "wizard.actions.create": "Lumikha ng package",
   "wizard.actions.update": "I-update ang package",

@@ -1,3 +1,7 @@
+use greentic_sorla_lib::prompt::{
+    DefaultPromptAuthoringEngine, LlmCapability, LlmCapabilityConfig, LlmRequest, LlmResponse,
+    PromptAuthoringEngine, PromptSessionConfig, PromptSessionState, PromptTurnInput,
+};
 use greentic_sorla_lib::{
     DEFAULT_DESIGNER_COMPONENT_OPERATION, DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType,
     DesignerNodeTypeOptions, NormalizeOptions, NormalizedSorlaModel, PackBuildOptions,
@@ -136,6 +140,18 @@ pub fn extension_manifest() -> DesignerExtensionManifest {
             DesignerTool {
                 name: "generate_gtpack",
                 description: "Generate deterministic Sorla .gtpack artifact metadata or pack entries.",
+            },
+            DesignerTool {
+                name: "start_prompt_session",
+                description: "Start an interactive prompt-to-answers authoring session.",
+            },
+            DesignerTool {
+                name: "continue_prompt_session",
+                description: "Advance an interactive prompt-to-answers authoring session.",
+            },
+            DesignerTool {
+                name: "generate_prompt_answers",
+                description: "Generate wizard answers JSON from a completed prompt session.",
             },
             DesignerTool {
                 name: "list_designer_node_types",
@@ -452,6 +468,143 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
         } else {
             serde_json::Value::Null
         }
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StartPromptSessionRequest {
+    pub llm: LlmCapabilityConfig,
+    #[serde(default)]
+    pub locale: Option<String>,
+    #[serde(default)]
+    pub schema_version: Option<String>,
+    #[serde(default)]
+    pub package_name_hint: Option<String>,
+    #[serde(default)]
+    pub package_version_hint: Option<String>,
+    #[serde(default)]
+    pub business_prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ContinuePromptSessionRequest {
+    pub session: PromptSessionState,
+    pub user_message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct GeneratePromptAnswersRequest {
+    pub session: PromptSessionState,
+}
+
+pub fn start_prompt_session(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<StartPromptSessionRequest>(input) {
+        Ok(request) => request,
+        Err(err) => return prompt_error("designer.input", err.to_string()),
+    };
+    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    let config = PromptSessionConfig {
+        locale: request.locale,
+        schema_version: request.schema_version,
+        package_name_hint: request.package_name_hint,
+        package_version_hint: request.package_version_hint,
+        llm: request.llm,
+    };
+    let session = match engine.start_session(config) {
+        Ok(session) => session,
+        Err(err) => return prompt_error("sorla.prompt.start", err),
+    };
+    if let Some(prompt) = request.business_prompt {
+        return prompt_turn_json(engine.next_turn(PromptTurnInput {
+            session,
+            user_message: prompt,
+        }));
+    }
+    serde_json::json!({
+        "status": "needs_input",
+        "session": session,
+        "assistant_message": "Describe the System of Record you want to create.",
+        "questions": [],
+        "design_plan": null,
+        "answers_json": null,
+        "diagnostics": []
+    })
+}
+
+pub fn continue_prompt_session(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<ContinuePromptSessionRequest>(input) {
+        Ok(request) => request,
+        Err(err) => return prompt_error("designer.input", err.to_string()),
+    };
+    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    prompt_turn_json(engine.next_turn(PromptTurnInput {
+        session: request.session,
+        user_message: request.user_message,
+    }))
+}
+
+pub fn generate_prompt_answers(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<GeneratePromptAnswersRequest>(input) {
+        Ok(request) => request,
+        Err(err) => return prompt_error("designer.input", err.to_string()),
+    };
+    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    match engine.generate_answers(request.session.clone()) {
+        Ok(answers) => serde_json::json!({
+            "status": "valid",
+            "session": request.session,
+            "answers_json": answers,
+            "diagnostics": []
+        }),
+        Err(err) => prompt_error("sorla.prompt.answers", err),
+    }
+}
+
+struct DesignerPromptLlm;
+
+impl LlmCapability for DesignerPromptLlm {
+    fn complete(
+        &self,
+        _request: LlmRequest,
+    ) -> Result<LlmResponse, greentic_sorla_lib::SorlaError> {
+        Ok(LlmResponse {
+            content: "{}".to_string(),
+        })
+    }
+}
+
+fn prompt_turn_json(
+    output: Result<greentic_sorla_lib::prompt::PromptTurnOutput, greentic_sorla_lib::SorlaError>,
+) -> serde_json::Value {
+    match output {
+        Ok(output) => serde_json::json!({
+            "status": if output.answers_document.is_some() { "valid" } else { "needs_input" },
+            "session": output.session,
+            "assistant_message": output.assistant_message,
+            "questions": output.next_questions,
+            "design_plan": output.design_plan,
+            "answers_json": output.answers_document,
+            "diagnostics": []
+        }),
+        Err(err) => prompt_error("sorla.prompt.turn", err),
+    }
+}
+
+fn prompt_error(code: &str, message: impl Into<String>) -> serde_json::Value {
+    serde_json::json!({
+        "status": "needs_input",
+        "session": null,
+        "assistant_message": null,
+        "questions": [],
+        "design_plan": null,
+        "answers_json": null,
+        "diagnostics": [{
+            "severity": "error",
+            "code": code,
+            "message": message.into(),
+            "path": null,
+            "suggestion": null
+        }]
     })
 }
 
@@ -858,10 +1011,55 @@ mod tests {
                 "improve_model",
                 "explain_model",
                 "generate_gtpack",
+                "start_prompt_session",
+                "continue_prompt_session",
+                "generate_prompt_answers",
                 "list_designer_node_types",
                 "generate_flow_node_from_node_type"
             ]
         );
+    }
+
+    #[test]
+    fn prompt_session_tools_emit_structured_turns_and_answers() {
+        let start = start_prompt_session(serde_json::json!({
+            "llm": {
+                "provider": "fake"
+            },
+            "business_prompt": "We manage rental properties for landlords and tenants."
+        }));
+        assert_eq!(start["status"], "needs_input");
+        assert_eq!(start["questions"][0]["id"], "lease.multiple_tenants");
+        assert_eq!(start["answers_json"], serde_json::Value::Null);
+
+        let mut turn = start;
+        for answer in [
+            "yes",
+            "joint",
+            "yes, payments are immutable",
+            "yes, suppliers do the work",
+            "supplier work requires approval",
+        ] {
+            turn = continue_prompt_session(serde_json::json!({
+                "session": turn["session"].clone(),
+                "user_message": answer
+            }));
+        }
+        assert_eq!(turn["status"], "needs_input");
+        assert!(turn["design_plan"]["records"].as_array().unwrap().len() >= 6);
+
+        let generated = generate_prompt_answers(serde_json::json!({
+            "session": turn["session"].clone()
+        }));
+        assert_eq!(generated["status"], "valid");
+        assert_eq!(
+            generated["answers_json"]["records"]["items"][0]["name"],
+            "landlord"
+        );
+
+        let rendered = serde_json::to_string(&generated).unwrap();
+        assert!(!rendered.contains("secret"));
+        assert!(!rendered.contains("api_key"));
     }
 
     #[test]

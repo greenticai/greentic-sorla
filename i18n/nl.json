@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Kernprompts",
   "cli.wizard.options.answers.description": "Pas een opgeslagen antwoordendocument toe",
   "cli.wizard.options.locale.description": "Locale gebruikt voor wizardschemametadata en interactieve prompts",
-  "cli.wizard.options.pack_out.description": "Bouw ook een deterministische .gtpack van de gegenereerde sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Overschrijf het deterministische .gtpack-pad dat naast sorla.yaml wordt gegenereerd",
   "cli.wizard.options.schema.description": "Geef het wizardschema uit als deterministische JSON",
   "wizard.actions.create": "Pakket maken",
   "wizard.actions.update": "Pakket bijwerken",

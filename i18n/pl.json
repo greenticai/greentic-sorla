@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Główne prompty",
   "cli.wizard.options.answers.description": "Zastosuj zapisany dokument odpowiedzi",
   "cli.wizard.options.locale.description": "Ustawienia regionalne używane dla metadanych schematu kreatora i interaktywnych promptów",
-  "cli.wizard.options.pack_out.description": "Zbuduj także deterministyczny .gtpack z wygenerowanego sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Zastąp deterministyczną ścieżkę .gtpack generowaną obok sorla.yaml",
   "cli.wizard.options.schema.description": "Emituj schemat kreatora jako deterministyczny JSON",
   "wizard.actions.create": "Utwórz pakiet",
   "wizard.actions.update": "Zaktualizuj pakiet",

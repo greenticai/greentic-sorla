@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Kerneprompter",
   "cli.wizard.options.answers.description": "Anvend et gemt svardokument",
   "cli.wizard.options.locale.description": "Lokalitet brugt til wizard-skemaets metadata og interaktive prompter",
-  "cli.wizard.options.pack_out.description": "Byg også en deterministisk .gtpack fra den genererede sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Tilsidesæt den deterministiske .gtpack-sti, der genereres ved siden af sorla.yaml",
   "cli.wizard.options.schema.description": "Udsend wizard-skemaet som deterministisk JSON",
   "wizard.actions.create": "Opret pakke",
   "wizard.actions.update": "Opdater pakke",

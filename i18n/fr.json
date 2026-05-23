@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Invites principales",
   "cli.wizard.options.answers.description": "Appliquer un document de réponses enregistré",
   "cli.wizard.options.locale.description": "Paramètres régionaux utilisés pour les métadonnées du schéma de l'assistant et les invites interactives",
-  "cli.wizard.options.pack_out.description": "Construire également un .gtpack déterministe à partir du sorla.yaml généré",
+  "cli.wizard.options.pack_out.description": "Remplacer le chemin .gtpack déterministe généré à côté de sorla.yaml",
   "cli.wizard.options.schema.description": "Émettre le schéma de l'assistant sous forme de JSON déterministe",
   "wizard.actions.create": "Créer le package",
   "wizard.actions.update": "Mettre à jour le package",

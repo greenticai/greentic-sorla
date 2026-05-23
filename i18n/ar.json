@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "الأسئلة الأساسية",
   "cli.wizard.options.answers.description": "طبّق مستند إجابات محفوظًا",
   "cli.wizard.options.locale.description": "اللغة المستخدمة لبيانات مخطط المعالج والأسئلة التفاعلية",
-  "cli.wizard.options.pack_out.description": "أنشئ أيضًا .gtpack حتمية من sorla.yaml المولد",
+  "cli.wizard.options.pack_out.description": "تجاوز مسار .gtpack الحتمي المُنشأ بجانب sorla.yaml",
   "cli.wizard.options.schema.description": "أصدر مخطط المعالج كـ JSON حتمي",
   "wizard.actions.create": "إنشاء حزمة",
   "wizard.actions.update": "تحديث الحزمة",

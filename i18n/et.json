@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Põhiviibad",
   "cli.wizard.options.answers.description": "Rakenda salvestatud vastuste dokument",
   "cli.wizard.options.locale.description": "Viisardi skeemi metaandmete ja interaktiivsete viipade jaoks kasutatav lokaat",
-  "cli.wizard.options.pack_out.description": "Koosta genereeritud sorla.yaml-ist ka deterministlik .gtpack",
+  "cli.wizard.options.pack_out.description": "Kirjuta üle sorla.yaml-i kõrvale loodav deterministlik .gtpacki tee",
   "cli.wizard.options.schema.description": "Väljasta viisardi skeem deterministliku JSON-ina",
   "wizard.actions.create": "Loo pakett",
   "wizard.actions.update": "Uuenda paketti",

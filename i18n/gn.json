@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Porandu tenondegua",
   "cli.wizard.options.answers.description": "Eiporu peteĩ answers kuatiañe'ẽ oñongatupyre",
   "cli.wizard.options.locale.description": "Locale ojeporúva wizard schema metadata ha interactive prompts-pe g̃uarã",
-  "cli.wizard.options.pack_out.description": "Avei emopu'ã peteĩ deterministic .gtpack sorla.yaml ojejapopyrévagui",
+  "cli.wizard.options.pack_out.description": "Emyengovia tape .gtpack determinista oñemoheñóiva sorla.yaml ykére",
   "cli.wizard.options.schema.description": "Eguenohẽ wizard schema deterministic JSON ramo",
   "wizard.actions.create": "Emoheñói paquete",
   "wizard.actions.update": "Embohekopyahu paquete",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Prompturi principale",
   "cli.wizard.options.answers.description": "Aplică un document cu răspunsuri salvat",
   "cli.wizard.options.locale.description": "Locale folosit pentru metadatele schemei asistentului și prompturile interactive",
-  "cli.wizard.options.pack_out.description": "Construiește de asemenea un .gtpack determinist din sorla.yaml generat",
+  "cli.wizard.options.pack_out.description": "Suprascrie calea deterministă .gtpack generată lângă sorla.yaml",
   "cli.wizard.options.schema.description": "Emite schema asistentului ca JSON determinist",
   "wizard.actions.create": "Creează pachet",
   "wizard.actions.update": "Actualizează pachet",

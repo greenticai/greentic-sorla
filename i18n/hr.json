@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Osnovni upiti",
   "cli.wizard.options.answers.description": "Primijeni spremljeni dokument s odgovorima",
   "cli.wizard.options.locale.description": "Lokalizacija koja se koristi za metapodatke sheme čarobnjaka i interaktivne upite",
-  "cli.wizard.options.pack_out.description": "Također izradi deterministički .gtpack iz generirane datoteke sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Nadjačaj determinističku putanju .gtpack generiranu uz sorla.yaml",
   "cli.wizard.options.schema.description": "Ispiši shemu čarobnjaka kao deterministički JSON",
   "wizard.actions.create": "Izradi paket",
   "wizard.actions.update": "Ažuriraj paket",

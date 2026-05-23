@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Основни упити",
   "cli.wizard.options.answers.description": "Примените сачувани документ са одговорима",
   "cli.wizard.options.locale.description": "Локал који се користи за метаподатке шеме чаробњака и интерактивне упите",
-  "cli.wizard.options.pack_out.description": "Такође направите детерминистички .gtpack из генерисаног sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Zameni determinističku .gtpack putanju generisanu pored sorla.yaml",
   "cli.wizard.options.schema.description": "Емитујте шему чаробњака као детерминистички JSON",
   "wizard.actions.create": "Kreiraj paket",
   "wizard.actions.update": "Ažuriraj paket",

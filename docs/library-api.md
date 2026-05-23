@@ -32,6 +32,12 @@ subprocess. Callers such as Designer extensions should use the facade crate
 directly for schema emission, answers handling, validation, preview generation,
 pack generation, doctor, and inspect behavior.
 
+Interactive prompt authoring follows the same rule. `greentic-sorla-lib`
+contains the prompt session engine and the CLI/Designer integrations are
+frontends over that shared implementation. Prompt authoring outputs
+wizard-compatible `answers.json`; applying answers to `sorla.yaml` remains the
+existing deterministic wizard/apply pipeline exposed by `apply_answers`.
+
 The CLI maps library results to user-facing JSON and process exit codes. The
 facade remains extension-first: it emits SoRLa source material, canonical IR,
 handoff metadata, and legacy `.gtpack` compatibility artifacts; final runtime

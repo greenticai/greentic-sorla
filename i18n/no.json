@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Kjerneledetekster",
   "cli.wizard.options.answers.description": "Bruk et lagret svardokument",
   "cli.wizard.options.locale.description": "Språkinnstilling brukt for veiviserens skjemametadata og interaktive ledetekster",
-  "cli.wizard.options.pack_out.description": "Bygg også en deterministisk .gtpack fra den genererte sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Overstyr den deterministiske .gtpack-banen som genereres ved siden av sorla.yaml",
   "cli.wizard.options.schema.description": "Send ut veiviserskjemaet som deterministisk JSON",
   "wizard.actions.create": "Opprett pakke",
   "wizard.actions.update": "Oppdater pakke",

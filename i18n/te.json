@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "ప్రధాన ప్రాంప్ట్‌లు",
   "cli.wizard.options.answers.description": "సేవ్ చేసిన సమాధానాల డాక్యుమెంట్‌ను వర్తింపజేయండి",
   "cli.wizard.options.locale.description": "విజార్డ్ స్కీమా మెటాడేటా మరియు ఇంటరాక్టివ్ ప్రాంప్ట్‌ల కోసం ఉపయోగించే లోకేల్",
-  "cli.wizard.options.pack_out.description": "జనరేట్ చేసిన sorla.yaml నుండి నిర్ణీత .gtpack‌ను కూడా బిల్డ్ చేయండి",
+  "cli.wizard.options.pack_out.description": "sorla.yaml పక్కన రూపొందించబడే నిర్ధిష్ట .gtpack మార్గాన్ని ఓవర్‌రైడ్ చేయండి",
   "cli.wizard.options.schema.description": "విజార్డ్ స్కీమాను నిర్ణీత JSONగా ఎమిట్ చేయండి",
   "wizard.actions.create": "ప్యాకేజీ సృష్టించు",
   "wizard.actions.update": "ప్యాకేజీ నవీకరించు",

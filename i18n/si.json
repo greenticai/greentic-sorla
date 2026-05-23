@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "මූලික prompts",
   "cli.wizard.options.answers.description": "සුරැකි answers ලේඛනයක් යොදන්න",
   "cli.wizard.options.locale.description": "wizard schema metadata සහ interactive prompts සඳහා භාවිතා කරන locale",
-  "cli.wizard.options.pack_out.description": "උත්පාදනය කළ sorla.yaml වෙතින් නියත .gtpack එකක්ද ගොඩනඟන්න",
+  "cli.wizard.options.pack_out.description": "sorla.yaml අසල ජනනය කරන නිර්ණායක .gtpack මාර්ගය අභිබවා යන්න",
   "cli.wizard.options.schema.description": "wizard schema එක නියත JSON ලෙස නිකුත් කරන්න",
   "wizard.actions.create": "පැකේජය සාදන්න",
   "wizard.actions.update": "පැකේජය යාවත්කාලීන කරන්න",

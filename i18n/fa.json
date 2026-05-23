@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "پرامپت‌های اصلی",
   "cli.wizard.options.answers.description": "اعمال یک سند پاسخ‌های ذخیره‌شده",
   "cli.wizard.options.locale.description": "زبان/منطقه مورد استفاده برای فراداده طرح‌واره ویزارد و پرامپت‌های تعاملی",
-  "cli.wizard.options.pack_out.description": "همچنین ساخت یک .gtpack قطعی از sorla.yaml تولیدشده",
+  "cli.wizard.options.pack_out.description": "مسیر قطعی .gtpack تولیدشده در کنار sorla.yaml را بازنویسی کنید",
   "cli.wizard.options.schema.description": "خروجی‌دادن طرح‌واره ویزارد به‌صورت JSON قطعی",
   "wizard.actions.create": "ایجاد بسته",
   "wizard.actions.update": "به‌روزرسانی بسته",

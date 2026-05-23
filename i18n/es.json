@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Preguntas principales",
   "cli.wizard.options.answers.description": "Aplicar un documento de respuestas guardado",
   "cli.wizard.options.locale.description": "Configuración regional usada para metadatos del esquema y preguntas interactivas",
-  "cli.wizard.options.pack_out.description": "Construir también un .gtpack determinista desde el sorla.yaml generado",
+  "cli.wizard.options.pack_out.description": "Sobrescribe la ruta determinista .gtpack generada junto a sorla.yaml",
   "cli.wizard.options.schema.description": "Emitir el esquema del asistente como JSON determinista",
   "wizard.actions.create": "Crear paquete",
   "wizard.actions.update": "Actualizar paquete",

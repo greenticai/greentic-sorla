@@ -36,7 +36,7 @@ name = "perf"
 harness = false
 
 [dependencies]
-greentic-sorla-lib.workspace = true
+greentic-sorla-lib = { workspace = true, features = ["default"] }
 
 [dev-dependencies]
 criterion.workspace = true

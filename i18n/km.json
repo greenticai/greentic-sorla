@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "ប្រអប់បញ្ចូលស្នូល",
   "cli.wizard.options.answers.description": "អនុវត្តឯកសារចម្លើយដែលបានរក្សាទុក",
   "cli.wizard.options.locale.description": "Locale ដែលប្រើសម្រាប់ metadata របស់ wizard schema និងប្រអប់បញ្ចូលអន្តរកម្ម",
-  "cli.wizard.options.pack_out.description": "ក៏បង្កើត .gtpack ដែលកំណត់ឡើងវិញបានដូចគ្នា ពី sorla.yaml ដែលបានបង្កើត",
+  "cli.wizard.options.pack_out.description": "បដិសេធផ្លូវ .gtpack កំណត់បានជាក់លាក់ ដែលបានបង្កើតនៅក្បែរ sorla.yaml",
   "cli.wizard.options.schema.description": "បញ្ចេញ wizard schema ជា JSON ដែលកំណត់ឡើងវិញបានដូចគ្នា",
   "wizard.actions.create": "បង្កើតកញ្ចប់",
   "wizard.actions.update": "ធ្វើបច្ចុប្បន្នភាពកញ្ចប់",

@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Základné výzvy",
   "cli.wizard.options.answers.description": "Použiť uložený dokument odpovedí",
   "cli.wizard.options.locale.description": "Lokalizácia použitá pre metadáta schémy sprievodcu a interaktívne výzvy",
-  "cli.wizard.options.pack_out.description": "Tiež zostaviť deterministický .gtpack z vygenerovaného sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Prepísať deterministickú cestu .gtpack vygenerovanú vedľa súboru sorla.yaml",
   "cli.wizard.options.schema.description": "Vypísať schému sprievodcu ako deterministický JSON",
   "wizard.actions.create": "Vytvoriť balík",
   "wizard.actions.update": "Aktualizovať balík",

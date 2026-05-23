@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "핵심 프롬프트",
   "cli.wizard.options.answers.description": "저장된 답변 문서를 적용합니다.",
   "cli.wizard.options.locale.description": "마법사 스키마 메타데이터와 대화형 프롬프트에 사용되는 로케일입니다.",
-  "cli.wizard.options.pack_out.description": "생성된 sorla.yaml에서 결정적 .gtpack도 빌드합니다.",
+  "cli.wizard.options.pack_out.description": "sorla.yaml 옆에 생성되는 결정론적 .gtpack 경로를 재정의합니다.",
   "cli.wizard.options.schema.description": "마법사 스키마를 결정적 JSON으로 출력합니다.",
   "wizard.actions.create": "패키지 생성",
   "wizard.actions.update": "패키지 업데이트",

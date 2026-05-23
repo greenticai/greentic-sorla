@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "முக்கிய prompt-கள்",
   "cli.wizard.options.answers.description": "சேமிக்கப்பட்ட பதில்கள் ஆவணத்தைப் பயன்படுத்தவும்",
   "cli.wizard.options.locale.description": "wizard schema மெட்டாடேட்டா மற்றும் interactive prompt-களுக்குப் பயன்படுத்தப்படும் locale",
-  "cli.wizard.options.pack_out.description": "உருவாக்கப்பட்ட sorla.yaml இலிருந்து நிர்ணயிக்கப்பட்ட .gtpack-ஐயும் உருவாக்கவும்",
+  "cli.wizard.options.pack_out.description": "sorla.yaml அருகில் உருவாக்கப்படும் நிர்ணயிக்கப்பட்ட .gtpack பாதையை மேலெழுதவும்",
   "cli.wizard.options.schema.description": "wizard schema-வை நிர்ணயிக்கப்பட்ட JSON ஆக வெளியிடவும்",
   "wizard.actions.create": "தொகுப்பை உருவாக்கு",
   "wizard.actions.update": "தொகுப்பை புதுப்பி",

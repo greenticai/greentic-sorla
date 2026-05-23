@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Основні запити",
   "cli.wizard.options.answers.description": "Застосувати збережений документ відповідей",
   "cli.wizard.options.locale.description": "Локаль, що використовується для метаданих схеми майстра та інтерактивних запитів",
-  "cli.wizard.options.pack_out.description": "Також зібрати детермінований .gtpack зі згенерованого sorla.yaml",
+  "cli.wizard.options.pack_out.description": "Перевизначити детермінований шлях .gtpack, згенерований поруч із sorla.yaml",
   "cli.wizard.options.schema.description": "Вивести схему майстра як детермінований JSON",
   "wizard.actions.create": "Створити пакет",
   "wizard.actions.update": "Оновити пакет",

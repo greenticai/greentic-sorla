@@ -19,7 +19,7 @@
   "cli.wizard.core_prompts": "Envit prensipal yo",
   "cli.wizard.options.answers.description": "Aplike yon dokiman repons ki sove",
   "cli.wizard.options.locale.description": "Lokal yo itilize pou metadata chema asistan an ak envit entèaktif yo",
-  "cli.wizard.options.pack_out.description": "Bati tou yon .gtpack detèministik apati sorla.yaml ki jenere a",
+  "cli.wizard.options.pack_out.description": "Ranplase chemen .gtpack detèminis ki jenere akote sorla.yaml",
   "cli.wizard.options.schema.description": "Emèt chema asistan an kòm JSON detèministik",
   "wizard.actions.create": "Kreye pake",
   "wizard.actions.update": "Mete pake a ajou",

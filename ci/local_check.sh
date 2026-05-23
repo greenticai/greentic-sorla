@@ -43,13 +43,61 @@ run_publish_check() {
   return 1
 }
 
-CARGO_PACKAGE_PATCH_CONFIG=(
-  --config 'patch.crates-io.greentic-sorla.path="crates/greentic-sorla-cli"'
-  --config 'patch.crates-io.greentic-sorla-ir.path="crates/greentic-sorla-ir"'
-  --config 'patch.crates-io.greentic-sorla-lang.path="crates/greentic-sorla-lang"'
-  --config 'patch.crates-io.greentic-sorla-lib.path="crates/greentic-sorla-lib"'
-  --config 'patch.crates-io.greentic-sorla-pack.path="crates/greentic-sorla-pack"'
-)
+PUBLISH_WORKSPACE_DIR=""
+
+prepare_publish_workspace() {
+  if [[ -n "${PUBLISH_WORKSPACE_DIR}" ]]; then
+    return 0
+  fi
+
+  local workspace_version
+  workspace_version="$(
+    cargo metadata --no-deps --format-version 1 \
+      | jq -r '.packages[] | select(.name == "greentic-sorla") | .version'
+  )"
+  if [[ -z "${workspace_version}" || "${workspace_version}" == "null" ]]; then
+    echo "Failed to resolve greentic-sorla workspace version." >&2
+    return 1
+  fi
+
+  PUBLISH_WORKSPACE_DIR="$(mktemp -d -t greentic-sorla-publish-workspace.XXXXXX)"
+  trap 'rm -rf "${PUBLISH_WORKSPACE_DIR}"' EXIT
+  tar \
+    --exclude='./.git' \
+    --exclude='./target' \
+    --exclude='./packages' \
+    -cf - . | tar -C "${PUBLISH_WORKSPACE_DIR}" -xf -
+
+  SORLA_WORKSPACE_VERSION="${workspace_version}" perl -0pi -e '
+    my $v = $ENV{"SORLA_WORKSPACE_VERSION"};
+    s/(greentic-sorla-cli\s*=\s*\{\s*package\s*=\s*"greentic-sorla",\s*)(path\s*=)/$1version = "$v", $2/g;
+    s/(greentic-sorla-ir\s*=\s*\{\s*)(path\s*=)/$1version = "$v", $2/g;
+    s/(greentic-sorla-lang\s*=\s*\{\s*)(path\s*=)/$1version = "$v", $2/g;
+    s/(greentic-sorla-lib\s*=\s*\{\s*)(path\s*=)/$1version = "$v", $2/g;
+    s/(greentic-sorla-designer-extension\s*=\s*\{\s*)(path\s*=)/$1version = "$v", $2/g;
+    s/(greentic-sorla-pack\s*=\s*\{\s*)(path\s*=)/$1version = "$v", $2/g;
+  ' "${PUBLISH_WORKSPACE_DIR}/Cargo.toml"
+}
+
+publish_patch_config_for() {
+  local crate="$1"
+  local patches=(
+    'greentic-sorla=crates/greentic-sorla-cli'
+    'greentic-sorla-ir=crates/greentic-sorla-ir'
+    'greentic-sorla-lang=crates/greentic-sorla-lang'
+    'greentic-sorla-lib=crates/greentic-sorla-lib'
+    'greentic-sorla-pack=crates/greentic-sorla-pack'
+  )
+  local patch name path
+  for patch in "${patches[@]}"; do
+    name="${patch%%=*}"
+    path="${patch#*=}"
+    if [[ "$name" == "$crate" ]]; then
+      continue
+    fi
+    printf '%s\0%s\0' --config "patch.crates-io.${name}.path=\"${path}\""
+  done
+}
 
 missing_metadata() {
   local manifest_path="$1"
@@ -216,23 +264,28 @@ run_step "cargo doc"
 run_cmd cargo doc --no-deps --all-features
 
 run_step "Packaging and publish dry-run checks"
+prepare_publish_workspace
 for entry in "${PUBLISHABLE_ENTRIES[@]}"; do
   crate="${entry%%$'\t'*}"
+  patch_config=()
+  while IFS= read -r -d '' arg; do
+    patch_config+=("$arg")
+  done < <(publish_patch_config_for "$crate")
   run_step "Package checks: ${crate}"
   if [[ "${CI:-}" == "true" ]]; then
-    run_publish_check cargo package "${CARGO_PACKAGE_PATCH_CONFIG[@]}" --no-verify -p "$crate"
+    (cd "${PUBLISH_WORKSPACE_DIR}" && run_publish_check cargo package "${patch_config[@]}" --no-verify -p "$crate")
   else
-    run_publish_check cargo package "${CARGO_PACKAGE_PATCH_CONFIG[@]}" --no-verify -p "$crate" --allow-dirty
+    (cd "${PUBLISH_WORKSPACE_DIR}" && run_publish_check cargo package "${patch_config[@]}" --no-verify -p "$crate" --allow-dirty)
   fi
   if [[ "${CI:-}" == "true" ]]; then
-    run_publish_check cargo package "${CARGO_PACKAGE_PATCH_CONFIG[@]}" -p "$crate"
+    (cd "${PUBLISH_WORKSPACE_DIR}" && run_publish_check cargo package "${patch_config[@]}" -p "$crate")
   else
-    run_publish_check cargo package "${CARGO_PACKAGE_PATCH_CONFIG[@]}" -p "$crate" --allow-dirty
+    (cd "${PUBLISH_WORKSPACE_DIR}" && run_publish_check cargo package "${patch_config[@]}" -p "$crate" --allow-dirty)
   fi
   if [[ "${CI:-}" == "true" ]]; then
-    run_publish_check cargo publish "${CARGO_PACKAGE_PATCH_CONFIG[@]}" -p "$crate" --dry-run
+    (cd "${PUBLISH_WORKSPACE_DIR}" && run_publish_check cargo publish "${patch_config[@]}" -p "$crate" --dry-run)
   else
-    run_publish_check cargo publish "${CARGO_PACKAGE_PATCH_CONFIG[@]}" -p "$crate" --dry-run --allow-dirty
+    (cd "${PUBLISH_WORKSPACE_DIR}" && run_publish_check cargo publish "${patch_config[@]}" -p "$crate" --dry-run --allow-dirty)
   fi
 done
 
