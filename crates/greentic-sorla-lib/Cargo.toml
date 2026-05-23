@@ -26,7 +26,7 @@ cli = ["dep:greentic-qa-lib", "dep:ureq"]
 [dependencies]
 ciborium.workspace = true
 clap.workspace = true
-greentic-sorla-pack.workspace = true
+greentic-sorla-pack = { version = "0.1.13", path = "../greentic-sorla-pack", default-features = false }
 greentic-qa-lib = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true

@@ -18,8 +18,8 @@ pack-zip = ["dep:zip"]
 
 [dependencies]
 ciborium.workspace = true
-greentic-sorla-lang.workspace = true
-greentic-sorla-ir.workspace = true
+greentic-sorla-lang = { version = "0.1.13", path = "../greentic-sorla-lang" }
+greentic-sorla-ir = { version = "0.1.13", path = "../greentic-sorla-ir" }
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
