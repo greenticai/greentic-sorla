@@ -75,6 +75,15 @@ Every generated pack includes:
 - `assets/sorla/package-manifest.cbor`
 - `assets/sorla/executable-contract.json`
 - `assets/sorla/agent-gateway.json`
+- `assets/greentic/stack-pack.json`
+- `assets/greentic/capabilities.json`
+- `assets/greentic/routes.json`
+- `assets/greentic/setup.schema.json`
+- `assets/greentic/call.request.schema.json`
+- `assets/greentic/call.response.schema.json`
+- `assets/greentic/artifacts.json`
+- `assets/greentic/admin-surfaces.json`
+- `assets/secret-requirements.json`
 - `assets/sorx/start.schema.json`
 - `assets/sorx/start.questions.cbor`
 - `assets/sorx/runtime.template.yaml`
@@ -90,6 +99,39 @@ Generated packs also include embedded SORX validation metadata:
 The pack also carries the existing deterministic SoRLa CBOR artifacts under
 `assets/sorla/`, including actions, events, projections, policies, approvals,
 views, external sources, compatibility, and provider contract.
+
+When the source package declares metrics, the pack also includes:
+
+- `assets/sorla/metrics.json`
+
+`metrics.json` uses the `greentic.sorla.metrics.v1` schema. It contains package
+metadata, the canonical IR hash, and the lowered metric definitions. Pack
+inspect reports metric count and names. Pack doctor verifies that the JSON
+matches `model.cbor`, package metadata, and `pack.lock.cbor`.
+
+## Generic Stack-Pack Metadata
+
+Generated packs include generic Greentic application-stack metadata under
+`assets/greentic/`. `stack-pack.json` uses the
+`greentic.stack-pack.v1` schema and declares the pack as
+`cap://greentic/stack/application/v1`. Runtime host, secrets, telemetry,
+control, observer, and admin dependencies use generic `cap://greentic/...`
+capability IDs, with stack/runtime contract IDs recorded in capability
+metadata. `capabilities.json` mirrors the same offers and requirements in a
+`PackCapabilitySectionV1`-compatible shape so capability resolution can consume
+the pack without parsing Sorla-specific semantics.
+
+`routes.json` exposes the generic invocation route and references the generic
+call request/response JSON schemas. `setup.schema.json` points at
+`assets/secret-requirements.json`. Secret requirement metadata is explicit and
+never contains plaintext secret values; runtime secret reads remain the
+responsibility of the environment secrets manager.
+
+`artifacts.json` indexes the canonical SoRLa IR, agent gateway handoff,
+executable contract, and optional design/admin assets by generic kind and pack
+path. `admin-surfaces.json` exposes bundled design/admin surfaces, such as
+Designer node types and the agent endpoint action catalog, without requiring
+consumers to know Sorla filenames.
 
 Agent endpoint exports are included when endpoint visibility enables them:
 
@@ -154,6 +196,9 @@ paths instead of guessing filenames.
 Retrieval-enabled packs similarly declare `greentic.sorla.retrieval-bindings.v1`
 under SoRLa extension metadata and point to the JSON and canonical CBOR
 retrieval binding assets.
+
+Metrics-enabled packs declare `greentic.sorla.metrics.v1` under SoRLa extension
+metadata and point to `assets/sorla/metrics.json`.
 
 Packs with agent endpoints also declare
 `greentic.sorla.designer-node-types.v1` under SoRLa extension metadata and point

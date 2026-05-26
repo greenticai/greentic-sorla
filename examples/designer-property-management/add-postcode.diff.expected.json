@@ -1,0 +1,10 @@
+{
+  "schema": "greentic.sorla.concept-diff.v1",
+  "changes": [
+    {
+      "kind": "added",
+      "target": "record.property.field.postcode",
+      "label": "Added field postcode to property"
+    }
+  ]
+}

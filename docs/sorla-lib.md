@@ -25,6 +25,11 @@ let pack = greentic_sorla_lib::build_gtpack_bytes(
 
 - `schema_for_answers`
 - `normalize_answers`
+- `parse_sorla_yaml`
+- `generate_concept_view`
+- `render_concept_view_cli`
+- `apply_sorla_patch`
+- `propose_patch_from_instruction`
 - `validate_model`
 - `generate_preview`
 - `build_gtpack_entries`

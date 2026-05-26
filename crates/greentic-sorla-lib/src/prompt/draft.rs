@@ -15,6 +15,8 @@ pub struct SorDesignDraft {
     #[serde(default)]
     pub projections: Vec<DraftProjection>,
     #[serde(default)]
+    pub metrics: Vec<DraftMetric>,
+    #[serde(default)]
     pub policies: Vec<DraftPolicy>,
     #[serde(default)]
     pub approvals: Vec<DraftApproval>,
@@ -117,6 +119,46 @@ pub struct DraftProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftMetric {
+    #[serde(default = "default_metric_name")]
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub source_record: Option<String>,
+    #[serde(default)]
+    pub aggregate: Option<String>,
+    #[serde(default)]
+    pub field: Option<String>,
+    #[serde(default)]
+    pub time_field: Option<String>,
+    #[serde(default)]
+    pub grain: Option<String>,
+    #[serde(default)]
+    pub unit: Option<String>,
+    #[serde(default)]
+    pub dimensions: Vec<String>,
+    #[serde(default)]
+    pub formula: Option<String>,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub filters: Vec<DraftMetricFilter>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftMetricFilter {
+    #[serde(default = "default_field_name")]
+    pub field: String,
+    #[serde(default = "default_filter_operator")]
+    pub operator: String,
+    #[serde(default)]
+    pub value: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DraftPolicy {
     #[serde(default = "default_policy_name")]
     pub name: String,
@@ -191,6 +233,14 @@ fn default_event_name() -> String {
 
 fn default_projection_name() -> String {
     "projection".to_string()
+}
+
+fn default_metric_name() -> String {
+    "metric".to_string()
+}
+
+fn default_filter_operator() -> String {
+    "equals".to_string()
 }
 
 fn default_policy_name() -> String {

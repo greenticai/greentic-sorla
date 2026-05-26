@@ -41,6 +41,8 @@ pub struct CanonicalIr {
     pub views: Vec<ViewIr>,
     pub flows: Vec<NamedItemIr>,
     pub projections: Vec<ProjectionIr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub metrics: Vec<MetricIr>,
     pub external_sources: Vec<ExternalSourceIr>,
     pub compatibility: Vec<CompatibilityIr>,
     pub provider_contract: ProviderContractIr,
@@ -366,6 +368,74 @@ pub struct ProjectionIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricIr {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<MetricSourceIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub measure: Option<MetricMeasureIr>,
+    pub filters: Vec<MetricFilterIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<MetricTimeIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<MetricWindowIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    pub dimensions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
+    pub depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<MetricTargetIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricSourceIr {
+    pub kind: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricMeasureIr {
+    pub aggregate: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricFilterIr {
+    pub field: String,
+    pub operator: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricTimeIr {
+    pub field: String,
+    pub grain: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricWindowIr {
+    pub mode: String,
+    pub size: u32,
+    pub unit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MetricTargetIr {
+    pub operator: String,
+    pub value: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ProjectionModeIr {
     CurrentState,
@@ -625,6 +695,52 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         .collect();
     projections.sort_by(|left, right| left.name.cmp(&right.name));
 
+    let mut metrics: Vec<MetricIr> = package
+        .metrics
+        .iter()
+        .map(|metric| MetricIr {
+            name: metric.name.clone(),
+            label: metric.label.clone(),
+            description: metric.description.clone(),
+            source: metric.source.as_ref().map(|source| MetricSourceIr {
+                kind: source.kind.clone(),
+                name: source.name.clone(),
+            }),
+            measure: metric.measure.as_ref().map(|measure| MetricMeasureIr {
+                aggregate: measure.aggregate.clone(),
+                field: measure.field.clone(),
+            }),
+            filters: metric
+                .filters
+                .iter()
+                .map(|filter| MetricFilterIr {
+                    field: filter.field.clone(),
+                    operator: filter.operator.clone(),
+                    value: filter.value.clone(),
+                })
+                .collect(),
+            time: metric.time.as_ref().map(|time| MetricTimeIr {
+                field: time.field.clone(),
+                grain: time.grain.clone(),
+            }),
+            window: metric.window.as_ref().map(|window| MetricWindowIr {
+                mode: window.mode.clone(),
+                size: window.size,
+                unit: window.unit.clone(),
+            }),
+            unit: metric.unit.clone(),
+            dimensions: metric.dimensions.clone(),
+            formula: metric.formula.clone(),
+            depends_on: metric.depends_on.clone(),
+            target: metric.target.as_ref().map(|target| MetricTargetIr {
+                operator: target.operator.clone(),
+                value: target.value.clone(),
+                unit: target.unit.clone(),
+            }),
+        })
+        .collect();
+    metrics.sort_by(|left, right| left.name.cmp(&right.name));
+
     let mut external_sources: Vec<ExternalSourceIr> = package
         .records
         .iter()
@@ -762,6 +878,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
                 .collect::<Vec<_>>(),
         ),
         projections,
+        metrics,
         external_sources,
         compatibility,
         provider_contract: ProviderContractIr {

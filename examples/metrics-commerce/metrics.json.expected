@@ -1,0 +1,198 @@
+{
+  "schema": "greentic.sorla.metrics.v1",
+  "package": {
+    "name": "metrics-commerce",
+    "version": "0.1.0",
+    "ir_hash": "a716e6ee39fdf695544b83f5204e924a44ac89e1606a50d39a22d13561aade78"
+  },
+  "metrics": [
+    {
+      "name": "campaign_roas",
+      "label": "Campaign ROAS",
+      "filters": [],
+      "unit": "ratio",
+      "dimensions": [
+        "campaign"
+      ],
+      "formula": "monthly_revenue / monthly_cost",
+      "depends_on": [
+        "monthly_revenue",
+        "monthly_cost"
+      ]
+    },
+    {
+      "name": "completed_orders",
+      "label": "Completed Orders",
+      "source": {
+        "kind": "record",
+        "name": "order"
+      },
+      "measure": {
+        "aggregate": "count"
+      },
+      "filters": [
+        {
+          "field": "status",
+          "operator": "equals",
+          "value": "completed"
+        }
+      ],
+      "time": {
+        "field": "ordered_at",
+        "grain": "day"
+      },
+      "dimensions": [
+        "campaign",
+        "product",
+        "customer",
+        "region"
+      ],
+      "depends_on": []
+    },
+    {
+      "name": "conversion_rate",
+      "label": "Conversion Rate",
+      "filters": [],
+      "unit": "percent",
+      "dimensions": [
+        "campaign",
+        "region"
+      ],
+      "formula": "completed_orders / visitor_sessions",
+      "depends_on": [
+        "completed_orders",
+        "visitor_sessions"
+      ],
+      "target": {
+        "operator": ">=",
+        "value": 0.05,
+        "unit": "ratio"
+      }
+    },
+    {
+      "name": "daily_clicks",
+      "label": "Daily Clicks",
+      "description": "Total clicks by day.",
+      "source": {
+        "kind": "record",
+        "name": "click"
+      },
+      "measure": {
+        "aggregate": "count"
+      },
+      "filters": [],
+      "time": {
+        "field": "clicked_at",
+        "grain": "day"
+      },
+      "dimensions": [
+        "campaign",
+        "product",
+        "region"
+      ],
+      "depends_on": []
+    },
+    {
+      "name": "gross_margin",
+      "label": "Gross Margin",
+      "filters": [],
+      "unit": "GBP",
+      "dimensions": [
+        "campaign",
+        "product",
+        "region"
+      ],
+      "formula": "monthly_revenue - monthly_cost",
+      "depends_on": [
+        "monthly_revenue",
+        "monthly_cost"
+      ]
+    },
+    {
+      "name": "monthly_cost",
+      "label": "Monthly Cost",
+      "source": {
+        "kind": "record",
+        "name": "cost_entry"
+      },
+      "measure": {
+        "aggregate": "sum",
+        "field": "amount"
+      },
+      "filters": [],
+      "time": {
+        "field": "incurred_at",
+        "grain": "month"
+      },
+      "window": {
+        "mode": "rolling",
+        "size": 3,
+        "unit": "months"
+      },
+      "unit": "GBP",
+      "dimensions": [
+        "campaign",
+        "product",
+        "region"
+      ],
+      "depends_on": []
+    },
+    {
+      "name": "monthly_revenue",
+      "label": "Monthly Revenue",
+      "source": {
+        "kind": "record",
+        "name": "payment"
+      },
+      "measure": {
+        "aggregate": "sum",
+        "field": "amount"
+      },
+      "filters": [
+        {
+          "field": "status",
+          "operator": "equals",
+          "value": "settled"
+        }
+      ],
+      "time": {
+        "field": "paid_at",
+        "grain": "month"
+      },
+      "unit": "GBP",
+      "dimensions": [
+        "campaign",
+        "product",
+        "customer",
+        "region"
+      ],
+      "depends_on": [],
+      "target": {
+        "operator": ">=",
+        "value": 100000,
+        "unit": "GBP"
+      }
+    },
+    {
+      "name": "visitor_sessions",
+      "label": "Visitor Sessions",
+      "source": {
+        "kind": "record",
+        "name": "visitor"
+      },
+      "measure": {
+        "aggregate": "count"
+      },
+      "filters": [],
+      "time": {
+        "field": "visited_at",
+        "grain": "day"
+      },
+      "dimensions": [
+        "campaign",
+        "region"
+      ],
+      "depends_on": []
+    }
+  ]
+}

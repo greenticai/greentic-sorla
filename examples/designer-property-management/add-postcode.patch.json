@@ -1,0 +1,25 @@
+{
+  "schema": "greentic.sorla.patch.v1",
+  "source": {
+    "kind": "sorla-yaml",
+    "path": "examples/designer-property-management/sorla.yaml",
+    "base_hash": "sha256:01db3cf18734bc53690b8a7dedafaf132197d95201783f6cdda8a63b5ab6b3b6"
+  },
+  "author": {
+    "id": "fixture",
+    "name": "Fixture",
+    "kind": "test"
+  },
+  "intent": "Add postcode to the property record.",
+  "operations": [
+    {
+      "op": "add_field",
+      "record": "property",
+      "field": {
+        "name": "postcode",
+        "type": "string",
+        "required": false
+      }
+    }
+  ]
+}

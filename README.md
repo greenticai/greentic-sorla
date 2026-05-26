@@ -58,6 +58,23 @@ composition remains owned by `gtc`.
 See `docs/prompt-authoring.md` for the full boundary, CLI options, SDK usage,
 and Designer/WebChat/Teams integration notes.
 
+## Designer Integration
+
+Designer and CLI design tools use `sorla.yaml` as source of truth:
+
+```text
+sorla.yaml -> ConceptViewModel -> Designer/CLI -> semantic patch -> sorla.yaml
+```
+
+Use `greentic-sorla design view`, `design validate`, `design patch`, and
+`design add-field` for local YAML-first workflows. The Designer extension
+exposes the same parse, concept-view, semantic patch, LLM proposal, validation,
+and pack-entry APIs through the current `greentic-extension-sdk-*` tool
+boundary.
+
+See `docs/designer-yaml-source-of-truth.md`, `docs/concept-view-model.md`,
+`docs/semantic-patches.md`, and `docs/designer-sdk-extension.md`.
+
 ## gtpack Handoff
 
 SoRLa packages can be emitted as deterministic `.gtpack` handoff archives for
@@ -109,6 +126,7 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 - `docs/landlord-tenant-e2e.md`: FoundationDB-backed landlord/tenant e2e scenario
 - `docs/product-shape.md`: wizard-first product contract
 - `docs/prompt-authoring.md`: interactive prompt-to-answers authoring contract
+- `docs/metrics.md`: first-class metrics and KPI authoring contract
 - `docs/sorla-gtpack.md`: deterministic SoRLa `.gtpack` handoff contract
 - `docs/library-api.md`: reusable library and CLI boundary
 - `docs/sorla-lib.md`: stable facade API for Designer/tooling reuse

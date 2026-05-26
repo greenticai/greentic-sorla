@@ -1,0 +1,206 @@
+{
+  "schema_version": "0.5",
+  "flow": "create",
+  "output_dir": "target/metrics-commerce-generated",
+  "locale": "en",
+  "package": {
+    "name": "metrics-commerce",
+    "version": "0.1.0"
+  },
+  "providers": {
+    "storage_category": "storage",
+    "hints": [
+      "metrics",
+      "commerce"
+    ]
+  },
+  "records": {
+    "default_source": "native",
+    "items": [
+      {
+        "name": "campaign",
+        "source": "native",
+        "fields": [
+          { "name": "id", "type": "string", "required": true, "sensitive": false },
+          { "name": "name", "type": "string", "required": true, "sensitive": false },
+          { "name": "region", "type": "string", "required": true, "sensitive": false }
+        ]
+      },
+      {
+        "name": "visitor",
+        "source": "native",
+        "fields": [
+          { "name": "id", "type": "string", "required": true, "sensitive": false },
+          { "name": "visited_at", "type": "timestamp", "required": true, "sensitive": false },
+          { "name": "campaign", "type": "string", "required": true, "sensitive": false },
+          { "name": "region", "type": "string", "required": true, "sensitive": false }
+        ]
+      },
+      {
+        "name": "click",
+        "source": "native",
+        "fields": [
+          { "name": "id", "type": "string", "required": true, "sensitive": false },
+          { "name": "clicked_at", "type": "timestamp", "required": true, "sensitive": false },
+          { "name": "campaign", "type": "string", "required": true, "sensitive": false },
+          { "name": "product", "type": "string", "required": true, "sensitive": false },
+          { "name": "region", "type": "string", "required": true, "sensitive": false }
+        ]
+      },
+      {
+        "name": "order",
+        "source": "native",
+        "fields": [
+          { "name": "id", "type": "string", "required": true, "sensitive": false },
+          { "name": "amount", "type": "decimal", "required": true, "sensitive": false },
+          { "name": "status", "type": "string", "required": true, "sensitive": false },
+          { "name": "ordered_at", "type": "timestamp", "required": true, "sensitive": false },
+          { "name": "campaign", "type": "string", "required": true, "sensitive": false },
+          { "name": "product", "type": "string", "required": true, "sensitive": false },
+          { "name": "customer", "type": "string", "required": true, "sensitive": true },
+          { "name": "region", "type": "string", "required": true, "sensitive": false }
+        ]
+      },
+      {
+        "name": "payment",
+        "source": "native",
+        "fields": [
+          { "name": "id", "type": "string", "required": true, "sensitive": false },
+          { "name": "amount", "type": "decimal", "required": true, "sensitive": false },
+          { "name": "status", "type": "string", "required": true, "sensitive": false },
+          { "name": "paid_at", "type": "timestamp", "required": true, "sensitive": false },
+          { "name": "campaign", "type": "string", "required": true, "sensitive": false },
+          { "name": "product", "type": "string", "required": true, "sensitive": false },
+          { "name": "customer", "type": "string", "required": true, "sensitive": true },
+          { "name": "region", "type": "string", "required": true, "sensitive": false }
+        ]
+      },
+      {
+        "name": "cost_entry",
+        "source": "native",
+        "fields": [
+          { "name": "id", "type": "string", "required": true, "sensitive": false },
+          { "name": "amount", "type": "decimal", "required": true, "sensitive": false },
+          { "name": "incurred_at", "type": "timestamp", "required": true, "sensitive": false },
+          { "name": "campaign", "type": "string", "required": true, "sensitive": false },
+          { "name": "product", "type": "string", "required": true, "sensitive": false },
+          { "name": "region", "type": "string", "required": true, "sensitive": false }
+        ]
+      }
+    ]
+  },
+  "actions": [
+    { "name": "record_click" },
+    { "name": "record_payment" },
+    { "name": "record_cost" }
+  ],
+  "events": {
+    "enabled": true,
+    "items": [
+      { "name": "visitor_recorded", "record": "visitor", "kind": "domain" },
+      { "name": "click_tracked", "record": "click", "kind": "domain" },
+      { "name": "order_completed", "record": "order", "kind": "domain" },
+      { "name": "payment_settled", "record": "payment", "kind": "domain" },
+      { "name": "cost_recorded", "record": "cost_entry", "kind": "domain" }
+    ]
+  },
+  "projections": {
+    "mode": "current-state",
+    "items": [
+      { "name": "commerce_metrics_dashboard", "record": "payment", "source_event": "payment_settled", "mode": "current-state" }
+    ]
+  },
+  "metrics": {
+    "enabled": true,
+    "items": [
+      {
+        "name": "daily_clicks",
+        "label": "Daily Clicks",
+        "description": "Total clicks by day.",
+        "source": { "kind": "record", "name": "click" },
+        "measure": { "aggregate": "count" },
+        "time": { "field": "clicked_at", "grain": "day" },
+        "dimensions": ["campaign", "product", "region"]
+      },
+      {
+        "name": "visitor_sessions",
+        "label": "Visitor Sessions",
+        "source": { "kind": "record", "name": "visitor" },
+        "measure": { "aggregate": "count" },
+        "time": { "field": "visited_at", "grain": "day" },
+        "dimensions": ["campaign", "region"]
+      },
+      {
+        "name": "completed_orders",
+        "label": "Completed Orders",
+        "source": { "kind": "record", "name": "order" },
+        "measure": { "aggregate": "count" },
+        "filters": [{ "field": "status", "operator": "equals", "value": "completed" }],
+        "time": { "field": "ordered_at", "grain": "day" },
+        "dimensions": ["campaign", "product", "customer", "region"]
+      },
+      {
+        "name": "monthly_revenue",
+        "label": "Monthly Revenue",
+        "source": { "kind": "record", "name": "payment" },
+        "measure": { "aggregate": "sum", "field": "amount" },
+        "filters": [{ "field": "status", "operator": "equals", "value": "settled" }],
+        "time": { "field": "paid_at", "grain": "month" },
+        "unit": "GBP",
+        "dimensions": ["campaign", "product", "customer", "region"],
+        "target": { "operator": ">=", "value": 100000, "unit": "GBP" }
+      },
+      {
+        "name": "monthly_cost",
+        "label": "Monthly Cost",
+        "source": { "kind": "record", "name": "cost_entry" },
+        "measure": { "aggregate": "sum", "field": "amount" },
+        "time": { "field": "incurred_at", "grain": "month" },
+        "window": { "mode": "rolling", "size": 3, "unit": "months" },
+        "unit": "GBP",
+        "dimensions": ["campaign", "product", "region"]
+      },
+      {
+        "name": "conversion_rate",
+        "label": "Conversion Rate",
+        "formula": "completed_orders / visitor_sessions",
+        "depends_on": ["completed_orders", "visitor_sessions"],
+        "unit": "percent",
+        "dimensions": ["campaign", "region"],
+        "target": { "operator": ">=", "value": 0.05, "unit": "ratio" }
+      },
+      {
+        "name": "gross_margin",
+        "label": "Gross Margin",
+        "formula": "monthly_revenue - monthly_cost",
+        "depends_on": ["monthly_revenue", "monthly_cost"],
+        "unit": "GBP",
+        "dimensions": ["campaign", "product", "region"]
+      },
+      {
+        "name": "campaign_roas",
+        "label": "Campaign ROAS",
+        "formula": "monthly_revenue / monthly_cost",
+        "depends_on": ["monthly_revenue", "monthly_cost"],
+        "unit": "ratio",
+        "dimensions": ["campaign"]
+      }
+    ]
+  },
+  "policies": [],
+  "approvals": [],
+  "migrations": {
+    "compatibility": "additive"
+  },
+  "agent_endpoints": {
+    "enabled": false,
+    "ids": [],
+    "default_risk": "medium",
+    "default_approval": "policy-driven",
+    "exports": ["openapi"],
+    "provider_category": "storage"
+  },
+  "output": {
+    "include_agent_tools": true
+  }
+}

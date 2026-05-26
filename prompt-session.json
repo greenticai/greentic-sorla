@@ -1,0 +1,462 @@
+{
+  "session_id": "prompt-session-1",
+  "phase": "reviewing-design-plan",
+  "llm": {
+    "provider": "openai",
+    "model": "gpt-4.1",
+    "endpoint": null,
+    "capability_id": null
+  },
+  "business_prompt": "Design a Greentic System of Record for KAFD that turns tenant presales, fit-out onboarding, approvals, documents, communications, milestones, and operational coordination into one AI-native but predictable digital worker platform.",
+  "answers_so_far": [
+    {
+      "question_id": "sorla.kafd.third_party_integration",
+      "value": {
+        "kind": "boolean",
+        "value": false
+      }
+    }
+  ],
+  "questions": [],
+  "assumptions": [
+    {
+      "id": "no.third.party.integration",
+      "text": "No third party integrations required; all records managed natively.",
+      "confidence": "high"
+    },
+    {
+      "id": "privacy.scope.kafd.ai",
+      "text": "No explicit sensitive personal/PII fields required beyond tenant contact—can flag later depending on operational/practice guidance.",
+      "confidence": "medium"
+    },
+    {
+      "id": "operational_coordination.scope",
+      "text": "Operational tasks, milestones, and communications may involve both tenants and staff, so model is flexible about 'assigned_to' and direction.",
+      "confidence": "high"
+    }
+  ],
+  "draft_model": {
+    "summary": "System of Record for KAFD tenant digital worker platform, covering presales, onboarding, fit-out, approvals, documents, communications, milestones, and operational tasks.",
+    "records": [
+      {
+        "name": "tenant_presale",
+        "description": "A lead or prospective tenant in the presales phase.",
+        "fields": [
+          {
+            "name": "tenant_name",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "The name of the prospective tenant."
+          },
+          {
+            "name": "contact_person",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Primary contact for the presale."
+          },
+          {
+            "name": "contact_email",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Email for the lead contact."
+          },
+          {
+            "name": "lead_status",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Current status of the presale lead (e.g., new, engaged, converted, lost)."
+          },
+          {
+            "name": "created_at",
+            "type_name": "timestamp",
+            "required": true,
+            "sensitive": false,
+            "description": "Record creation timestamp."
+          }
+        ]
+      },
+      {
+        "name": "fit_out_onboarding",
+        "description": "Tracks each tenant's fit-out onboarding process.",
+        "fields": [
+          {
+            "name": "tenant_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Reference to tenant."
+          },
+          {
+            "name": "onboarding_stage",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Current onboarding stage."
+          },
+          {
+            "name": "started_at",
+            "type_name": "timestamp",
+            "required": true,
+            "sensitive": false,
+            "description": "Onboarding start datetime."
+          },
+          {
+            "name": "completed_at",
+            "type_name": "timestamp",
+            "required": false,
+            "sensitive": false,
+            "description": "Onboarding completion datetime."
+          }
+        ]
+      },
+      {
+        "name": "approval_request",
+        "description": "Approval tasks as part of onboarding, fit-out, or other processes.",
+        "fields": [
+          {
+            "name": "request_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Unique approval identifier."
+          },
+          {
+            "name": "related_record_type",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Which record this approval relates to (e.g., 'fit_out_onboarding', 'document')."
+          },
+          {
+            "name": "related_record_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "The ID of the referenced record."
+          },
+          {
+            "name": "status",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Approval status (e.g., pending, approved, rejected)."
+          },
+          {
+            "name": "approver_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "User or role responsible for approval."
+          },
+          {
+            "name": "requested_at",
+            "type_name": "timestamp",
+            "required": true,
+            "sensitive": false,
+            "description": "Datetime approval was requested."
+          }
+        ]
+      },
+      {
+        "name": "document",
+        "description": "Stores tenant- and process-related documents.",
+        "fields": [
+          {
+            "name": "document_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Unique document identifier."
+          },
+          {
+            "name": "document_type",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Document type (e.g., contract, drawing, invoice)."
+          },
+          {
+            "name": "file_url",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Location of file storage."
+          },
+          {
+            "name": "owner_record_type",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Parent record (e.g., 'tenant_presale', 'fit_out_onboarding')."
+          },
+          {
+            "name": "owner_record_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "ID of the record this document belongs to."
+          },
+          {
+            "name": "uploaded_at",
+            "type_name": "timestamp",
+            "required": true,
+            "sensitive": false,
+            "description": "Timestamp of document upload."
+          }
+        ]
+      },
+      {
+        "name": "communication_log",
+        "description": "Logs communications among stakeholders.",
+        "fields": [
+          {
+            "name": "communication_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Unique communication log identifier."
+          },
+          {
+            "name": "related_record_type",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Related entity (tenant, approval, onboarding, etc.)."
+          },
+          {
+            "name": "related_record_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "ID of the referenced record."
+          },
+          {
+            "name": "direction",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "internal or external"
+          },
+          {
+            "name": "message",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Content of the message."
+          },
+          {
+            "name": "timestamp",
+            "type_name": "timestamp",
+            "required": true,
+            "sensitive": false,
+            "description": "Datetime communication was logged."
+          }
+        ]
+      },
+      {
+        "name": "milestone",
+        "description": "Major milestones in presales, onboarding, fit-out, or operational workflows.",
+        "fields": [
+          {
+            "name": "milestone_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Unique milestone identifier."
+          },
+          {
+            "name": "name",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Descriptive name of milestone."
+          },
+          {
+            "name": "description",
+            "type_name": "string",
+            "required": false,
+            "sensitive": false,
+            "description": "Milestone details."
+          },
+          {
+            "name": "target_date",
+            "type_name": "date",
+            "required": false,
+            "sensitive": false,
+            "description": "Milestone expected completion date."
+          },
+          {
+            "name": "achieved_date",
+            "type_name": "date",
+            "required": false,
+            "sensitive": false,
+            "description": "Actual completion date."
+          },
+          {
+            "name": "related_record_type",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Record type this milestone relates to."
+          },
+          {
+            "name": "related_record_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "ID of record this milestone is linked to."
+          }
+        ]
+      },
+      {
+        "name": "operational_task",
+        "description": "Tasks for ongoing operational coordination (handover, inspections, etc.).",
+        "fields": [
+          {
+            "name": "task_id",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Unique task identifier."
+          },
+          {
+            "name": "name",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Task name."
+          },
+          {
+            "name": "description",
+            "type_name": "string",
+            "required": false,
+            "sensitive": false,
+            "description": "Task details."
+          },
+          {
+            "name": "assigned_to",
+            "type_name": "string",
+            "required": false,
+            "sensitive": false,
+            "description": "Staff or role assigned."
+          },
+          {
+            "name": "status",
+            "type_name": "string",
+            "required": true,
+            "sensitive": false,
+            "description": "Task status (pending, in-progress, done, blocked, etc.)."
+          },
+          {
+            "name": "due_date",
+            "type_name": "date",
+            "required": false,
+            "sensitive": false,
+            "description": "Task due date."
+          },
+          {
+            "name": "created_at",
+            "type_name": "timestamp",
+            "required": true,
+            "sensitive": false,
+            "description": "Datetime task was created."
+          }
+        ]
+      }
+    ],
+    "relationships": [],
+    "actions": [
+      {
+        "name": "create_tenant_presale",
+        "description": "Add a new presale tenant lead to the system.",
+        "risk": "low"
+      },
+      {
+        "name": "update_fit_out_onboarding_stage",
+        "description": "Advance or update a tenant's fit-out onboarding stage.",
+        "risk": "medium"
+      },
+      {
+        "name": "submit_approval_request",
+        "description": "Initiate a process that requires approval.",
+        "risk": "medium"
+      },
+      {
+        "name": "upload_document",
+        "description": "Attach a document to any supported record.",
+        "risk": "low"
+      },
+      {
+        "name": "log_communication",
+        "description": "Record a communication entry related to a process or stakeholder.",
+        "risk": "low"
+      },
+      {
+        "name": "record_milestone",
+        "description": "Set or update a milestone for a process.",
+        "risk": "low"
+      },
+      {
+        "name": "create_operational_task",
+        "description": "Add operational or coordination tasks for staff or tenants.",
+        "risk": "medium"
+      }
+    ],
+    "events": [
+      {
+        "name": "presale_lead_created",
+        "description": "A new presale lead was added."
+      },
+      {
+        "name": "fit_out_onboarding_advanced",
+        "description": "A tenant's onboarding stage was changed."
+      },
+      {
+        "name": "approval_requested",
+        "description": "An approval for a process or document was submitted."
+      },
+      {
+        "name": "approval_resolved",
+        "description": "An approval was approved or rejected."
+      },
+      {
+        "name": "document_uploaded",
+        "description": "A document was added to a record."
+      },
+      {
+        "name": "communication_logged",
+        "description": "A communication event occurred."
+      },
+      {
+        "name": "milestone_achieved",
+        "description": "A milestone was reached for a process."
+      },
+      {
+        "name": "operational_task_completed",
+        "description": "An operational task was finished."
+      }
+    ],
+    "projections": [
+      {
+        "name": "tenant_journey_overview",
+        "description": "Show progress and state of each tenant from presales through fit-out and onboarding."
+      },
+      {
+        "name": "milestone_gantt_chart",
+        "description": "Timeline visualization of milestone targets and completions across all tenants/processes."
+      },
+      {
+        "name": "operational_task_dashboard",
+        "description": "Summary of all operational tasks, assignees, and statuses."
+      }
+    ],
+    "policies": [],
+    "approvals": [],
+    "migrations": [],
+    "provider_requirements": []
+  }
+}
