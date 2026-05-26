@@ -5,13 +5,20 @@ for Greentic Designer. It depends on `greentic-sorla-lib` rather than the
 `greentic-sorla` CLI package, so Designer uses the same normalization,
 validation, and preview paths as local tooling.
 
-The crate currently exposes a small JSON tool boundary because the
-`greentic-designer-sdk` WIT package is not present in this repository. When the
-SDK is available, this adapter boundary should be wired to the real
-DesignExtension exports instead of checking in divergent local WIT.
+The crate exposes a small JSON adapter matching the current
+`greentic-extension-sdk-*` `greentic:extension-design` WIT shape: tools are
+listed with JSON schemas and invoked by name with JSON arguments. The sibling
+SDK owns the canonical WIT and describe.json schema; this repo keeps a
+compatibility boundary instead of checking in divergent local WIT.
 
 The extension tools are:
 
+- `parse_sorla_yaml`
+- `generate_concept_view`
+- `apply_sorla_patch`
+- `propose_patch_from_instruction`
+- `validate_sorla_yaml`
+- `generate_gtpack_from_sorla_yaml`
 - `generate_model_from_prompt`
 - `validate_model`
 - `improve_model`

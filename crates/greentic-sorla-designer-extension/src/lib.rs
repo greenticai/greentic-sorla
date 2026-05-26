@@ -3,25 +3,46 @@ use greentic_sorla_lib::prompt::{
     PromptAuthoringEngine, PromptSessionConfig, PromptSessionState, PromptTurnInput,
 };
 use greentic_sorla_lib::{
-    DEFAULT_DESIGNER_COMPONENT_OPERATION, DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType,
-    DesignerNodeTypeOptions, NormalizeOptions, NormalizedSorlaModel, PackBuildOptions,
-    PreviewOptions, ValidateOptions, build_gtpack_entries, generate_preview,
+    ApplyPatchInput, ConceptViewInput, ConceptViewMode, DEFAULT_DESIGNER_COMPONENT_OPERATION,
+    DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypeOptions, NormalizeOptions,
+    NormalizedSorlaModel, PackBuildOptions, ParseSorlaInput, PreviewOptions, ProposePatchInput,
+    RendererCapabilities, ValidateOptions, apply_sorla_patch, build_gtpack_entries,
+    generate_concept_view, generate_preview,
     list_designer_node_types as list_designer_node_types_from_model, normalize_answers,
+    parse_sorla_yaml, propose_patch_from_instruction,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DesignerExtensionManifest {
-    pub schema: &'static str,
+    #[serde(rename = "apiVersion")]
+    pub api_version: &'static str,
+    pub kind: &'static str,
+    pub metadata: DesignerExtensionMetadata,
+    pub engine: serde_json::Value,
+    pub capabilities: serde_json::Value,
+    pub runtime: serde_json::Value,
+    pub contributions: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DesignerExtensionMetadata {
+    pub id: &'static str,
     pub name: &'static str,
-    pub tools: Vec<DesignerTool>,
+    pub version: &'static str,
+    pub summary: &'static str,
+    pub author: serde_json::Value,
+    pub license: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DesignerTool {
     pub name: &'static str,
     pub description: &'static str,
+    pub input_schema_json: String,
+    pub output_schema_json: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -118,51 +139,144 @@ pub struct GenerateFlowNodeRequest {
 
 pub fn extension_manifest() -> DesignerExtensionManifest {
     DesignerExtensionManifest {
-        schema: "greentic.designer.extension.adapter.v1",
-        name: "greentic-sorla",
-        tools: vec![
-            DesignerTool {
-                name: "generate_model_from_prompt",
-                description: "Generate a deterministic Sorla model draft from a prompt.",
-            },
-            DesignerTool {
-                name: "validate_model",
-                description: "Validate a Sorla model and return diagnostics plus preview.",
-            },
-            DesignerTool {
-                name: "improve_model",
-                description: "Apply deterministic improvements to a Sorla model draft.",
-            },
-            DesignerTool {
-                name: "explain_model",
-                description: "Explain the Sorla model as structured sections.",
-            },
-            DesignerTool {
-                name: "generate_gtpack",
-                description: "Generate deterministic Sorla .gtpack artifact metadata or pack entries.",
-            },
-            DesignerTool {
-                name: "start_prompt_session",
-                description: "Start an interactive prompt-to-answers authoring session.",
-            },
-            DesignerTool {
-                name: "continue_prompt_session",
-                description: "Advance an interactive prompt-to-answers authoring session.",
-            },
-            DesignerTool {
-                name: "generate_prompt_answers",
-                description: "Generate wizard answers JSON from a completed prompt session.",
-            },
-            DesignerTool {
-                name: "list_designer_node_types",
-                description: "List Designer node types generated from SoRLa agent endpoints.",
-            },
-            DesignerTool {
-                name: "generate_flow_node_from_node_type",
-                description: "Generate a generic flow node from a locked SoRLa Designer node type.",
-            },
-        ],
+        api_version: "greentic.ai/v1",
+        kind: "DesignExtension",
+        metadata: DesignerExtensionMetadata {
+            id: "greentic.sorla",
+            name: "SoRLa Designer",
+            version: env!("CARGO_PKG_VERSION"),
+            summary: "YAML-first SoRLa design, validation, concept-view, patch, and pack tools.",
+            author: serde_json::json!({ "name": "Greentic" }),
+            license: "MIT",
+        },
+        engine: serde_json::json!({
+            "greenticDesigner": ">=0.1",
+            "extRuntime": "^0.1"
+        }),
+        capabilities: serde_json::json!({
+            "offered": [
+                { "id": "greentic:sorla/design", "version": "1.0.0" },
+                { "id": "greentic:sorla/patch", "version": "1.0.0" }
+            ],
+            "required": []
+        }),
+        runtime: serde_json::json!({
+            "component": "greentic_sorla_designer_extension.wasm",
+            "permissions": {}
+        }),
+        contributions: serde_json::json!({
+            "schemas": [],
+            "nodeTypes": []
+        }),
     }
+}
+
+pub fn list_tools() -> Vec<DesignerTool> {
+    vec![
+        tool(
+            "parse_sorla_yaml",
+            "Parse sorla.yaml into a stable design model.",
+        ),
+        tool(
+            "generate_concept_view",
+            "Generate a presentation-neutral concept view from sorla.yaml.",
+        ),
+        tool(
+            "apply_sorla_patch",
+            "Apply a semantic patch to sorla.yaml and return diff plus refreshed view.",
+        ),
+        tool(
+            "propose_patch_from_instruction",
+            "Ask an LLM capability to propose a semantic SoRLa patch.",
+        ),
+        tool(
+            "validate_sorla_yaml",
+            "Validate sorla.yaml and return diagnostics.",
+        ),
+        tool(
+            "generate_gtpack_from_sorla_yaml",
+            "Plan deterministic .gtpack entries from sorla.yaml for host packaging.",
+        ),
+        tool(
+            "generate_model_from_prompt",
+            "Generate a deterministic Sorla model draft from a prompt.",
+        ),
+        tool(
+            "validate_model",
+            "Validate a Sorla model and return diagnostics plus preview.",
+        ),
+        tool(
+            "improve_model",
+            "Apply deterministic improvements to a Sorla model draft.",
+        ),
+        tool(
+            "explain_model",
+            "Explain the Sorla model as structured sections.",
+        ),
+        tool(
+            "generate_gtpack",
+            "Generate deterministic Sorla pack-entry metadata from a normalized model.",
+        ),
+        tool(
+            "start_prompt_session",
+            "Start an interactive prompt-to-answers authoring session.",
+        ),
+        tool(
+            "continue_prompt_session",
+            "Advance an interactive prompt-to-answers authoring session.",
+        ),
+        tool(
+            "generate_prompt_answers",
+            "Generate wizard answers JSON from a completed prompt session.",
+        ),
+        tool(
+            "list_designer_node_types",
+            "List Designer node types generated from SoRLa agent endpoints.",
+        ),
+        tool(
+            "generate_flow_node_from_node_type",
+            "Generate a generic flow node from a locked SoRLa Designer node type.",
+        ),
+    ]
+}
+
+fn tool(name: &'static str, description: &'static str) -> DesignerTool {
+    DesignerTool {
+        name,
+        description,
+        input_schema_json: serde_json::json!({
+            "type": "object",
+            "additionalProperties": true
+        })
+        .to_string(),
+        output_schema_json: None,
+    }
+}
+
+pub fn invoke_tool(name: &str, args_json: &str) -> Result<String, String> {
+    let input = serde_json::from_str(args_json).map_err(|err| err.to_string())?;
+    let output = match name {
+        "parse_sorla_yaml" => parse_sorla_yaml_tool(input),
+        "generate_concept_view" => generate_concept_view_tool(input),
+        "apply_sorla_patch" => apply_sorla_patch_tool(input),
+        "propose_patch_from_instruction" => propose_patch_from_instruction_tool(input),
+        "validate_sorla_yaml" => validate_sorla_yaml(input),
+        "generate_gtpack_from_sorla_yaml" => generate_gtpack_from_sorla_yaml(input),
+        "generate_model_from_prompt" => generate_model_from_prompt(input),
+        "validate_model" => validate_model(input),
+        "improve_model" => improve_model(input),
+        "explain_model" => explain_model(input),
+        "generate_gtpack" => generate_gtpack(input),
+        "start_prompt_session" => start_prompt_session(input),
+        "continue_prompt_session" => continue_prompt_session(input),
+        "generate_prompt_answers" => generate_prompt_answers(input),
+        "list_designer_node_types" => list_designer_node_types(input),
+        "generate_flow_node_from_node_type" => generate_flow_node_from_node_type(input),
+        other => {
+            return Err(format!("unknown SoRLa Designer tool `{other}`"));
+        }
+    };
+    serde_json::to_string(&output).map_err(|err| err.to_string())
 }
 
 pub fn system_prompt_fragments() -> Vec<PromptFragment> {
@@ -294,6 +408,199 @@ pub fn suggest_entries(query: &str, limit: usize) -> Vec<KnowledgeEntry> {
         .collect()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ParseSorlaYamlRequest {
+    pub source_yaml: String,
+    #[serde(default)]
+    pub source_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct GenerateConceptViewRequest {
+    pub source_yaml: String,
+    #[serde(default = "default_concept_view_mode")]
+    pub mode: ConceptViewMode,
+    #[serde(default)]
+    pub renderer_capabilities: Option<RendererCapabilities>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct GenerateGtpackFromSorlaYamlRequest {
+    pub source_yaml: String,
+    pub pack_name: String,
+    pub pack_version: String,
+}
+
+pub fn parse_sorla_yaml_tool(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<ParseSorlaYamlRequest>(input) {
+        Ok(request) => request,
+        Err(err) => return yaml_tool_error("designer.input", err.to_string()),
+    };
+    match parse_sorla_yaml(ParseSorlaInput {
+        source_yaml: request.source_yaml,
+        source_path: request.source_path.map(PathBuf::from),
+    }) {
+        Ok(output) => serde_json::json!({
+            "model": output.model,
+            "diagnostics": output.diagnostics,
+            "source_hash": output.model.source.hash
+        }),
+        Err(err) => yaml_tool_error("sorla.parse", err),
+    }
+}
+
+pub fn generate_concept_view_tool(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<GenerateConceptViewRequest>(input) {
+        Ok(request) => request,
+        Err(err) => return yaml_tool_error("designer.input", err.to_string()),
+    };
+    let parsed = match parse_sorla_yaml(ParseSorlaInput {
+        source_yaml: request.source_yaml,
+        source_path: None,
+    }) {
+        Ok(parsed) => parsed,
+        Err(err) => return yaml_tool_error("sorla.parse", err),
+    };
+    match generate_concept_view(ConceptViewInput {
+        model: parsed.model,
+        mode: request.mode,
+        renderer_capabilities: request.renderer_capabilities,
+    }) {
+        Ok(output) => serde_json::json!({
+            "concept_view": output.view,
+            "diagnostics": parsed.diagnostics
+        }),
+        Err(err) => yaml_tool_error("sorla.concept_view", err),
+    }
+}
+
+pub fn apply_sorla_patch_tool(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<ApplyPatchInput>(input) {
+        Ok(request) => request,
+        Err(err) => return yaml_tool_error("designer.input", err.to_string()),
+    };
+    match apply_sorla_patch(request) {
+        Ok(output) => serde_json::json!({
+            "status": output.status,
+            "updated_yaml": output.updated_yaml,
+            "old_hash": output.old_hash,
+            "new_hash": output.new_hash,
+            "diagnostics": output.diagnostics,
+            "concept_diff": output.diff,
+            "concept_view": output.view
+        }),
+        Err(err) => yaml_tool_error("sorla.patch", err),
+    }
+}
+
+pub fn propose_patch_from_instruction_tool(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<ProposePatchInput>(input) {
+        Ok(request) => request,
+        Err(err) => return yaml_tool_error("designer.input", err.to_string()),
+    };
+    match propose_patch_from_instruction(request, &DesignerPromptLlm) {
+        Ok(output) => serde_json::json!({
+            "patch_proposal": output.patch,
+            "explanation": output.explanation,
+            "risks": output.risks,
+            "preview_diff": output.preview_diff
+        }),
+        Err(err) => yaml_tool_error("sorla.patch.proposal", err),
+    }
+}
+
+pub fn validate_sorla_yaml(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<ParseSorlaYamlRequest>(input) {
+        Ok(request) => request,
+        Err(err) => return yaml_tool_error("designer.input", err.to_string()),
+    };
+    let output = parse_sorla_yaml_tool(serde_json::json!({
+        "source_yaml": request.source_yaml,
+        "source_path": request.source_path
+    }));
+    let diagnostics = output
+        .get("diagnostics")
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+    let valid = diagnostics.as_array().is_some_and(|items| {
+        items
+            .iter()
+            .all(|item| item.get("severity").and_then(|value| value.as_str()) != Some("error"))
+    });
+    serde_json::json!({
+        "valid": valid,
+        "diagnostics": diagnostics
+    })
+}
+
+pub fn validate_content(content_type: &str, content_json: &str) -> serde_json::Value {
+    let parsed = match serde_json::from_str::<serde_json::Value>(content_json) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return serde_json::json!({
+                "valid": false,
+                "diagnostics": [diagnostic_json("designer.content.invalid_json", err.to_string())]
+            });
+        }
+    };
+    match content_type {
+        "application/vnd.greentic.sorla.yaml+json" | "greentic.sorla.yaml" | "sorla.yaml" => {
+            validate_sorla_yaml(parsed)
+        }
+        other => serde_json::json!({
+            "valid": false,
+            "diagnostics": [diagnostic_json(
+                "designer.content.unsupported",
+                format!("unsupported content type `{other}`")
+            )]
+        }),
+    }
+}
+
+pub fn generate_gtpack_from_sorla_yaml(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<GenerateGtpackFromSorlaYamlRequest>(input) {
+        Ok(request) => request,
+        Err(err) => return artifact_error("designer.input", err.to_string()),
+    };
+    let parsed = match parse_sorla_yaml(ParseSorlaInput {
+        source_yaml: request.source_yaml.clone(),
+        source_path: None,
+    }) {
+        Ok(parsed) => parsed,
+        Err(err) => return artifact_error("sorla.parse", err),
+    };
+    let package = parsed.model.package.clone();
+    let model = NormalizedSorlaModel {
+        package_name: package
+            .as_ref()
+            .map(|package| package.name.clone())
+            .unwrap_or_else(|| request.pack_name.clone()),
+        package_version: package
+            .as_ref()
+            .map(|package| package.version.clone())
+            .unwrap_or_else(|| request.pack_version.clone()),
+        locale: "en".to_string(),
+        source_yaml: request.source_yaml,
+        normalized_answers: serde_json::Value::Null,
+    };
+    let entries = match build_gtpack_entries(
+        &model,
+        PackBuildOptions {
+            name: Some(request.pack_name.clone()),
+            version: Some(request.pack_version.clone()),
+        },
+    ) {
+        Ok(entries) => entries,
+        Err(err) => return artifact_error("sorla.gtpack.entries", err),
+    };
+    pack_entries_output(
+        request.pack_name,
+        request.pack_version,
+        entries,
+        parsed.diagnostics,
+    )
+}
+
 pub fn generate_model_from_prompt(input: serde_json::Value) -> serde_json::Value {
     let request = match serde_json::from_value::<GenerateModelRequest>(input) {
         Ok(request) => request,
@@ -398,7 +705,10 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
     let report = greentic_sorla_lib::validate_model(&request.model, ValidateOptions);
     if report.has_errors() {
         return serde_json::json!({
-            "artifacts": [],
+            "schema": "greentic.sorla.gtpack-plan.v1",
+            "pack_id": request.package.name,
+            "pack_version": request.package.version,
+            "pack_entries": [],
             "diagnostics": report.diagnostics,
             "preview_json": null
         });
@@ -414,61 +724,35 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
         Ok(entries) => entries,
         Err(err) => return artifact_error("sorla.gtpack.entries", err),
     };
-    let entry_metadata = entries
-        .iter()
-        .map(|entry| {
-            serde_json::json!({
-                "path": entry.path,
-                "sha256": entry.sha256,
-                "size": entry.bytes.len()
-            })
-        })
-        .collect::<Vec<_>>();
     let empty = Vec::new();
-    let records = preview
-        .as_ref()
-        .map(|preview| preview.summary.records)
-        .unwrap_or(0);
-    let agent_endpoints = preview
-        .as_ref()
-        .map(|preview| preview.summary.agent_endpoints)
-        .unwrap_or(0);
-    serde_json::json!({
-        "artifacts": [{
-            "kind": "gtpack",
-            "filename": format!("{}.gtpack", request.package.name),
-            "media_type": "application/vnd.greentic.gtpack",
-            "sha256": null,
-            "bytes_base64": null,
-            "metadata_json": {
-                "schema": "greentic.sorla.generated-artifact.v1",
-                "pack_id": request.package.name,
-                "pack_version": request.package.version,
-                "records": records,
-                "concepts": 0,
-                "relationships": 0,
-                "agent_endpoints": agent_endpoints,
-                "pack_entries": entry_metadata
-            }
-        }],
-        "diagnostics": [{
-            "severity": "warning",
-            "code": "sorla.gtpack.host_packaging_required",
-            "message": "WASM extension returned deterministic pack entries; host/native packaging must produce ZIP bytes.",
-            "path": null,
-            "suggestion": "Package the returned entries with the native greentic-sorla-lib pack-zip feature when .gtpack bytes are required."
-        }],
-        "preview_json": if request.options.include_designer_preview {
-            serde_json::to_value(preview).unwrap_or(serde_json::Value::Null)
-        } else {
-            serde_json::Value::Null
-        },
-        "validation_json": if request.options.include_validation_metadata {
-            serde_json::to_value(&report.diagnostics).unwrap_or(serde_json::Value::Array(empty))
-        } else {
-            serde_json::Value::Null
-        }
-    })
+    let mut output = pack_entries_output(
+        request.package.name,
+        request.package.version,
+        entries,
+        report.diagnostics,
+    );
+    if let Some(object) = output.as_object_mut() {
+        object.insert(
+            "preview_json".to_string(),
+            if request.options.include_designer_preview {
+                serde_json::to_value(preview).unwrap_or(serde_json::Value::Null)
+            } else {
+                serde_json::Value::Null
+            },
+        );
+        object.insert(
+            "validation_json".to_string(),
+            if request.options.include_validation_metadata {
+                object
+                    .get("diagnostics")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Array(empty))
+            } else {
+                serde_json::Value::Null
+            },
+        );
+    }
+    output
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -563,10 +847,34 @@ pub fn generate_prompt_answers(input: serde_json::Value) -> serde_json::Value {
 struct DesignerPromptLlm;
 
 impl LlmCapability for DesignerPromptLlm {
-    fn complete(
-        &self,
-        _request: LlmRequest,
-    ) -> Result<LlmResponse, greentic_sorla_lib::SorlaError> {
+    fn complete(&self, request: LlmRequest) -> Result<LlmResponse, greentic_sorla_lib::SorlaError> {
+        if request.system_prompt.contains("semantic patches") {
+            return Ok(LlmResponse {
+                content: serde_json::json!({
+                    "patch": {
+                        "schema": "greentic.sorla.patch.v1",
+                        "source": {
+                            "kind": "sorla-yaml",
+                            "path": null,
+                            "base_hash": ""
+                        },
+                        "author": null,
+                        "intent": "LLM-assisted patch proposal",
+                        "operations": [{
+                            "op": "add_field",
+                            "record": "property",
+                            "field": {
+                                "name": "postcode",
+                                "type": "string",
+                                "required": false
+                            }
+                        }]
+                    },
+                    "explanation": "Adds a postcode field to the property record."
+                })
+                .to_string(),
+            });
+        }
         Ok(LlmResponse {
             content: "{}".to_string(),
         })
@@ -793,9 +1101,15 @@ fn flow_node_error(code: &str, message: impl Into<String>) -> serde_json::Value 
     })
 }
 
+fn yaml_tool_error(code: &str, message: impl Into<String>) -> serde_json::Value {
+    serde_json::json!({
+        "diagnostics": [diagnostic_json(code, message)],
+    })
+}
+
 fn artifact_error(code: &str, message: impl Into<String>) -> serde_json::Value {
     serde_json::json!({
-        "artifacts": [],
+        "pack_entries": [],
         "diagnostics": [{
             "severity": "error",
             "code": code,
@@ -804,6 +1118,48 @@ fn artifact_error(code: &str, message: impl Into<String>) -> serde_json::Value {
             "suggestion": null
         }],
         "preview_json": null
+    })
+}
+
+fn pack_entries_output(
+    pack_id: String,
+    pack_version: String,
+    entries: Vec<greentic_sorla_lib::PackEntry>,
+    mut diagnostics: Vec<greentic_sorla_lib::SorlaDiagnostic>,
+) -> serde_json::Value {
+    diagnostics.push(greentic_sorla_lib::SorlaDiagnostic {
+        severity: greentic_sorla_lib::DiagnosticSeverity::Warning,
+        code: "sorla.gtpack.host_packaging_required".to_string(),
+        message: "WASM extension returned deterministic pack entries; host/native packaging must produce ZIP bytes.".to_string(),
+        path: None,
+        suggestion: Some("Package the returned entries with the native greentic-sorla-lib pack-zip feature when .gtpack bytes are required.".to_string()),
+    });
+    let pack_entries = entries
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "path": entry.path,
+                "sha256": entry.sha256,
+                "size": entry.bytes.len()
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "schema": "greentic.sorla.gtpack-plan.v1",
+        "pack_id": pack_id,
+        "pack_version": pack_version,
+        "pack_entries": pack_entries,
+        "diagnostics": diagnostics
+    })
+}
+
+fn diagnostic_json(code: &str, message: impl Into<String>) -> serde_json::Value {
+    serde_json::json!({
+        "severity": "error",
+        "code": code,
+        "message": message.into(),
+        "path": null,
+        "suggestion": null
     })
 }
 
@@ -992,20 +1348,32 @@ fn default_operation() -> String {
     DEFAULT_DESIGNER_COMPONENT_OPERATION.to_string()
 }
 
+fn default_concept_view_mode() -> ConceptViewMode {
+    ConceptViewMode::Designer
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn manifest_exports_expected_tools() {
-        let tools = extension_manifest()
-            .tools
+        let manifest = extension_manifest();
+        assert_eq!(manifest.api_version, "greentic.ai/v1");
+        assert_eq!(manifest.kind, "DesignExtension");
+        let tools = list_tools()
             .into_iter()
             .map(|tool| tool.name)
             .collect::<Vec<_>>();
         assert_eq!(
             tools,
             vec![
+                "parse_sorla_yaml",
+                "generate_concept_view",
+                "apply_sorla_patch",
+                "propose_patch_from_instruction",
+                "validate_sorla_yaml",
+                "generate_gtpack_from_sorla_yaml",
                 "generate_model_from_prompt",
                 "validate_model",
                 "improve_model",
@@ -1018,6 +1386,104 @@ mod tests {
                 "generate_flow_node_from_node_type"
             ]
         );
+    }
+
+    #[test]
+    fn yaml_first_tools_parse_view_validate_patch_and_dispatch() {
+        let source_yaml = r#"
+package:
+  name: designer-yaml-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+        .trim_start();
+        let parsed = parse_sorla_yaml_tool(serde_json::json!({
+            "source_yaml": source_yaml,
+            "source_path": "sorla.yaml"
+        }));
+        assert_eq!(parsed["diagnostics"].as_array().unwrap().len(), 0);
+        assert!(
+            parsed["source_hash"]
+                .as_str()
+                .unwrap()
+                .starts_with("sha256:")
+        );
+
+        let viewed = generate_concept_view_tool(serde_json::json!({
+            "source_yaml": source_yaml,
+            "mode": "designer",
+            "renderer_capabilities": {
+                "cards": true,
+                "tables": true,
+                "graphs": true,
+                "forms": true,
+                "charts": false,
+                "cli_tables": false
+            }
+        }));
+        assert_eq!(
+            viewed["concept_view"]["schema"],
+            "greentic.sorla.concept-view.v1"
+        );
+
+        let valid = validate_content(
+            "sorla.yaml",
+            &serde_json::json!({ "source_yaml": source_yaml }).to_string(),
+        );
+        assert_eq!(valid["valid"], true);
+
+        let patched = apply_sorla_patch_tool(serde_json::json!({
+            "source_yaml": source_yaml,
+            "patch": {
+                "schema": "greentic.sorla.patch.v1",
+                "source": {
+                    "kind": "sorla-yaml",
+                    "path": "sorla.yaml",
+                    "base_hash": parsed["source_hash"]
+                },
+                "author": null,
+                "intent": "add postcode",
+                "operations": [{
+                    "op": "add_field",
+                    "record": "property",
+                    "field": {
+                        "name": "postcode",
+                        "type": "string",
+                        "required": false
+                    }
+                }]
+            }
+        }));
+        assert_eq!(patched["status"], "applied");
+        assert!(
+            patched["updated_yaml"]
+                .as_str()
+                .unwrap()
+                .contains("postcode")
+        );
+
+        let proposed = propose_patch_from_instruction_tool(serde_json::json!({
+            "source_yaml": source_yaml,
+            "instruction": "Add postcode to the property record"
+        }));
+        assert_eq!(
+            proposed["patch_proposal"]["operations"][0]["op"],
+            "add_field"
+        );
+        assert_eq!(proposed["preview_diff"]["changes"][0]["kind"], "added");
+
+        let dispatched = invoke_tool(
+            "generate_concept_view",
+            &serde_json::json!({ "source_yaml": source_yaml }).to_string(),
+        )
+        .expect("tool dispatches");
+        assert!(dispatched.contains("concept_view"));
     }
 
     #[test]
@@ -1171,15 +1637,8 @@ mod tests {
                 "version": "0.1.0"
             }
         }));
-        assert_eq!(artifact["artifacts"][0]["kind"], "gtpack");
-        assert_eq!(
-            artifact["artifacts"][0]["metadata_json"]["schema"],
-            "greentic.sorla.generated-artifact.v1"
-        );
-        assert_eq!(
-            artifact["artifacts"][0]["bytes_base64"],
-            serde_json::Value::Null
-        );
+        assert_eq!(artifact["schema"], "greentic.sorla.gtpack-plan.v1");
+        assert!(artifact["pack_entries"].as_array().unwrap().len() > 5);
         assert_eq!(
             artifact["diagnostics"][0]["code"],
             "sorla.gtpack.host_packaging_required"
@@ -1374,7 +1833,7 @@ mod tests {
                 "version": "0.1.0"
             }
         }));
-        assert_eq!(artifact["artifacts"].as_array().unwrap().len(), 0);
+        assert_eq!(artifact["pack_entries"].as_array().unwrap().len(), 0);
         assert_eq!(artifact["diagnostics"][0]["severity"], "error");
     }
 }

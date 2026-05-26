@@ -45,6 +45,8 @@ pub struct Package {
     pub flows: Vec<NamedBlock>,
     #[serde(default)]
     pub projections: Vec<ProjectionDecl>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub metrics: Vec<MetricDecl>,
     #[serde(default)]
     pub migrations: Vec<MigrationDecl>,
     #[serde(default)]
@@ -548,6 +550,84 @@ pub enum ProjectionMode {
     #[default]
     CurrentState,
     AuditTrail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricDecl {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub source: Option<MetricSource>,
+    #[serde(default)]
+    pub measure: Option<MetricMeasure>,
+    #[serde(default)]
+    pub filters: Vec<MetricFilter>,
+    #[serde(default)]
+    pub time: Option<MetricTime>,
+    #[serde(default)]
+    pub window: Option<MetricWindow>,
+    #[serde(default)]
+    pub unit: Option<String>,
+    #[serde(default)]
+    pub dimensions: Vec<String>,
+    #[serde(default)]
+    pub formula: Option<String>,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub target: Option<MetricTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricSource {
+    pub kind: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricMeasure {
+    pub aggregate: String,
+    #[serde(default)]
+    pub field: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricFilter {
+    pub field: String,
+    pub operator: String,
+    #[serde(default)]
+    pub value: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricTime {
+    pub field: String,
+    pub grain: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricWindow {
+    pub mode: String,
+    pub size: u32,
+    pub unit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricTarget {
+    pub operator: String,
+    pub value: serde_json::Value,
+    #[serde(default)]
+    pub unit: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

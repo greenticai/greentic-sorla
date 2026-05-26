@@ -71,6 +71,9 @@ pub const OPERATIONAL_INDEXES_FILENAME: &str = "operational-indexes.json";
 pub const OPERATIONAL_INDEXES_IR_CBOR_FILENAME: &str = "operational-indexes.ir.cbor";
 pub const OPERATIONAL_INDEXES_PATH: &str = "assets/sorla/operational-indexes.json";
 pub const OPERATIONAL_INDEXES_IR_CBOR_PATH: &str = "assets/sorla/operational-indexes.ir.cbor";
+pub const METRICS_SCHEMA: &str = "greentic.sorla.metrics.v1";
+pub const METRICS_FILENAME: &str = "metrics.json";
+pub const METRICS_PATH: &str = "assets/sorla/metrics.json";
 pub const DESIGNER_NODE_TYPES_SCHEMA: &str = "greentic.sorla.designer-node-types.v1";
 pub const DESIGNER_NODE_TYPES_FILENAME: &str = "designer-node-types.json";
 pub const DESIGNER_NODE_TYPES_PATH: &str = "assets/sorla/designer-node-types.json";
@@ -80,8 +83,30 @@ pub const AGENT_ENDPOINT_ACTION_CATALOG_FILENAME: &str = "agent-endpoint-action-
 pub const AGENT_ENDPOINT_ACTION_CATALOG_PATH: &str =
     "assets/sorla/agent-endpoint-action-catalog.json";
 pub const DEFAULT_DESIGNER_COMPONENT_REF: &str =
-    "oci://ghcr.io/greenticai/components/component-sorx-business:0.1.0";
+    "oci://ghcr.io/greenticai/components/component-sorx-business:stable";
 pub const DEFAULT_DESIGNER_COMPONENT_OPERATION: &str = "invoke_locked_action";
+pub const GREENTIC_STACK_PACK_SCHEMA: &str = "greentic.stack-pack.v1";
+pub const GREENTIC_CAPABILITY_SECTION_SCHEMA_VERSION: u32 = 1;
+pub const GREENTIC_STACK_PACK_PATH: &str = "assets/greentic/stack-pack.json";
+pub const GREENTIC_CAPABILITIES_PATH: &str = "assets/greentic/capabilities.json";
+pub const GREENTIC_ROUTES_PATH: &str = "assets/greentic/routes.json";
+pub const GREENTIC_SETUP_SCHEMA_PATH: &str = "assets/greentic/setup.schema.json";
+pub const GREENTIC_CALL_REQUEST_SCHEMA_PATH: &str = "assets/greentic/call.request.schema.json";
+pub const GREENTIC_CALL_RESPONSE_SCHEMA_PATH: &str = "assets/greentic/call.response.schema.json";
+pub const GREENTIC_ARTIFACTS_PATH: &str = "assets/greentic/artifacts.json";
+pub const GREENTIC_ADMIN_SURFACES_PATH: &str = "assets/greentic/admin-surfaces.json";
+pub const GREENTIC_SECRET_REQUIREMENTS_PATH: &str = "assets/secret-requirements.json";
+pub const CAP_STACK_APPLICATION_V1: &str = "cap://greentic/stack/application/v1";
+pub const CAP_RUNTIME_HOST_V1: &str = "cap://greentic/runtime/host/v1";
+pub const CAP_SECRETS_V1: &str = "cap://greentic/secrets/v1";
+pub const CAP_TELEMETRY_V1: &str = "cap://greentic/telemetry/v1";
+pub const CAP_EXTENSION_CONTROL_V1: &str = "cap://greentic/extension/control/v1";
+pub const CAP_EXTENSION_OBSERVER_V1: &str = "cap://greentic/extension/observer/v1";
+pub const CAP_EXTENSION_ADMIN_V1: &str = "cap://greentic/extension/admin/v1";
+pub const CONTRACT_STACK_INVOKE_V1: &str = "greentic.stack.invoke.v1";
+pub const CONTRACT_STACK_ROUTES_V1: &str = "greentic.stack.routes.v1";
+pub const CONTRACT_RUNTIME_INVOKE_V1: &str = "greentic.runtime.invoke.v1";
+pub const CONTRACT_RUNTIME_TRAFFIC_V1: &str = "greentic.runtime.traffic.v1";
 pub const SORX_RUNTIME_EXTENSION_ID: &str = "greentic.sorx.runtime.v1";
 pub const START_SCHEMA_FILENAME: &str = "start.schema.json";
 pub const START_QUESTIONS_FILENAME: &str = "start.questions.cbor";
@@ -100,6 +125,10 @@ pub const SORX_VALIDATION_SUITE_CBOR_PATH: &str = "assets/sorx/validation-suite.
 const SORX_VALIDATION_SUITE_CBOR_ASSET: &str = "validation-suite.cbor";
 
 const STABLE_PACK_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct HandoffManifest {
@@ -135,6 +164,7 @@ pub struct ArtifactSet {
     pub executable_contract_json: String,
     pub designer_node_types_json: String,
     pub agent_endpoint_action_catalog_json: String,
+    pub metrics_json: Option<String>,
     pub ontology_artifacts: Option<OntologyArtifactSet>,
     pub canonical_hash: String,
 }
@@ -277,9 +307,13 @@ pub struct SorlaGtpackInspection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operational_indexes: Option<SorlaGtpackOperationalIndexesInspection>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<SorlaGtpackMetricsInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub designer_node_types: Option<SorlaGtpackDesignerNodeTypesInspection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_endpoint_action_catalog: Option<SorlaGtpackAgentEndpointActionCatalogInspection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_pack: Option<SorlaGtpackStackPackInspection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -330,6 +364,27 @@ pub struct SorlaGtpackOperationalIndexesInspection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackMetricsInspection {
+    pub schema: String,
+    pub count: usize,
+    pub names: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetricsArtifactDocument {
+    pub schema: String,
+    pub package: MetricsArtifactPackage,
+    pub metrics: Vec<greentic_sorla_ir::MetricIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetricsArtifactPackage {
+    pub name: String,
+    pub version: String,
+    pub ir_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SorlaGtpackDesignerNodeTypesInspection {
     pub schema: String,
     pub count: usize,
@@ -339,6 +394,84 @@ pub struct SorlaGtpackDesignerNodeTypesInspection {
 pub struct SorlaGtpackAgentEndpointActionCatalogInspection {
     pub schema: String,
     pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SorlaGtpackStackPackInspection {
+    pub schema: String,
+    pub stack_id: String,
+    pub stack_kind: String,
+    pub stack_version: String,
+    pub offer_count: usize,
+    pub requirement_count: usize,
+    pub route_count: usize,
+    pub required_secret_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GreenticStackPackDocument {
+    schema: String,
+    stack: GreenticStackIdentity,
+    offers: Vec<GreenticCapabilityOffer>,
+    requires: Vec<GreenticCapabilityRequirement>,
+    routes: Vec<GreenticStackRoute>,
+    setup: GreenticStackSetup,
+    metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GreenticStackIdentity {
+    id: String,
+    kind: String,
+    version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GreenticCapabilityOffer {
+    id: String,
+    capability: String,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GreenticCapabilityRequirement {
+    id: String,
+    capability: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    optional: bool,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GreenticStackRoute {
+    id: String,
+    method: String,
+    path: String,
+    contract: String,
+    request_schema_ref: String,
+    response_schema_ref: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GreenticStackSetup {
+    schema_ref: String,
+    secret_requirements_ref: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GreenticPackCapabilitySection {
+    schema_version: u32,
+    declaration: GreenticCapabilityDeclaration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GreenticCapabilityDeclaration {
+    offers: Vec<GreenticCapabilityOffer>,
+    requires: Vec<GreenticCapabilityRequirement>,
+    consumes: Vec<serde_json::Value>,
+    profiles: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -629,6 +762,11 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
             .artifact_references
             .push(OPERATIONAL_INDEXES_IR_CBOR_FILENAME.to_string());
     }
+    if !ir.metrics.is_empty() {
+        package_manifest
+            .artifact_references
+            .push(METRICS_FILENAME.to_string());
+    }
     let designer_node_types =
         generate_designer_node_types_from_ir(&ir, &DesignerNodeTypeGenerationOptions::default())?;
     let designer_node_types_json =
@@ -705,6 +843,11 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
     let agent_tools = agent_tools_json(&ir);
     let executable_contract = executable_contract_json(&ir);
     let canonical_hash = canonical_hash_hex(&ir);
+    let metrics_json = if ir.metrics.is_empty() {
+        None
+    } else {
+        Some(metrics_artifact_json(&ir, &canonical_hash)?)
+    };
 
     Ok(ArtifactSet {
         ir,
@@ -716,9 +859,23 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
         executable_contract_json: executable_contract,
         designer_node_types_json,
         agent_endpoint_action_catalog_json,
+        metrics_json,
         ontology_artifacts,
         canonical_hash,
     })
+}
+
+fn metrics_artifact_json(ir: &CanonicalIr, ir_hash: &str) -> Result<String, String> {
+    let document = MetricsArtifactDocument {
+        schema: METRICS_SCHEMA.to_string(),
+        package: MetricsArtifactPackage {
+            name: ir.package.name.clone(),
+            version: ir.package.version.clone(),
+            ir_hash: ir_hash.to_string(),
+        },
+        metrics: ir.metrics.clone(),
+    };
+    serde_json::to_string_pretty(&document).map_err(|err| err.to_string())
 }
 
 pub fn generate_designer_node_types_from_ir(
@@ -1136,6 +1293,20 @@ fn build_sorla_gtpack_from_artifacts(
         SORX_COMPATIBILITY_ASSET.to_string(),
         serde_json::to_vec_pretty(&compatibility_manifest).map_err(|err| err.to_string())?,
     );
+    let stack_pack = greentic_stack_pack_document(options, &artifacts);
+    validate_greentic_stack_pack_document(&stack_pack)?;
+    let capabilities = greentic_capability_section(&stack_pack);
+    validate_greentic_capability_section(&capabilities)?;
+    let routes = serde_json::json!({
+        "schema": "greentic.stack.routes.v1",
+        "routes": stack_pack.routes.clone(),
+    });
+    let setup_schema = greentic_setup_schema(&artifacts.ir);
+    let call_request_schema = greentic_call_request_schema();
+    let call_response_schema = greentic_call_response_schema();
+    let greentic_artifacts = greentic_artifacts_document(&artifacts);
+    let greentic_admin_surfaces = greentic_admin_surfaces_document(&artifacts);
+    let secret_requirements = greentic_secret_requirements();
     let extension = sorx_runtime_extension_value(&artifacts, &sorx_assets);
 
     let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
@@ -1178,6 +1349,14 @@ fn build_sorla_gtpack_from_artifacts(
             &mut asset_paths,
             OPERATIONAL_INDEXES_PATH.to_string(),
             serde_json::to_vec_pretty(indexes).map_err(|err| err.to_string())?,
+        );
+    }
+    if let Some(metrics_json) = &artifacts.metrics_json {
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            METRICS_PATH.to_string(),
+            metrics_json.as_bytes().to_vec(),
         );
     }
 
@@ -1256,8 +1435,76 @@ fn build_sorla_gtpack_from_artifacts(
         );
     }
 
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_STACK_PACK_PATH.to_string(),
+        serde_json::to_vec_pretty(&stack_pack).map_err(|err| err.to_string())?,
+    );
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_CAPABILITIES_PATH.to_string(),
+        serde_json::to_vec_pretty(&capabilities).map_err(|err| err.to_string())?,
+    );
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_ROUTES_PATH.to_string(),
+        serde_json::to_vec_pretty(&routes).map_err(|err| err.to_string())?,
+    );
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_SETUP_SCHEMA_PATH.to_string(),
+        serde_json::to_vec_pretty(&setup_schema).map_err(|err| err.to_string())?,
+    );
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_CALL_REQUEST_SCHEMA_PATH.to_string(),
+        serde_json::to_vec_pretty(&call_request_schema).map_err(|err| err.to_string())?,
+    );
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_CALL_RESPONSE_SCHEMA_PATH.to_string(),
+        serde_json::to_vec_pretty(&call_response_schema).map_err(|err| err.to_string())?,
+    );
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_ARTIFACTS_PATH.to_string(),
+        serde_json::to_vec_pretty(&greentic_artifacts).map_err(|err| err.to_string())?,
+    );
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_ADMIN_SURFACES_PATH.to_string(),
+        serde_json::to_vec_pretty(&greentic_admin_surfaces).map_err(|err| err.to_string())?,
+    );
+    insert_pack_asset(
+        &mut entries,
+        &mut asset_paths,
+        GREENTIC_SECRET_REQUIREMENTS_PATH.to_string(),
+        serde_json::to_vec_pretty(&secret_requirements).map_err(|err| err.to_string())?,
+    );
+
     asset_paths.sort();
     asset_paths.dedup();
+
+    let mut extension = extension;
+    extension["greentic"] = serde_json::json!({
+        "stack_pack": GREENTIC_STACK_PACK_PATH,
+        "capabilities": GREENTIC_CAPABILITIES_PATH,
+        "routes": GREENTIC_ROUTES_PATH,
+        "setup_schema": GREENTIC_SETUP_SCHEMA_PATH,
+        "call_request_schema": GREENTIC_CALL_REQUEST_SCHEMA_PATH,
+        "call_response_schema": GREENTIC_CALL_RESPONSE_SCHEMA_PATH,
+        "artifacts": GREENTIC_ARTIFACTS_PATH,
+        "admin_surfaces": GREENTIC_ADMIN_SURFACES_PATH,
+        "secret_requirements": GREENTIC_SECRET_REQUIREMENTS_PATH,
+    });
 
     let manifest = SorlaPackManifest {
         schema: "greentic.gtpack.manifest.sorla.v1".to_string(),
@@ -1295,6 +1542,299 @@ fn build_sorla_gtpack_from_artifacts(
         manifest_hash_sha256: sha256_hex(&pack_cbor),
         assets: asset_paths,
     })
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_stack_pack_document(
+    options: &SorlaGtpackOptions,
+    artifacts: &ArtifactSet,
+) -> GreenticStackPackDocument {
+    let route_ids = vec!["main".to_string()];
+    GreenticStackPackDocument {
+        schema: GREENTIC_STACK_PACK_SCHEMA.to_string(),
+        stack: GreenticStackIdentity {
+            id: options.name.clone(),
+            kind: "application-stack".to_string(),
+            version: options.version.clone(),
+        },
+        offers: vec![GreenticCapabilityOffer {
+            id: "offer.stack.application".to_string(),
+            capability: CAP_STACK_APPLICATION_V1.to_string(),
+            metadata: serde_json::json!({
+                "contracts": [
+                    CONTRACT_STACK_INVOKE_V1,
+                    CONTRACT_STACK_ROUTES_V1,
+                ],
+                "routes": route_ids,
+            }),
+        }],
+        requires: vec![
+            GreenticCapabilityRequirement {
+                id: "require.runtime.host".to_string(),
+                capability: CAP_RUNTIME_HOST_V1.to_string(),
+                optional: false,
+                metadata: serde_json::json!({
+                    "contracts": [
+                        CONTRACT_RUNTIME_INVOKE_V1,
+                        CONTRACT_RUNTIME_TRAFFIC_V1,
+                    ],
+                }),
+            },
+            GreenticCapabilityRequirement {
+                id: "require.secrets".to_string(),
+                capability: CAP_SECRETS_V1.to_string(),
+                optional: false,
+                metadata: serde_json::Value::Null,
+            },
+            GreenticCapabilityRequirement {
+                id: "require.telemetry".to_string(),
+                capability: CAP_TELEMETRY_V1.to_string(),
+                optional: true,
+                metadata: serde_json::Value::Null,
+            },
+            GreenticCapabilityRequirement {
+                id: "require.extension.control".to_string(),
+                capability: CAP_EXTENSION_CONTROL_V1.to_string(),
+                optional: true,
+                metadata: serde_json::Value::Null,
+            },
+            GreenticCapabilityRequirement {
+                id: "require.extension.observer".to_string(),
+                capability: CAP_EXTENSION_OBSERVER_V1.to_string(),
+                optional: true,
+                metadata: serde_json::Value::Null,
+            },
+            GreenticCapabilityRequirement {
+                id: "require.extension.admin".to_string(),
+                capability: CAP_EXTENSION_ADMIN_V1.to_string(),
+                optional: true,
+                metadata: serde_json::Value::Null,
+            },
+        ],
+        routes: vec![GreenticStackRoute {
+            id: "main".to_string(),
+            method: "POST".to_string(),
+            path: "/invoke".to_string(),
+            contract: CONTRACT_STACK_INVOKE_V1.to_string(),
+            request_schema_ref: GREENTIC_CALL_REQUEST_SCHEMA_PATH.to_string(),
+            response_schema_ref: GREENTIC_CALL_RESPONSE_SCHEMA_PATH.to_string(),
+        }],
+        setup: GreenticStackSetup {
+            schema_ref: GREENTIC_SETUP_SCHEMA_PATH.to_string(),
+            secret_requirements_ref: GREENTIC_SECRET_REQUIREMENTS_PATH.to_string(),
+        },
+        metadata: serde_json::json!({
+            "sorla_package": {
+                "name": artifacts.ir.package.name.clone(),
+                "version": artifacts.ir.package.version.clone(),
+                "ir_hash": artifacts.canonical_hash.clone(),
+            },
+            "sorla_assets": {
+                "model": "assets/sorla/model.cbor",
+                "agent_gateway": format!("assets/sorla/{AGENT_GATEWAY_HANDOFF_FILENAME}"),
+                "executable_contract": format!("assets/sorla/{EXECUTABLE_CONTRACT_FILENAME}"),
+                "metrics": if artifacts.metrics_json.is_some() {
+                    serde_json::json!(METRICS_PATH)
+                } else {
+                    serde_json::Value::Null
+                },
+            },
+            "sorx_compatibility": {
+                "runtime_extension": SORX_RUNTIME_EXTENSION_ID,
+                "start_schema": format!("assets/sorx/{START_SCHEMA_FILENAME}"),
+            },
+        }),
+    }
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_capability_section(
+    stack_pack: &GreenticStackPackDocument,
+) -> GreenticPackCapabilitySection {
+    GreenticPackCapabilitySection {
+        schema_version: GREENTIC_CAPABILITY_SECTION_SCHEMA_VERSION,
+        declaration: GreenticCapabilityDeclaration {
+            offers: stack_pack.offers.clone(),
+            requires: stack_pack.requires.clone(),
+            consumes: Vec::new(),
+            profiles: Vec::new(),
+        },
+    }
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_setup_schema(ir: &CanonicalIr) -> serde_json::Value {
+    serde_json::json!({
+        "schema": "greentic.stack.setup.schema.v1",
+        "title": format!("{} stack setup", ir.package.name),
+        "type": "object",
+        "properties": {
+            "environment_id": {
+                "type": "string",
+                "description": "Deployment environment id"
+            },
+            "tenant_id": {
+                "type": "string",
+                "description": "Tenant id"
+            }
+        },
+        "required": ["environment_id", "tenant_id"],
+        "secret_requirements_ref": GREENTIC_SECRET_REQUIREMENTS_PATH
+    })
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_call_request_schema() -> serde_json::Value {
+    serde_json::json!({
+        "$id": "greentic.stack.call.request.v1",
+        "schema": "greentic.stack.call.request.v1",
+        "type": "object",
+        "required": [
+            "schema",
+            "call_id",
+            "environment_id",
+            "deployment_id",
+            "revision_id",
+            "route_id",
+            "payload",
+            "context"
+        ],
+        "properties": {
+            "schema": { "const": "greentic.stack.call.request.v1" },
+            "call_id": { "type": "string", "minLength": 1 },
+            "environment_id": { "type": "string", "minLength": 1 },
+            "deployment_id": { "type": "string", "minLength": 1 },
+            "revision_id": { "type": "string", "minLength": 1 },
+            "route_id": { "type": "string", "minLength": 1 },
+            "payload": { "type": "object" },
+            "context": { "type": "object" }
+        },
+        "additionalProperties": true
+    })
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_call_response_schema() -> serde_json::Value {
+    serde_json::json!({
+        "$id": "greentic.stack.call.response.v1",
+        "schema": "greentic.stack.call.response.v1",
+        "type": "object",
+        "required": [
+            "schema",
+            "call_id",
+            "status",
+            "payload",
+            "usage",
+            "metadata"
+        ],
+        "properties": {
+            "schema": { "const": "greentic.stack.call.response.v1" },
+            "call_id": { "type": "string", "minLength": 1 },
+            "status": {
+                "type": "string",
+                "enum": ["success", "error"]
+            },
+            "payload": { "type": "object" },
+            "usage": { "type": "object" },
+            "metadata": { "type": "object" }
+        },
+        "additionalProperties": true
+    })
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_artifacts_document(artifacts: &ArtifactSet) -> serde_json::Value {
+    let mut artifacts_list = vec![
+        serde_json::json!({
+            "id": "canonical-ir",
+            "kind": "sorla.canonical-ir",
+            "path": "assets/sorla/model.cbor",
+            "content_type": "application/cbor",
+            "digest": format!("sha256:{}", artifacts.canonical_hash),
+        }),
+        serde_json::json!({
+            "id": "agent-gateway",
+            "kind": "sorla.agent-gateway",
+            "path": format!("assets/sorla/{AGENT_GATEWAY_HANDOFF_FILENAME}"),
+            "content_type": "application/json",
+        }),
+        serde_json::json!({
+            "id": "executable-contract",
+            "kind": "sorla.executable-contract",
+            "path": format!("assets/sorla/{EXECUTABLE_CONTRACT_FILENAME}"),
+            "content_type": "application/json",
+        }),
+    ];
+    if !artifacts.ir.agent_endpoints.is_empty() {
+        artifacts_list.push(serde_json::json!({
+            "id": "designer-node-types",
+            "kind": "admin.node-types",
+            "path": DESIGNER_NODE_TYPES_PATH,
+            "content_type": "application/json",
+        }));
+        artifacts_list.push(serde_json::json!({
+            "id": "agent-endpoint-action-catalog",
+            "kind": "admin.action-catalog",
+            "path": AGENT_ENDPOINT_ACTION_CATALOG_PATH,
+            "content_type": "application/json",
+        }));
+    }
+    if artifacts.ontology_artifacts.is_some() {
+        artifacts_list.push(serde_json::json!({
+            "id": "ontology-graph",
+            "kind": "sorla.ontology-graph",
+            "path": ONTOLOGY_GRAPH_PATH,
+            "content_type": "application/json",
+        }));
+    }
+    if artifacts.ir.retrieval_bindings.is_some() {
+        artifacts_list.push(serde_json::json!({
+            "id": "retrieval-bindings",
+            "kind": "sorla.retrieval-bindings",
+            "path": RETRIEVAL_BINDINGS_PATH,
+            "content_type": "application/json",
+        }));
+    }
+    if artifacts.metrics_json.is_some() {
+        artifacts_list.push(serde_json::json!({
+            "id": "metrics",
+            "kind": "sorla.metrics",
+            "path": METRICS_PATH,
+            "content_type": "application/json",
+        }));
+    }
+    serde_json::json!({
+        "schema": "greentic.stack.artifacts.v1",
+        "artifacts": artifacts_list,
+    })
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_admin_surfaces_document(artifacts: &ArtifactSet) -> serde_json::Value {
+    let mut surfaces = Vec::new();
+    if !artifacts.ir.agent_endpoints.is_empty() {
+        surfaces.push(serde_json::json!({
+            "id": "designer-node-types",
+            "kind": "greentic.admin.page.v1",
+            "title": "Designer node types",
+            "asset_ref": DESIGNER_NODE_TYPES_PATH,
+        }));
+        surfaces.push(serde_json::json!({
+            "id": "agent-endpoint-action-catalog",
+            "kind": "greentic.admin.action.v1",
+            "title": "Agent endpoint action catalog",
+            "asset_ref": AGENT_ENDPOINT_ACTION_CATALOG_PATH,
+        }));
+    }
+    serde_json::json!({
+        "schema": "greentic.stack.admin-surfaces.v1",
+        "surfaces": surfaces,
+    })
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_secret_requirements() -> Vec<serde_json::Value> {
+    Vec::new()
 }
 
 #[cfg(feature = "pack-zip")]
@@ -1497,6 +2037,15 @@ fn sorx_runtime_extension_value(
             }),
         );
     }
+    if artifacts.metrics_json.is_some() {
+        sorla.insert(
+            "metrics".to_string(),
+            serde_json::json!({
+                "schema": METRICS_SCHEMA,
+                "json": METRICS_PATH
+            }),
+        );
+    }
     if !artifacts.ir.agent_endpoints.is_empty() {
         sorla.insert(
             "designer_node_types".to_string(),
@@ -1650,9 +2199,11 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
     let ontology = ontology_summary(&mut archive, &manifest, &names)?;
     let retrieval_bindings = retrieval_summary(&mut archive, &manifest, &names)?;
     let operational_indexes = operational_indexes_summary(&mut archive, &manifest, &names)?;
+    let metrics = metrics_summary(&mut archive, &manifest, &names)?;
     let designer_node_types = designer_node_types_summary(&mut archive, &manifest, &names)?;
     let agent_endpoint_action_catalog =
         agent_endpoint_action_catalog_summary(&mut archive, &manifest, &names)?;
+    let stack_pack = greentic_stack_pack_summary(&mut archive, &manifest, &names)?;
     let optional_artifacts = [
         AGENT_ENDPOINTS_IR_CBOR_FILENAME,
         AGENT_OPENAPI_OVERLAY_FILENAME,
@@ -1668,6 +2219,7 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
         RETRIEVAL_BINDINGS_IR_CBOR_FILENAME,
         OPERATIONAL_INDEXES_FILENAME,
         OPERATIONAL_INDEXES_IR_CBOR_FILENAME,
+        METRICS_FILENAME,
     ]
     .into_iter()
     .map(|name| {
@@ -1702,9 +2254,58 @@ pub fn inspect_sorla_gtpack(path: &Path) -> Result<SorlaGtpackInspection, String
         ontology,
         retrieval_bindings,
         operational_indexes,
+        metrics,
         designer_node_types,
         agent_endpoint_action_catalog,
+        stack_pack,
     })
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_extension_path(
+    manifest: &SorlaPackManifest,
+    key: &str,
+    expected: &str,
+) -> Result<String, String> {
+    let path = manifest
+        .extension
+        .get("greentic")
+        .and_then(|greentic| greentic.get(key))
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("pack.cbor is missing `greentic.{key}`"))?;
+    if path != expected {
+        return Err(format!(
+            "pack.cbor references unsupported Greentic asset path `{path}` for `{key}`"
+        ));
+    }
+    Ok(path.to_string())
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_stack_pack_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackStackPackInspection>, String> {
+    let path = greentic_extension_path(manifest, "stack_pack", GREENTIC_STACK_PACK_PATH)?;
+    if !names.contains(&path) {
+        return Err(format!(
+            "pack.cbor references missing stack-pack asset `{path}`"
+        ));
+    }
+    let document = read_greentic_stack_pack(archive, &path)?;
+    let secret_requirements =
+        read_greentic_secret_requirements(archive, &document.setup.secret_requirements_ref)?;
+    Ok(Some(SorlaGtpackStackPackInspection {
+        schema: document.schema,
+        stack_id: document.stack.id,
+        stack_kind: document.stack.kind,
+        stack_version: document.stack.version,
+        offer_count: document.offers.len(),
+        requirement_count: document.requires.len(),
+        route_count: document.routes.len(),
+        required_secret_count: secret_requirements.len(),
+    }))
 }
 
 fn ontology_extension_paths(
@@ -1841,6 +2442,36 @@ fn operational_indexes_extension_path(
     }
     validate_relative_pack_asset_path(path)?;
     Ok(path.to_string())
+}
+
+fn metrics_extension_path(manifest: &SorlaPackManifest) -> Result<Option<String>, String> {
+    let Some(metrics) = manifest
+        .extension
+        .get("sorla")
+        .and_then(|sorla| sorla.get("metrics"))
+    else {
+        return Ok(None);
+    };
+    let schema = metrics
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "pack.cbor metrics extension is missing `schema`".to_string())?;
+    if schema != METRICS_SCHEMA {
+        return Err(format!(
+            "pack.cbor metrics extension has unsupported schema `{schema}`"
+        ));
+    }
+    let json_path = metrics
+        .get("json")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "pack.cbor metrics extension is missing `json`".to_string())?;
+    if json_path != METRICS_PATH {
+        return Err(format!(
+            "pack.cbor references unsupported metrics asset path `{json_path}`"
+        ));
+    }
+    validate_relative_pack_asset_path(json_path)?;
+    Ok(Some(json_path.to_string()))
 }
 
 fn designer_node_types_extension_path(
@@ -2045,6 +2676,33 @@ fn operational_indexes_summary<R: Read + Seek>(
         schema: ir.schema,
         index_count: ir.indexes.len(),
         query_requirement_count: ir.query_requirements.len(),
+    }))
+}
+
+#[cfg(feature = "pack-zip")]
+fn metrics_summary<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    manifest: &SorlaPackManifest,
+    names: &BTreeSet<String>,
+) -> Result<Option<SorlaGtpackMetricsInspection>, String> {
+    let Some(json_path) = metrics_extension_path(manifest)? else {
+        return Ok(None);
+    };
+    if !names.contains(&json_path) {
+        return Err(format!(
+            "pack.cbor references missing metrics asset `{json_path}`"
+        ));
+    }
+    let document = read_metrics_json(archive, &json_path)?;
+    let names = document
+        .metrics
+        .iter()
+        .map(|metric| metric.name.clone())
+        .collect();
+    Ok(Some(SorlaGtpackMetricsInspection {
+        schema: document.schema,
+        count: document.metrics.len(),
+        names,
     }))
 }
 
@@ -2499,6 +3157,51 @@ fn validate_embedded_operational_indexes<R: Read + Seek>(
 }
 
 #[cfg(feature = "pack-zip")]
+fn validate_embedded_metrics<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    let declared_path = metrics_extension_path(&pack_manifest)?;
+    if ir.metrics.is_empty() {
+        if declared_path.is_some() {
+            return Err(
+                "pack.cbor declares metrics extension but model.cbor has no metrics".into(),
+            );
+        }
+        return Ok(());
+    }
+    let Some(json_path) = declared_path else {
+        return Err("pack.cbor is missing sorla metrics extension".to_string());
+    };
+    if !names.contains(&json_path) {
+        return Err(format!(
+            "pack.cbor references missing metrics asset `{json_path}`"
+        ));
+    }
+    if !pack_manifest.assets.iter().any(|asset| asset == &json_path) {
+        return Err(format!("pack.cbor assets do not include `{json_path}`"));
+    }
+    validate_lock_includes_entry(archive, &json_path)?;
+
+    let document = read_metrics_json(archive, &json_path)?;
+    if document.package.name != ir.package.name
+        || document.package.version != ir.package.version
+        || document.package.ir_hash != canonical_hash_hex(ir)
+    {
+        return Err("metrics.json package metadata does not match model.cbor".to_string());
+    }
+    if document.metrics != ir.metrics {
+        return Err("metrics.json metrics do not match model.cbor".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
 fn validate_embedded_designer_node_types<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     names: &BTreeSet<String>,
@@ -2770,6 +3473,130 @@ fn validate_embedded_agent_endpoint_action_catalog<R: Read + Seek>(
     Ok(())
 }
 
+#[cfg(feature = "pack-zip")]
+fn validate_embedded_greentic_stack_pack<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    names: &BTreeSet<String>,
+    ir: &CanonicalIr,
+    inspection: &SorlaGtpackInspection,
+) -> Result<(), String> {
+    for path in [
+        GREENTIC_STACK_PACK_PATH,
+        GREENTIC_CAPABILITIES_PATH,
+        GREENTIC_ROUTES_PATH,
+        GREENTIC_SETUP_SCHEMA_PATH,
+        GREENTIC_CALL_REQUEST_SCHEMA_PATH,
+        GREENTIC_CALL_RESPONSE_SCHEMA_PATH,
+        GREENTIC_ARTIFACTS_PATH,
+        GREENTIC_ADMIN_SURFACES_PATH,
+        GREENTIC_SECRET_REQUIREMENTS_PATH,
+    ] {
+        if !names.contains(path) {
+            return Err(format!(
+                "gtpack is missing required Greentic asset `{path}`"
+            ));
+        }
+    }
+    let manifest_bytes = zip_bytes(archive, "pack.cbor")?;
+    let pack_manifest: SorlaPackManifest =
+        ciborium::de::from_reader(Cursor::new(manifest_bytes))
+            .map_err(|err| format!("pack.cbor is invalid SoRLa pack manifest: {err}"))?;
+    for (key, expected) in [
+        ("stack_pack", GREENTIC_STACK_PACK_PATH),
+        ("capabilities", GREENTIC_CAPABILITIES_PATH),
+        ("routes", GREENTIC_ROUTES_PATH),
+        ("setup_schema", GREENTIC_SETUP_SCHEMA_PATH),
+        ("call_request_schema", GREENTIC_CALL_REQUEST_SCHEMA_PATH),
+        ("call_response_schema", GREENTIC_CALL_RESPONSE_SCHEMA_PATH),
+        ("artifacts", GREENTIC_ARTIFACTS_PATH),
+        ("admin_surfaces", GREENTIC_ADMIN_SURFACES_PATH),
+        ("secret_requirements", GREENTIC_SECRET_REQUIREMENTS_PATH),
+    ] {
+        let path = greentic_extension_path(&pack_manifest, key, expected)?;
+        if !pack_manifest.assets.iter().any(|asset| asset == &path) {
+            return Err(format!("pack.cbor assets do not include `{path}`"));
+        }
+    }
+
+    let stack_pack = read_greentic_stack_pack(archive, GREENTIC_STACK_PACK_PATH)?;
+    if stack_pack.metadata["sorla_package"]["name"].as_str() != Some(ir.package.name.as_str()) {
+        return Err("stack-pack metadata does not match canonical IR package name".to_string());
+    }
+    if stack_pack.metadata["sorla_package"]["version"].as_str() != Some(ir.package.version.as_str())
+    {
+        return Err("stack-pack metadata does not match canonical IR package version".to_string());
+    }
+    if stack_pack.metadata["sorla_package"]["ir_hash"].as_str() != Some(inspection.ir_hash.as_str())
+    {
+        return Err("stack-pack metadata does not match canonical IR hash".to_string());
+    }
+
+    let capabilities = read_greentic_capabilities(archive, GREENTIC_CAPABILITIES_PATH)?;
+    if capabilities.declaration.offers != stack_pack.offers {
+        return Err("capability declaration offers drifted from stack-pack offers".to_string());
+    }
+    if capabilities.declaration.requires != stack_pack.requires {
+        return Err(
+            "capability declaration requirements drifted from stack-pack requirements".to_string(),
+        );
+    }
+
+    let routes_doc: serde_json::Value =
+        serde_json::from_str(&zip_text(archive, GREENTIC_ROUTES_PATH)?)
+            .map_err(|err| format!("{GREENTIC_ROUTES_PATH} is invalid JSON: {err}"))?;
+    if routes_doc.get("schema").and_then(serde_json::Value::as_str)
+        != Some("greentic.stack.routes.v1")
+    {
+        return Err(format!(
+            "{GREENTIC_ROUTES_PATH} has unsupported routes schema"
+        ));
+    }
+    let routes_value = serde_json::to_value(&stack_pack.routes).map_err(|err| err.to_string())?;
+    if routes_doc.get("routes") != Some(&routes_value) {
+        return Err("routes document drifted from stack-pack routes".to_string());
+    }
+
+    let setup_schema: serde_json::Value =
+        serde_json::from_str(&zip_text(archive, GREENTIC_SETUP_SCHEMA_PATH)?)
+            .map_err(|err| format!("{GREENTIC_SETUP_SCHEMA_PATH} is invalid JSON: {err}"))?;
+    if setup_schema
+        .get("secret_requirements_ref")
+        .and_then(serde_json::Value::as_str)
+        != Some(GREENTIC_SECRET_REQUIREMENTS_PATH)
+    {
+        return Err("setup schema does not reference the secret requirements asset".to_string());
+    }
+    let _secret_requirements =
+        read_greentic_secret_requirements(archive, GREENTIC_SECRET_REQUIREMENTS_PATH)?;
+    validate_greentic_call_schema(
+        archive,
+        GREENTIC_CALL_REQUEST_SCHEMA_PATH,
+        "greentic.stack.call.request.v1",
+    )?;
+    validate_greentic_call_schema(
+        archive,
+        GREENTIC_CALL_RESPONSE_SCHEMA_PATH,
+        "greentic.stack.call.response.v1",
+    )?;
+    validate_greentic_artifacts_document(archive, GREENTIC_ARTIFACTS_PATH, names)?;
+    validate_greentic_admin_surfaces_document(archive, GREENTIC_ADMIN_SURFACES_PATH, names)?;
+
+    for path in [
+        GREENTIC_STACK_PACK_PATH,
+        GREENTIC_CAPABILITIES_PATH,
+        GREENTIC_ROUTES_PATH,
+        GREENTIC_SETUP_SCHEMA_PATH,
+        GREENTIC_CALL_REQUEST_SCHEMA_PATH,
+        GREENTIC_CALL_RESPONSE_SCHEMA_PATH,
+        GREENTIC_ARTIFACTS_PATH,
+        GREENTIC_ADMIN_SURFACES_PATH,
+        GREENTIC_SECRET_REQUIREMENTS_PATH,
+    ] {
+        validate_lock_includes_entry(archive, path)?;
+    }
+    Ok(())
+}
+
 fn is_sha256_contract_hash(value: &str) -> bool {
     let Some(hex) = value.strip_prefix("sha256:") else {
         return false;
@@ -3003,6 +3830,22 @@ fn read_operational_indexes_json<R: Read + Seek>(
 }
 
 #[cfg(feature = "pack-zip")]
+fn read_metrics_json<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<MetricsArtifactDocument, String> {
+    let document: MetricsArtifactDocument = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid metrics JSON: {err}"))?;
+    if document.schema != METRICS_SCHEMA {
+        return Err(format!(
+            "{path} has unsupported metrics schema `{}`",
+            document.schema
+        ));
+    }
+    Ok(document)
+}
+
+#[cfg(feature = "pack-zip")]
 fn read_designer_node_types<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     path: &str,
@@ -3034,6 +3877,328 @@ fn read_agent_endpoint_action_catalog<R: Read + Seek>(
         ));
     }
     Ok(document)
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_greentic_stack_pack<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<GreenticStackPackDocument, String> {
+    let document: GreenticStackPackDocument = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid Greentic stack-pack JSON: {err}"))?;
+    validate_greentic_stack_pack_document(&document)?;
+    Ok(document)
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_greentic_capabilities<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<GreenticPackCapabilitySection, String> {
+    let document: GreenticPackCapabilitySection =
+        serde_json::from_str(&zip_text(archive, path)?)
+            .map_err(|err| format!("{path} is invalid Greentic capabilities JSON: {err}"))?;
+    validate_greentic_capability_section(&document)?;
+    Ok(document)
+}
+
+#[cfg(feature = "pack-zip")]
+fn read_greentic_secret_requirements<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let document: Vec<serde_json::Value> = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid secret requirements JSON: {err}"))?;
+    Ok(document)
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_greentic_stack_pack_document(
+    document: &GreenticStackPackDocument,
+) -> Result<(), String> {
+    if document.schema != GREENTIC_STACK_PACK_SCHEMA {
+        return Err(format!(
+            "stack-pack has unsupported schema `{}`",
+            document.schema
+        ));
+    }
+    if document.stack.id.trim().is_empty() {
+        return Err("stack-pack stack id must not be empty".to_string());
+    }
+    if document.stack.kind != "application-stack" {
+        return Err(format!(
+            "stack-pack has unsupported stack kind `{}`",
+            document.stack.kind
+        ));
+    }
+    semver::Version::parse(&document.stack.version).map_err(|err| {
+        format!(
+            "stack-pack has invalid version `{}`: {err}",
+            document.stack.version
+        )
+    })?;
+    if document.offers.is_empty() {
+        return Err("stack-pack must offer an application stack capability".to_string());
+    }
+    for offer in &document.offers {
+        validate_named_id("stack-pack offer", &offer.id)?;
+        validate_capability_id(&offer.capability)?;
+    }
+    for requirement in &document.requires {
+        validate_named_id("stack-pack requirement", &requirement.id)?;
+        validate_capability_id(&requirement.capability)?;
+    }
+    let stack_offer = document
+        .offers
+        .iter()
+        .find(|offer| offer.capability == CAP_STACK_APPLICATION_V1)
+        .ok_or_else(|| format!("stack-pack must offer `{CAP_STACK_APPLICATION_V1}`"))?;
+    validate_contract_metadata(
+        "stack-pack application offer",
+        &stack_offer.metadata,
+        &[CONTRACT_STACK_INVOKE_V1, CONTRACT_STACK_ROUTES_V1],
+    )?;
+    let runtime_req = document
+        .requires
+        .iter()
+        .find(|requirement| requirement.capability == CAP_RUNTIME_HOST_V1)
+        .ok_or_else(|| format!("stack-pack must require `{CAP_RUNTIME_HOST_V1}`"))?;
+    validate_contract_metadata(
+        "stack-pack runtime requirement",
+        &runtime_req.metadata,
+        &[CONTRACT_RUNTIME_INVOKE_V1, CONTRACT_RUNTIME_TRAFFIC_V1],
+    )?;
+    if !document
+        .requires
+        .iter()
+        .any(|requirement| requirement.capability == CAP_SECRETS_V1)
+    {
+        return Err(format!("stack-pack must require `{CAP_SECRETS_V1}`"));
+    }
+    if document.routes.is_empty() {
+        return Err("stack-pack must declare at least one route".to_string());
+    }
+    let mut route_ids = BTreeSet::new();
+    for route in &document.routes {
+        validate_named_id("stack-pack route", &route.id)?;
+        if !route_ids.insert(route.id.as_str()) {
+            return Err(format!("stack-pack route id `{}` is duplicated", route.id));
+        }
+        if route.method != "POST" {
+            return Err(format!(
+                "stack-pack route `{}` has unsupported method `{}`",
+                route.id, route.method
+            ));
+        }
+        if !route.path.starts_with('/') {
+            return Err(format!(
+                "stack-pack route `{}` path must start with `/`",
+                route.id
+            ));
+        }
+        if route.contract != CONTRACT_STACK_INVOKE_V1 {
+            return Err(format!(
+                "stack-pack route `{}` has unsupported contract `{}`",
+                route.id, route.contract
+            ));
+        }
+        if route.request_schema_ref != GREENTIC_CALL_REQUEST_SCHEMA_PATH {
+            return Err(format!(
+                "stack-pack route `{}` has unsupported request_schema_ref `{}`",
+                route.id, route.request_schema_ref
+            ));
+        }
+        if route.response_schema_ref != GREENTIC_CALL_RESPONSE_SCHEMA_PATH {
+            return Err(format!(
+                "stack-pack route `{}` has unsupported response_schema_ref `{}`",
+                route.id, route.response_schema_ref
+            ));
+        }
+    }
+    if document.setup.schema_ref != GREENTIC_SETUP_SCHEMA_PATH {
+        return Err(format!(
+            "stack-pack setup schema_ref must be `{GREENTIC_SETUP_SCHEMA_PATH}`"
+        ));
+    }
+    if document.setup.secret_requirements_ref != GREENTIC_SECRET_REQUIREMENTS_PATH {
+        return Err(format!(
+            "stack-pack secret_requirements_ref must be `{GREENTIC_SECRET_REQUIREMENTS_PATH}`"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_greentic_call_schema<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+    expected_schema: &str,
+) -> Result<(), String> {
+    let schema: serde_json::Value = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid JSON: {err}"))?;
+    if schema.get("schema").and_then(serde_json::Value::as_str) != Some(expected_schema) {
+        return Err(format!("{path} has unsupported schema"));
+    }
+    if schema.get("$id").and_then(serde_json::Value::as_str) != Some(expected_schema) {
+        return Err(format!("{path} has unsupported $id"));
+    }
+    let required = schema
+        .get("required")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| format!("{path} is missing required fields"))?;
+    for field in ["schema", "call_id"] {
+        if !required.iter().any(|item| item.as_str() == Some(field)) {
+            return Err(format!("{path} required fields are missing `{field}`"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_greentic_artifacts_document<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+    names: &BTreeSet<String>,
+) -> Result<(), String> {
+    let document: serde_json::Value = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid JSON: {err}"))?;
+    if document.get("schema").and_then(serde_json::Value::as_str)
+        != Some("greentic.stack.artifacts.v1")
+    {
+        return Err(format!("{path} has unsupported schema"));
+    }
+    let artifacts = document
+        .get("artifacts")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| format!("{path} is missing artifacts"))?;
+    if artifacts.is_empty() {
+        return Err(format!("{path} must list at least one artifact"));
+    }
+    for artifact in artifacts {
+        let asset_ref = artifact
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| format!("{path} contains an artifact without path"))?;
+        if !names.contains(asset_ref) {
+            return Err(format!(
+                "{path} references missing artifact asset `{asset_ref}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_greentic_admin_surfaces_document<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    path: &str,
+    names: &BTreeSet<String>,
+) -> Result<(), String> {
+    let document: serde_json::Value = serde_json::from_str(&zip_text(archive, path)?)
+        .map_err(|err| format!("{path} is invalid JSON: {err}"))?;
+    if document.get("schema").and_then(serde_json::Value::as_str)
+        != Some("greentic.stack.admin-surfaces.v1")
+    {
+        return Err(format!("{path} has unsupported schema"));
+    }
+    let surfaces = document
+        .get("surfaces")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| format!("{path} is missing surfaces"))?;
+    for surface in surfaces {
+        let asset_ref = surface
+            .get("asset_ref")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| format!("{path} contains a surface without asset_ref"))?;
+        if !names.contains(asset_ref) {
+            return Err(format!(
+                "{path} references missing admin surface asset `{asset_ref}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_greentic_capability_section(
+    document: &GreenticPackCapabilitySection,
+) -> Result<(), String> {
+    if document.schema_version != GREENTIC_CAPABILITY_SECTION_SCHEMA_VERSION {
+        return Err(format!(
+            "capability section has unsupported schema_version `{}`",
+            document.schema_version
+        ));
+    }
+    let mut offer_ids = BTreeSet::new();
+    for offer in &document.declaration.offers {
+        validate_named_id("capability offer", &offer.id)?;
+        validate_capability_id(&offer.capability)?;
+        if !offer_ids.insert(offer.id.as_str()) {
+            return Err(format!("capability offer id `{}` is duplicated", offer.id));
+        }
+    }
+    let mut requirement_ids = BTreeSet::new();
+    for requirement in &document.declaration.requires {
+        validate_named_id("capability requirement", &requirement.id)?;
+        validate_capability_id(&requirement.capability)?;
+        if !requirement_ids.insert(requirement.id.as_str()) {
+            return Err(format!(
+                "capability requirement id `{}` is duplicated",
+                requirement.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_named_id(label: &str, value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        return Err(format!("{label} id must not be empty"));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_capability_id(value: &str) -> Result<(), String> {
+    if !value.starts_with("cap://") {
+        return Err(format!(
+            "capability id `{value}` must use the cap:// scheme"
+        ));
+    }
+    if value["cap://".len()..].is_empty() {
+        return Err("capability id must not be empty after cap://".to_string());
+    }
+    for (index, ch) in value.char_indices() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, ':' | '/' | '-' | '_' | '.' | '+') {
+            continue;
+        }
+        return Err(format!(
+            "capability id `{value}` contains invalid character {ch:?} at index {index}"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_contract_metadata(
+    label: &str,
+    metadata: &serde_json::Value,
+    required_contracts: &[&str],
+) -> Result<(), String> {
+    let contracts = metadata
+        .get("contracts")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| format!("{label} metadata is missing contracts"))?;
+    for required in required_contracts {
+        if !contracts
+            .iter()
+            .any(|value| value.as_str() == Some(*required))
+        {
+            return Err(format!("{label} metadata is missing contract `{required}`"));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "pack-zip")]
@@ -3078,8 +4243,10 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
     validate_embedded_ontology_artifacts(&mut archive, &names, &ir)?;
     validate_embedded_retrieval_bindings(&mut archive, &names, &ir)?;
     validate_embedded_operational_indexes(&mut archive, &names, &ir)?;
+    validate_embedded_metrics(&mut archive, &names, &ir)?;
     validate_embedded_designer_node_types(&mut archive, &names, &ir)?;
     validate_embedded_agent_endpoint_action_catalog(&mut archive, &names, &ir)?;
+    validate_embedded_greentic_stack_pack(&mut archive, &names, &ir, &inspection)?;
     let endpoint_ids: BTreeSet<_> = ir
         .agent_endpoints
         .iter()
@@ -3172,11 +4339,31 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
                 .map(str::to_string),
         );
     }
+    if inspection.metrics.is_some() {
+        checked_assets.push(METRICS_PATH.to_string());
+    }
     if inspection.designer_node_types.is_some() {
         checked_assets.push(DESIGNER_NODE_TYPES_PATH.to_string());
     }
     if inspection.agent_endpoint_action_catalog.is_some() {
         checked_assets.push(AGENT_ENDPOINT_ACTION_CATALOG_PATH.to_string());
+    }
+    if inspection.stack_pack.is_some() {
+        checked_assets.extend(
+            [
+                GREENTIC_STACK_PACK_PATH,
+                GREENTIC_CAPABILITIES_PATH,
+                GREENTIC_ROUTES_PATH,
+                GREENTIC_SETUP_SCHEMA_PATH,
+                GREENTIC_CALL_REQUEST_SCHEMA_PATH,
+                GREENTIC_CALL_RESPONSE_SCHEMA_PATH,
+                GREENTIC_ARTIFACTS_PATH,
+                GREENTIC_ADMIN_SURFACES_PATH,
+                GREENTIC_SECRET_REQUIREMENTS_PATH,
+            ]
+            .into_iter()
+            .map(str::to_string),
+        );
     }
 
     Ok(SorlaGtpackDoctorReport {
@@ -3204,6 +4391,15 @@ fn required_pack_entries() -> Vec<&'static str> {
         SORX_COMPATIBILITY_PATH,
         SORX_EXPOSURE_POLICY_PATH,
         SORX_VALIDATION_MANIFEST_PATH,
+        GREENTIC_STACK_PACK_PATH,
+        GREENTIC_CAPABILITIES_PATH,
+        GREENTIC_ROUTES_PATH,
+        GREENTIC_SETUP_SCHEMA_PATH,
+        GREENTIC_CALL_REQUEST_SCHEMA_PATH,
+        GREENTIC_CALL_RESPONSE_SCHEMA_PATH,
+        GREENTIC_ARTIFACTS_PATH,
+        GREENTIC_ADMIN_SURFACES_PATH,
+        GREENTIC_SECRET_REQUIREMENTS_PATH,
     ]
 }
 
@@ -4436,6 +5632,43 @@ mod tests {
     use tempfile::tempdir;
     use zip::ZipArchive;
 
+    fn metrics_fixture_yaml() -> &'static str {
+        r#"
+package:
+  name: metrics-pack-demo
+  version: 0.1.0
+records:
+  - name: payment
+    source: native
+    fields:
+      - name: amount
+        type: decimal
+      - name: paid_at
+        type: datetime
+events:
+  - name: payment_changed
+    record: payment
+projections:
+  - name: payment_list
+    record: payment
+    source_event: payment_changed
+metrics:
+  - name: monthly_revenue
+    label: Monthly Revenue
+    source:
+      kind: record
+      name: payment
+    measure:
+      aggregate: sum
+      field: amount
+    time:
+      field: paid_at
+      grain: month
+    unit: GBP
+"#
+        .trim_start()
+    }
+
     #[test]
     fn scaffold_handoff_manifest_stays_provider_agnostic() {
         let manifest = scaffold_handoff_manifest();
@@ -4495,6 +5728,33 @@ mod tests {
             first.handoff_manifest().provider_repo,
             "greentic-sorla-providers"
         );
+    }
+
+    #[test]
+    fn builds_metrics_handoff_artifact_from_yaml() {
+        let artifacts =
+            build_handoff_artifacts_from_yaml(metrics_fixture_yaml()).expect("fixture builds");
+        assert_eq!(artifacts.ir.metrics.len(), 1);
+        assert!(
+            artifacts
+                .handoff_manifest()
+                .artifact_references
+                .contains(&METRICS_FILENAME.to_string())
+        );
+        let metrics_json = artifacts
+            .metrics_json
+            .as_ref()
+            .expect("metrics artifact emitted");
+        let document: MetricsArtifactDocument =
+            serde_json::from_str(metrics_json).expect("metrics JSON decodes");
+        assert_eq!(document.schema, METRICS_SCHEMA);
+        assert_eq!(document.package.name, "metrics-pack-demo");
+        assert_eq!(document.package.ir_hash, artifacts.canonical_hash);
+        assert_eq!(document.metrics[0].name, "monthly_revenue");
+
+        let rebuilt =
+            build_handoff_artifacts_from_yaml(metrics_fixture_yaml()).expect("fixture rebuilds");
+        assert_eq!(artifacts.metrics_json, rebuilt.metrics_json);
     }
 
     #[test]
@@ -4697,10 +5957,47 @@ mod tests {
                 .assets
                 .contains(&AGENT_ENDPOINT_ACTION_CATALOG_PATH.to_string())
         );
+        assert!(first.assets.contains(&GREENTIC_STACK_PACK_PATH.to_string()));
+        assert!(
+            first
+                .assets
+                .contains(&GREENTIC_CAPABILITIES_PATH.to_string())
+        );
+        assert!(
+            first
+                .assets
+                .contains(&GREENTIC_SECRET_REQUIREMENTS_PATH.to_string())
+        );
+        assert!(
+            first
+                .assets
+                .contains(&GREENTIC_CALL_REQUEST_SCHEMA_PATH.to_string())
+        );
+        assert!(
+            first
+                .assets
+                .contains(&GREENTIC_CALL_RESPONSE_SCHEMA_PATH.to_string())
+        );
+        assert!(first.assets.contains(&GREENTIC_ARTIFACTS_PATH.to_string()));
+        assert!(
+            first
+                .assets
+                .contains(&GREENTIC_ADMIN_SURFACES_PATH.to_string())
+        );
 
         let inspection = inspect_sorla_gtpack(&first_out).expect("inspect pack");
         assert_eq!(inspection.extension, SORX_RUNTIME_EXTENSION_ID);
         assert_eq!(inspection.sorla_package_name, "landlord-tenant-sor");
+        let stack_pack = inspection
+            .stack_pack
+            .as_ref()
+            .expect("inspect should summarize generic stack-pack metadata");
+        assert_eq!(stack_pack.schema, GREENTIC_STACK_PACK_SCHEMA);
+        assert_eq!(stack_pack.stack_id, "landlord-tenant-sor");
+        assert_eq!(stack_pack.stack_kind, "application-stack");
+        assert_eq!(stack_pack.offer_count, 1);
+        assert_eq!(stack_pack.requirement_count, 6);
+        assert_eq!(stack_pack.route_count, 1);
         let validation = inspection
             .validation
             .as_ref()
@@ -4793,6 +6090,72 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some(SORX_COMPATIBILITY_PATH)
         );
+        assert_eq!(
+            pack_manifest
+                .extension
+                .get("greentic")
+                .and_then(|greentic| greentic.get("stack_pack"))
+                .and_then(serde_json::Value::as_str),
+            Some(GREENTIC_STACK_PACK_PATH)
+        );
+        assert_eq!(
+            pack_manifest
+                .extension
+                .get("greentic")
+                .and_then(|greentic| greentic.get("capabilities"))
+                .and_then(serde_json::Value::as_str),
+            Some(GREENTIC_CAPABILITIES_PATH)
+        );
+        let stack_pack_doc: GreenticStackPackDocument = serde_json::from_slice(
+            &zip_bytes(&mut archive, GREENTIC_STACK_PACK_PATH).expect("stack-pack"),
+        )
+        .expect("stack-pack JSON decodes");
+        assert_eq!(
+            stack_pack_doc.offers[0].capability,
+            CAP_STACK_APPLICATION_V1
+        );
+        assert_eq!(stack_pack_doc.requires[0].capability, CAP_RUNTIME_HOST_V1);
+        let capabilities: GreenticPackCapabilitySection = serde_json::from_slice(
+            &zip_bytes(&mut archive, GREENTIC_CAPABILITIES_PATH).expect("capabilities"),
+        )
+        .expect("capabilities JSON decodes");
+        assert_eq!(capabilities.schema_version, 1);
+        assert_eq!(capabilities.declaration.offers, stack_pack_doc.offers);
+        assert_eq!(capabilities.declaration.requires, stack_pack_doc.requires);
+        assert_eq!(
+            stack_pack_doc.routes[0].request_schema_ref,
+            GREENTIC_CALL_REQUEST_SCHEMA_PATH
+        );
+        let request_schema: serde_json::Value = serde_json::from_slice(
+            &zip_bytes(&mut archive, GREENTIC_CALL_REQUEST_SCHEMA_PATH)
+                .expect("call request schema"),
+        )
+        .expect("call request schema decodes");
+        assert_eq!(request_schema["schema"], "greentic.stack.call.request.v1");
+        let artifacts: serde_json::Value = serde_json::from_slice(
+            &zip_bytes(&mut archive, GREENTIC_ARTIFACTS_PATH).expect("artifacts"),
+        )
+        .expect("artifacts JSON decodes");
+        assert_eq!(artifacts["schema"], "greentic.stack.artifacts.v1");
+        assert!(
+            artifacts["artifacts"]
+                .as_array()
+                .expect("artifacts array")
+                .iter()
+                .any(|artifact| artifact["path"] == DESIGNER_NODE_TYPES_PATH)
+        );
+        let admin_surfaces: serde_json::Value = serde_json::from_slice(
+            &zip_bytes(&mut archive, GREENTIC_ADMIN_SURFACES_PATH).expect("admin surfaces"),
+        )
+        .expect("admin surfaces JSON decodes");
+        assert_eq!(admin_surfaces["schema"], "greentic.stack.admin-surfaces.v1");
+        assert_eq!(
+            admin_surfaces["surfaces"]
+                .as_array()
+                .expect("surfaces array")
+                .len(),
+            2
+        );
         assert!(
             pack_manifest
                 .assets
@@ -4818,6 +6181,67 @@ mod tests {
                 .assets
                 .contains(&SORX_COMPATIBILITY_PATH.to_string())
         );
+        assert!(
+            pack_manifest
+                .assets
+                .contains(&GREENTIC_STACK_PACK_PATH.to_string())
+        );
+        assert!(
+            pack_manifest
+                .assets
+                .contains(&GREENTIC_CALL_REQUEST_SCHEMA_PATH.to_string())
+        );
+        assert!(
+            pack_manifest
+                .assets
+                .contains(&GREENTIC_ADMIN_SURFACES_PATH.to_string())
+        );
+    }
+
+    #[test]
+    fn gtpack_inspection_and_doctor_validate_metrics_artifact() {
+        let temp = tempdir().expect("tempdir");
+        let input = temp.path().join("metrics.sorla.yaml");
+        fs::write(&input, metrics_fixture_yaml()).expect("write input");
+        let out = temp.path().join("metrics.gtpack");
+
+        let summary = build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: input,
+            name: "metrics-pack-demo".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+        assert!(summary.assets.contains(&METRICS_PATH.to_string()));
+
+        let inspection = inspect_sorla_gtpack(&out).expect("pack inspects");
+        let metrics = inspection.metrics.as_ref().expect("metrics inspected");
+        assert_eq!(metrics.schema, METRICS_SCHEMA);
+        assert_eq!(metrics.names, vec!["monthly_revenue".to_string()]);
+        assert_eq!(inspection.optional_artifacts.get(METRICS_PATH), Some(&true));
+        let doctor = doctor_sorla_gtpack(&out).expect("doctor accepts metrics pack");
+        assert!(doctor.checked_assets.contains(&METRICS_PATH.to_string()));
+
+        let mut archive =
+            ZipArchive::new(fs::File::open(&out).expect("open pack")).expect("read pack");
+        let pack_manifest: SorlaPackManifest = ciborium::de::from_reader(Cursor::new(
+            zip_bytes(&mut archive, "pack.cbor").expect("pack.cbor"),
+        ))
+        .expect("pack manifest decodes");
+        assert_eq!(
+            pack_manifest
+                .extension
+                .get("sorla")
+                .and_then(|sorla| sorla.get("metrics"))
+                .and_then(|metrics| metrics.get("json"))
+                .and_then(serde_json::Value::as_str),
+            Some(METRICS_PATH)
+        );
+        drop(archive);
+
+        rewrite_gtpack(&out, |name, _bytes| name != METRICS_PATH);
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor rejects missing metrics asset");
+        assert!(err.contains("metrics"));
     }
 
     #[test]
@@ -4939,6 +6363,32 @@ agent_endpoints:
 
         let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
         assert!(err.contains("endpoint_ref does not match model metadata"));
+    }
+
+    #[test]
+    fn gtpack_doctor_rejects_malformed_generic_stack_pack_metadata() {
+        let temp = tempdir().expect("tempdir");
+        let out = temp.path().join("landlord.gtpack");
+        build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml"),
+            name: "landlord-tenant-sor".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        rewrite_gtpack(&out, |path, bytes| {
+            if path == GREENTIC_STACK_PACK_PATH {
+                let mut document: GreenticStackPackDocument =
+                    serde_json::from_slice(bytes).expect("stack-pack parses");
+                document.requires[0].capability = "greentic.runtime.host.v1".to_string();
+                *bytes = serde_json::to_vec_pretty(&document).expect("document serializes");
+            }
+            true
+        });
+
+        let err = doctor_sorla_gtpack(&out).expect_err("doctor should reject malformed pack");
+        assert!(err.contains("cap://"));
     }
 
     #[test]

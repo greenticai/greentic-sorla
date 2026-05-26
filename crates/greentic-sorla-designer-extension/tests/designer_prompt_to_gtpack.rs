@@ -22,13 +22,9 @@ fn designer_prompt_to_gtpack() {
             "version": "0.1.0"
         }
     }));
-    assert_eq!(artifact["artifacts"][0]["kind"], "gtpack");
-    assert_eq!(
-        artifact["artifacts"][0]["metadata_json"]["schema"],
-        "greentic.sorla.generated-artifact.v1"
-    );
+    assert_eq!(artifact["schema"], "greentic.sorla.gtpack-plan.v1");
     assert!(
-        artifact["artifacts"][0]["metadata_json"]["pack_entries"]
+        artifact["pack_entries"]
             .as_array()
             .unwrap()
             .iter()

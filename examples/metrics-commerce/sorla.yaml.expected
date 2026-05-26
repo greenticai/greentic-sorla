@@ -1,0 +1,470 @@
+# --- BEGIN GREENTIC-SORLA GENERATED ---
+package:
+  name: metrics-commerce
+  version: 0.1.0
+records:
+  - name: campaign
+    source: native
+    fields:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: name
+        type: string
+        required: true
+        sensitive: false
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+  - name: visitor
+    source: native
+    fields:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: visited_at
+        type: timestamp
+        required: true
+        sensitive: false
+      - name: campaign
+        type: string
+        required: true
+        sensitive: false
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+  - name: click
+    source: native
+    fields:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: clicked_at
+        type: timestamp
+        required: true
+        sensitive: false
+      - name: campaign
+        type: string
+        required: true
+        sensitive: false
+      - name: product
+        type: string
+        required: true
+        sensitive: false
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+  - name: order
+    source: native
+    fields:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: amount
+        type: decimal
+        required: true
+        sensitive: false
+      - name: status
+        type: string
+        required: true
+        sensitive: false
+      - name: ordered_at
+        type: timestamp
+        required: true
+        sensitive: false
+      - name: campaign
+        type: string
+        required: true
+        sensitive: false
+      - name: product
+        type: string
+        required: true
+        sensitive: false
+      - name: customer
+        type: string
+        required: true
+        sensitive: true
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+  - name: payment
+    source: native
+    fields:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: amount
+        type: decimal
+        required: true
+        sensitive: false
+      - name: status
+        type: string
+        required: true
+        sensitive: false
+      - name: paid_at
+        type: timestamp
+        required: true
+        sensitive: false
+      - name: campaign
+        type: string
+        required: true
+        sensitive: false
+      - name: product
+        type: string
+        required: true
+        sensitive: false
+      - name: customer
+        type: string
+        required: true
+        sensitive: true
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+  - name: cost_entry
+    source: native
+    fields:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: amount
+        type: decimal
+        required: true
+        sensitive: false
+      - name: incurred_at
+        type: timestamp
+        required: true
+        sensitive: false
+      - name: campaign
+        type: string
+        required: true
+        sensitive: false
+      - name: product
+        type: string
+        required: true
+        sensitive: false
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+actions:
+  - name: record_click
+  - name: record_payment
+  - name: record_cost
+events:
+  - name: visitor_recorded
+    record: visitor
+    kind: domain
+    emits: []
+  - name: click_tracked
+    record: click
+    kind: domain
+    emits: []
+  - name: order_completed
+    record: order
+    kind: domain
+    emits: []
+  - name: payment_settled
+    record: payment
+    kind: domain
+    emits: []
+  - name: cost_recorded
+    record: cost_entry
+    kind: domain
+    emits: []
+projections:
+  - name: commerce_metrics_dashboard
+    record: payment
+    source_event: payment_settled
+    mode: current-state
+metrics:
+  - name: campaign_roas
+    label: "Campaign ROAS"
+    unit: ratio
+    dimensions:
+      - campaign
+    formula: "monthly_revenue / monthly_cost"
+    depends_on:
+      - monthly_revenue
+      - monthly_cost
+  - name: completed_orders
+    label: "Completed Orders"
+    source:
+      kind: record
+      name: order
+    measure:
+      aggregate: count
+    filters:
+      - field: status
+        operator: equals
+        value: completed
+    time:
+      field: ordered_at
+      grain: day
+    dimensions:
+      - campaign
+      - product
+      - customer
+      - region
+    depends_on: []
+  - name: conversion_rate
+    label: "Conversion Rate"
+    unit: percent
+    dimensions:
+      - campaign
+      - region
+    formula: "completed_orders / visitor_sessions"
+    depends_on:
+      - completed_orders
+      - visitor_sessions
+    target:
+      operator: ">="
+      value: 0.05
+      unit: ratio
+  - name: daily_clicks
+    label: "Daily Clicks"
+    description: "Total clicks by day."
+    source:
+      kind: record
+      name: click
+    measure:
+      aggregate: count
+    time:
+      field: clicked_at
+      grain: day
+    dimensions:
+      - campaign
+      - product
+      - region
+    depends_on: []
+  - name: gross_margin
+    label: "Gross Margin"
+    unit: GBP
+    dimensions:
+      - campaign
+      - product
+      - region
+    formula: "monthly_revenue - monthly_cost"
+    depends_on:
+      - monthly_revenue
+      - monthly_cost
+  - name: monthly_cost
+    label: "Monthly Cost"
+    source:
+      kind: record
+      name: cost_entry
+    measure:
+      aggregate: sum
+      field: amount
+    time:
+      field: incurred_at
+      grain: month
+    window:
+      mode: rolling
+      size: 3
+      unit: months
+    unit: GBP
+    dimensions:
+      - campaign
+      - product
+      - region
+    depends_on: []
+  - name: monthly_revenue
+    label: "Monthly Revenue"
+    source:
+      kind: record
+      name: payment
+    measure:
+      aggregate: sum
+      field: amount
+    filters:
+      - field: status
+        operator: equals
+        value: settled
+    time:
+      field: paid_at
+      grain: month
+    unit: GBP
+    dimensions:
+      - campaign
+      - product
+      - customer
+      - region
+    depends_on: []
+    target:
+      operator: ">="
+      value: 100000
+      unit: GBP
+  - name: visitor_sessions
+    label: "Visitor Sessions"
+    source:
+      kind: record
+      name: visitor
+    measure:
+      aggregate: count
+    time:
+      field: visited_at
+      grain: day
+    dimensions:
+      - campaign
+      - region
+    depends_on: []
+provider_requirements:
+  - category: storage
+    capabilities:
+      - event-log
+      - projections
+policies: []
+approvals: []
+migrations:
+  - name: metrics-commerce-compatibility
+    compatibility: additive
+    projection_updates: []
+agent_endpoints:
+  - id: record_click
+    title: "record click"
+    intent: "Run the record click business action."
+    inputs:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: clicked_at
+        type: timestamp
+        required: true
+        sensitive: false
+      - name: campaign
+        type: string
+        required: true
+        sensitive: false
+      - name: product
+        type: string
+        required: true
+        sensitive: false
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+    outputs: []
+    side_effects:
+      - action.record_click
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - record_click
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: record_payment
+    title: "record payment"
+    intent: "Run the record payment business action."
+    inputs:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: amount
+        type: decimal
+        required: true
+        sensitive: false
+      - name: status
+        type: string
+        required: true
+        sensitive: false
+      - name: paid_at
+        type: timestamp
+        required: true
+        sensitive: false
+      - name: campaign
+        type: string
+        required: true
+        sensitive: false
+      - name: product
+        type: string
+        required: true
+        sensitive: false
+      - name: customer
+        type: string
+        required: true
+        sensitive: true
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+    outputs: []
+    side_effects:
+      - action.record_payment
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - record_payment
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: record_cost
+    title: "record cost"
+    intent: "Run the record cost business action."
+    inputs:
+      - name: id
+        type: string
+        required: true
+        sensitive: false
+      - name: amount
+        type: decimal
+        required: true
+        sensitive: false
+      - name: incurred_at
+        type: timestamp
+        required: true
+        sensitive: false
+      - name: campaign
+        type: string
+        required: true
+        sensitive: false
+      - name: product
+        type: string
+        required: true
+        sensitive: false
+      - name: region
+        type: string
+        required: true
+        sensitive: false
+    outputs: []
+    side_effects:
+      - action.record_cost
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - record_cost
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+# --- END GREENTIC-SORLA GENERATED ---

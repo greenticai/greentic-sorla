@@ -1,8 +1,8 @@
 use super::{
-    DraftAction, DraftApproval, DraftEvent, DraftField, DraftPolicy, DraftProjection, DraftRecord,
-    LlmCapability, LlmCapabilityConfig, LlmMessage, LlmRequest, LlmResponseFormat, LlmRole,
-    PromptAnswer, PromptAnswerKind, PromptAnswerValue, PromptAssumption,
-    PromptAssumptionConfidence, PromptPhase, PromptQuestion, PromptQuestionRisk,
+    DraftAction, DraftApproval, DraftEvent, DraftField, DraftMetric, DraftMetricFilter,
+    DraftPolicy, DraftProjection, DraftRecord, LlmCapability, LlmCapabilityConfig, LlmMessage,
+    LlmRequest, LlmResponseFormat, LlmRole, PromptAnswer, PromptAnswerKind, PromptAnswerValue,
+    PromptAssumption, PromptAssumptionConfidence, PromptPhase, PromptQuestion, PromptQuestionRisk,
     PromptSessionConfig, PromptSessionState, PromptTurnInput, PromptTurnOutput, SorDesignDraft,
 };
 use crate::{NormalizeOptions, SorlaError, ValidateOptions};
@@ -443,6 +443,7 @@ A good plan:
 - Includes domain actions the system must support, such as join, leave, approve, apply, record, publish, or update.
 - Includes events only for meaningful business facts that should be immutable or drive projections.
 - Includes projections/read models when the customer asks to show, list, rank, report, or search data.
+- Includes metrics/KPIs when the customer asks to track clicks, revenue, costs, conversion, margins, churn, ROAS, CAC, MRR, dashboards, targets, or reporting cadence.
 - Includes policies/approvals when ranking, fraud checks, permissions, or business rules matter.
 - Avoids generic placeholders like case, item, record, action, event unless the customer prompt is genuinely generic.
 - Avoids unrelated domains; do not add landlord, tenant, lease, rent, or maintenance concepts unless the customer asked for them.
@@ -475,6 +476,7 @@ You are the discovery step. Extract the likely System of Record scope from the c
 A good response:
 - Focuses on durable records and business facts, not screens or implementation framework details.
 - Proposes domain-specific records, fields, actions, events, projections, policies, and approvals that match the customer prompt.
+- Proposes domain-specific metrics/KPIs when the prompt mentions tracking, reporting, dashboards, revenue, cost, conversion, margin, churn, ROAS, CAC, MRR, targets, or thresholds.
 - Uses concise snake_case names that can become generated artifact names.
 - Asks only high-value clarifying questions when the scope is ambiguous or a risky business rule is missing.
 - Does not invent unrelated domain concepts.
@@ -490,6 +492,7 @@ Return JSON only with this exact shape:
     "actions": [{{"name":"snake_case","description":"...", "risk":"low|medium|high"}}],
     "events": [{{"name":"snake_case","description":"..."}}],
     "projections": [{{"name":"snake_case","description":"..."}}],
+    "metrics": [{{"name":"snake_case","label":"Display label","description":"...","source_record":"record_name","aggregate":"count|sum|average|min|max|count_distinct","field":"field_name_or_null","time_field":"created_at","grain":"day|week|month|quarter|year","unit":"GBP|USD|percent|null","dimensions":["product","campaign"],"formula":null,"depends_on":[],"filters":[{{"field":"status","operator":"equals","value":"paid"}}]}}],
     "policies": [],
     "approvals": [],
     "migrations": [],
@@ -502,6 +505,7 @@ The final answers.json produced from this draft must satisfy this Greentic SoRLa
 {wizard_schema}
 
 Ask only questions that are directly relevant to the user's prompt. Do not ask landlord, tenant, lease, rent, or maintenance questions unless the prompt is actually about those concepts.
+For metrics/KPIs, ask targeted questions about the source record/event, amount field, recognized statuses, cadence, dimensions, formula inputs, and targets. Do not propose executable formulas or provider-specific query strings.
 Prefer a small number of high-value follow-up questions. Use empty questions if the prompt is already sufficient."#
     )
 }
@@ -603,6 +607,7 @@ A high-quality answers.json:
 - For hybrid records, marks each field with authority local or external, and includes at least one local and one external field.
 - Uses events for immutable business facts and lifecycle moments, not every ordinary field update.
 - Uses projections/read models when the customer needs to show lists, rankings, dashboards, or searchable views; each projection should name a source_event that exists in events.items.
+- Uses metrics.items for KPIs and reporting measures. Define safe aggregate metrics over records/events and formula metrics only as simple arithmetic over named metrics with depends_on.
 - Uses actions for business operations users or agents should request.
 - Uses policies and approvals for ranking rules, fraud checks, permission gates, risky changes, or human review.
 - Keeps provider requirements abstract and capability-oriented, not hardcoded to a vendor.
@@ -715,6 +720,7 @@ fn authoring_output_schema_json() -> serde_json::Value {
                     "actions": { "type": "array", "items": { "type": "object" } },
                     "events": { "type": "array", "items": { "type": "object" } },
                     "projections": { "type": "array", "items": { "type": "object" } },
+                    "metrics": { "type": "array", "items": { "type": "object" } },
                     "policies": { "type": "array", "items": { "type": "object" } },
                     "approvals": { "type": "array", "items": { "type": "object" } },
                     "migrations": { "type": "array", "items": { "type": "object" } },
@@ -843,6 +849,49 @@ fn answers_response_schema_json() -> serde_json::Value {
         }
       }
     },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": { "type": "string" },
+              "label": { "type": ["string", "null"] },
+              "description": { "type": ["string", "null"] },
+              "source": {
+                "type": ["object", "null"],
+                "additionalProperties": true,
+                "properties": {
+                  "kind": { "type": "string", "enum": ["record", "event", "projection"] },
+                  "name": { "type": "string" }
+                }
+              },
+              "measure": {
+                "type": ["object", "null"],
+                "additionalProperties": true,
+                "properties": {
+                  "aggregate": { "type": "string", "enum": ["count", "sum", "average", "min", "max", "count_distinct"] },
+                  "field": { "type": ["string", "null"] }
+                }
+              },
+              "filters": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+              "time": { "type": ["object", "null"], "additionalProperties": true },
+              "window": { "type": ["object", "null"], "additionalProperties": true },
+              "unit": { "type": ["string", "null"] },
+              "dimensions": { "type": "array", "items": { "type": "string" } },
+              "formula": { "type": ["string", "null"] },
+              "depends_on": { "type": "array", "items": { "type": "string" } },
+              "target": { "type": ["object", "null"], "additionalProperties": true }
+            }
+          }
+        }
+      }
+    },
     "policies": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "approvals": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "migrations": { "type": "object", "additionalProperties": true },
@@ -873,6 +922,9 @@ fn fallback_model_output(prompt: &str) -> PromptModelOutput {
 
 fn fallback_questions_for_prompt(prompt: &str) -> Vec<PromptQuestion> {
     let normalized = normalize_text(prompt);
+    if wants_metrics(&normalized) {
+        return metric_question_graph(&normalized);
+    }
     if normalized.contains("tenant") || normalized.contains("landlord") {
         return landlord_tenant_question_graph();
     }
@@ -909,6 +961,107 @@ fn fallback_questions_for_prompt(prompt: &str) -> Vec<PromptQuestion> {
         risk: PromptQuestionRisk::Low,
         depends_on: Vec::new(),
     }]
+}
+
+fn metric_question_graph(normalized_prompt: &str) -> Vec<PromptQuestion> {
+    let mut questions = vec![PromptQuestion {
+        id: "metrics.grain".to_string(),
+        text: "Should these metrics be daily, weekly, monthly, or reported at multiple grains?"
+            .to_string(),
+        help: None,
+        answer_kind: PromptAnswerKind::MultiChoice {
+            choices: vec![
+                "day".to_string(),
+                "week".to_string(),
+                "month".to_string(),
+                "quarter".to_string(),
+                "year".to_string(),
+            ],
+        },
+        required: true,
+        risk: PromptQuestionRisk::Low,
+        depends_on: Vec::new(),
+    }];
+    if normalized_prompt.contains("revenue") {
+        questions.push(PromptQuestion {
+            id: "metrics.revenue_source".to_string(),
+            text: "Which record or event represents recognized revenue, and which field is the monetary amount?"
+                .to_string(),
+            help: Some("Include statuses such as paid, settled, booked, refunded, or draft if they matter.".to_string()),
+            answer_kind: PromptAnswerKind::FreeText,
+            required: true,
+            risk: PromptQuestionRisk::Medium,
+            depends_on: vec!["metrics.grain".to_string()],
+        });
+    }
+    if normalized_prompt.contains("cost") || normalized_prompt.contains("costs") {
+        questions.push(PromptQuestion {
+            id: "metrics.cost_source".to_string(),
+            text: "Where should costs come from: invoices, campaigns, labour, subscriptions, or manual entries?"
+                .to_string(),
+            help: None,
+            answer_kind: PromptAnswerKind::MultiChoice {
+                choices: vec![
+                    "invoices".to_string(),
+                    "campaigns".to_string(),
+                    "labour".to_string(),
+                    "subscriptions".to_string(),
+                    "manual entries".to_string(),
+                ],
+            },
+            required: true,
+            risk: PromptQuestionRisk::Medium,
+            depends_on: vec!["metrics.grain".to_string()],
+        });
+    }
+    if normalized_prompt.contains("gross") && normalized_prompt.contains("margin") {
+        questions.push(PromptQuestion {
+            id: "metrics.gross_margin".to_string(),
+            text: "Should gross margin be reported as an amount, a ratio, or a percentage?"
+                .to_string(),
+            help: None,
+            answer_kind: PromptAnswerKind::SingleChoice {
+                choices: vec![
+                    "amount".to_string(),
+                    "ratio".to_string(),
+                    "percentage".to_string(),
+                ],
+            },
+            required: true,
+            risk: PromptQuestionRisk::Medium,
+            depends_on: vec!["metrics.grain".to_string()],
+        });
+    }
+    if normalized_prompt.contains("conversion") {
+        questions.push(PromptQuestion {
+            id: "metrics.conversion_rate".to_string(),
+            text: "What counts as a visitor or session, and what counts as a conversion?"
+                .to_string(),
+            help: None,
+            answer_kind: PromptAnswerKind::FreeText,
+            required: true,
+            risk: PromptQuestionRisk::Medium,
+            depends_on: vec!["metrics.grain".to_string()],
+        });
+    }
+    questions.push(PromptQuestion {
+        id: "metrics.dimensions".to_string(),
+        text: "Which dimensions should metrics break down by, such as product, campaign, customer, or region?"
+            .to_string(),
+        help: None,
+        answer_kind: PromptAnswerKind::MultiChoice {
+            choices: vec![
+                "product".to_string(),
+                "campaign".to_string(),
+                "customer".to_string(),
+                "region".to_string(),
+            ],
+        },
+        required: false,
+        risk: PromptQuestionRisk::Low,
+        depends_on: vec!["metrics.grain".to_string()],
+    });
+    questions
 }
 
 fn next_questions_for_session(session: &PromptSessionState) -> Vec<PromptQuestion> {
@@ -1045,6 +1198,31 @@ fn normalize_text(input: &str) -> String {
         .collect::<String>()
 }
 
+fn wants_metrics(normalized: &str) -> bool {
+    [
+        "metric",
+        "metrics",
+        "kpi",
+        "kpis",
+        "track",
+        "dashboard",
+        "report",
+        "click",
+        "clicks",
+        "revenue",
+        "cost",
+        "costs",
+        "gross margin",
+        "conversion",
+        "roas",
+        "cac",
+        "mrr",
+        "churn",
+    ]
+    .iter()
+    .any(|term| normalized.contains(term))
+}
+
 fn assumptions_for_prompt(prompt: &str) -> Vec<PromptAssumption> {
     let mut assumptions = vec![PromptAssumption {
         id: "durable-records".to_string(),
@@ -1067,11 +1245,21 @@ fn assumptions_for_prompt(prompt: &str) -> Vec<PromptAssumption> {
             confidence: PromptAssumptionConfidence::High,
         });
     }
+    if wants_metrics(&normalized) {
+        assumptions.push(PromptAssumption {
+            id: "metrics-domain".to_string(),
+            text: "The prompt asks for metrics or KPIs that should be modeled as validated metric definitions.".to_string(),
+            confidence: PromptAssumptionConfidence::High,
+        });
+    }
     assumptions
 }
 
 fn draft_for_prompt(prompt: &str, answers: &[PromptAnswer]) -> SorDesignDraft {
     let normalized = normalize_text(prompt);
+    if wants_metrics(&normalized) {
+        return metrics_draft(&normalized, answers);
+    }
     if normalized.contains("tenant") || normalized.contains("landlord") {
         return landlord_tenant_draft(answers);
     }
@@ -1083,6 +1271,208 @@ fn draft_for_prompt(prompt: &str, answers: &[PromptAnswer]) -> SorDesignDraft {
         summary: "Prompt-generated system of record".to_string(),
         records: vec![record("case", "Business case", &[field("id", "string")])],
         ..SorDesignDraft::default()
+    }
+}
+
+fn metrics_draft(normalized_prompt: &str, answers: &[PromptAnswer]) -> SorDesignDraft {
+    let grain = metric_grain_answer(answers).unwrap_or_else(|| "month".to_string());
+    let dimensions = metric_dimensions_answer(answers);
+    let include_clicks =
+        normalized_prompt.contains("click") || normalized_prompt.contains("clicks");
+    let include_revenue = normalized_prompt.contains("revenue")
+        || normalized_prompt.contains("roas")
+        || normalized_prompt.contains("mrr")
+        || normalized_prompt.contains("gross margin");
+    let include_cost =
+        normalized_prompt.contains("cost") || normalized_prompt.contains("gross margin");
+    let include_gross_margin = normalized_prompt.contains("gross margin");
+
+    let mut records = Vec::new();
+    let mut events = Vec::new();
+    let mut metrics = Vec::new();
+
+    if include_clicks {
+        records.push(record(
+            "click",
+            "Tracked click or interaction",
+            &[
+                field("id", "string"),
+                field("clicked_at", "timestamp"),
+                field("campaign", "string"),
+                field("product", "string"),
+                field("customer", "string"),
+                field("region", "string"),
+            ],
+        ));
+        events.push(DraftEvent {
+            name: "click_tracked".to_string(),
+            description: Some("A click was tracked.".to_string()),
+        });
+        metrics.push(metric_count(
+            "clicks",
+            "Clicks",
+            "click",
+            "clicked_at",
+            &grain,
+            &dimensions,
+        ));
+    }
+
+    if include_revenue {
+        records.push(record(
+            "order",
+            "Revenue-bearing order",
+            &[
+                field("id", "string"),
+                field("amount", "decimal"),
+                field("status", "string"),
+                field("recognized_at", "timestamp"),
+                field("campaign", "string"),
+                field("product", "string"),
+                field("customer", "string"),
+                field("region", "string"),
+            ],
+        ));
+        events.push(DraftEvent {
+            name: "revenue_recognized".to_string(),
+            description: Some("Revenue was recognized for an order.".to_string()),
+        });
+        metrics.push(DraftMetric {
+            name: "revenue".to_string(),
+            label: Some("Revenue".to_string()),
+            description: Some("Recognized revenue over time.".to_string()),
+            source_record: Some("order".to_string()),
+            aggregate: Some("sum".to_string()),
+            field: Some("amount".to_string()),
+            time_field: Some("recognized_at".to_string()),
+            grain: Some(grain.clone()),
+            unit: Some("GBP".to_string()),
+            dimensions: dimensions.clone(),
+            formula: None,
+            depends_on: Vec::new(),
+            filters: vec![DraftMetricFilter {
+                field: "status".to_string(),
+                operator: "equals".to_string(),
+                value: Some(serde_json::json!("paid")),
+            }],
+        });
+    }
+
+    if include_cost {
+        records.push(record(
+            "cost",
+            "Cost entry",
+            &[
+                field("id", "string"),
+                field("amount", "decimal"),
+                field("incurred_at", "timestamp"),
+                field("campaign", "string"),
+                field("product", "string"),
+                field("customer", "string"),
+                field("region", "string"),
+            ],
+        ));
+        events.push(DraftEvent {
+            name: "cost_incurred".to_string(),
+            description: Some("A cost was incurred.".to_string()),
+        });
+        metrics.push(DraftMetric {
+            name: "cost".to_string(),
+            label: Some("Cost".to_string()),
+            description: Some("Costs over time.".to_string()),
+            source_record: Some("cost".to_string()),
+            aggregate: Some("sum".to_string()),
+            field: Some("amount".to_string()),
+            time_field: Some("incurred_at".to_string()),
+            grain: Some(grain.clone()),
+            unit: Some("GBP".to_string()),
+            dimensions: dimensions.clone(),
+            formula: None,
+            depends_on: Vec::new(),
+            filters: Vec::new(),
+        });
+    }
+
+    if include_gross_margin {
+        metrics.push(DraftMetric {
+            name: "gross_margin".to_string(),
+            label: Some("Gross Margin".to_string()),
+            description: Some("Revenue minus cost.".to_string()),
+            source_record: None,
+            aggregate: None,
+            field: None,
+            time_field: None,
+            grain: None,
+            unit: Some("GBP".to_string()),
+            dimensions,
+            formula: Some("revenue - cost".to_string()),
+            depends_on: vec!["revenue".to_string(), "cost".to_string()],
+            filters: Vec::new(),
+        });
+    }
+
+    if records.is_empty() {
+        records.push(record(
+            "metric_event",
+            "Metric source event",
+            &[
+                field("id", "string"),
+                field("value", "decimal"),
+                field("occurred_at", "timestamp"),
+            ],
+        ));
+        metrics.push(DraftMetric {
+            name: "tracked_metric".to_string(),
+            label: Some("Tracked Metric".to_string()),
+            description: Some("Generic metric value over time.".to_string()),
+            source_record: Some("metric_event".to_string()),
+            aggregate: Some("sum".to_string()),
+            field: Some("value".to_string()),
+            time_field: Some("occurred_at".to_string()),
+            grain: Some(grain),
+            unit: None,
+            dimensions: Vec::new(),
+            formula: None,
+            depends_on: Vec::new(),
+            filters: Vec::new(),
+        });
+    }
+
+    SorDesignDraft {
+        summary: "Metrics and KPI system of record".to_string(),
+        records,
+        events,
+        projections: vec![DraftProjection {
+            name: "metrics_dashboard".to_string(),
+            description: Some("Dashboard projection for metric reporting.".to_string()),
+        }],
+        metrics,
+        ..SorDesignDraft::default()
+    }
+}
+
+fn metric_count(
+    name: &str,
+    label: &str,
+    source_record: &str,
+    time_field: &str,
+    grain: &str,
+    dimensions: &[String],
+) -> DraftMetric {
+    DraftMetric {
+        name: name.to_string(),
+        label: Some(label.to_string()),
+        description: Some(format!("{label} over time.")),
+        source_record: Some(source_record.to_string()),
+        aggregate: Some("count".to_string()),
+        field: None,
+        time_field: Some(time_field.to_string()),
+        grain: Some(grain.to_string()),
+        unit: None,
+        dimensions: dimensions.to_vec(),
+        formula: None,
+        depends_on: Vec::new(),
+        filters: Vec::new(),
     }
 }
 
@@ -1290,6 +1680,52 @@ fn boolean_answer(answers: &[PromptAnswer], question_id: &str) -> Option<bool> {
     })
 }
 
+fn metric_grain_answer(answers: &[PromptAnswer]) -> Option<String> {
+    answers.iter().find_map(|answer| {
+        if answer.question_id != "metrics.grain" {
+            return None;
+        }
+        match &answer.value {
+            PromptAnswerValue::SingleChoice(value) => Some(value.clone()),
+            PromptAnswerValue::MultiChoice(values) => values.first().cloned(),
+            PromptAnswerValue::FreeText(value) => {
+                let normalized = normalize_text(value);
+                ["day", "week", "month", "quarter", "year"]
+                    .into_iter()
+                    .find(|grain| normalized.contains(grain))
+                    .map(str::to_string)
+            }
+            PromptAnswerValue::Boolean(_) => None,
+        }
+    })
+}
+
+fn metric_dimensions_answer(answers: &[PromptAnswer]) -> Vec<String> {
+    answers
+        .iter()
+        .find_map(|answer| {
+            if answer.question_id != "metrics.dimensions" {
+                return None;
+            }
+            match &answer.value {
+                PromptAnswerValue::MultiChoice(values) => Some(values.clone()),
+                PromptAnswerValue::SingleChoice(value) => Some(vec![value.clone()]),
+                PromptAnswerValue::FreeText(value) => {
+                    let normalized = normalize_text(value);
+                    Some(
+                        ["product", "campaign", "customer", "region"]
+                            .into_iter()
+                            .filter(|dimension| normalized.contains(dimension))
+                            .map(str::to_string)
+                            .collect(),
+                    )
+                }
+                PromptAnswerValue::Boolean(_) => None,
+            }
+        })
+        .unwrap_or_else(|| vec!["product".to_string(), "campaign".to_string()])
+}
+
 fn answers_from_draft(draft: &SorDesignDraft) -> serde_json::Value {
     let is_landlord_tenant = draft.records.iter().any(|record| record.name == "lease")
         && draft.records.iter().any(|record| record.name == "tenant");
@@ -1338,6 +1774,11 @@ fn answers_from_draft(draft: &SorDesignDraft) -> serde_json::Value {
             }))
         })
         .collect::<Vec<_>>();
+    let metric_items = draft
+        .metrics
+        .iter()
+        .map(metric_answer_value)
+        .collect::<Vec<_>>();
 
     serde_json::json!({
         "schema_version": "0.5",
@@ -1363,6 +1804,10 @@ fn answers_from_draft(draft: &SorDesignDraft) -> serde_json::Value {
         "projections": {
             "mode": "current-state",
             "items": projection_items
+        },
+        "metrics": {
+            "enabled": !metric_items.is_empty(),
+            "items": metric_items
         },
         "policies": draft.policies.iter().map(|policy| serde_json::json!({ "name": policy.name })).collect::<Vec<_>>(),
         "approvals": draft.approvals.iter().map(|approval| serde_json::json!({ "name": approval.name })).collect::<Vec<_>>(),
@@ -1393,6 +1838,15 @@ fn infer_event_record<'a>(event_name: &str, draft: &'a SorDesignDraft) -> &'a st
             return &record.name;
         }
     }
+    if event_name.contains("click") {
+        return "click";
+    }
+    if event_name.contains("revenue") {
+        return "order";
+    }
+    if event_name.contains("cost") {
+        return "cost";
+    }
     if event_name.contains("payment") {
         return "payment";
     }
@@ -1407,6 +1861,44 @@ fn infer_event_record<'a>(event_name: &str, draft: &'a SorDesignDraft) -> &'a st
         .first()
         .map(|record| record.name.as_str())
         .unwrap_or("record")
+}
+
+fn metric_answer_value(metric: &DraftMetric) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "name": metric.name,
+        "label": metric.label,
+        "description": metric.description,
+        "filters": metric.filters.iter().map(|filter| {
+            serde_json::json!({
+                "field": filter.field,
+                "operator": filter.operator,
+                "value": filter.value
+            })
+        }).collect::<Vec<_>>(),
+        "unit": metric.unit,
+        "dimensions": metric.dimensions,
+        "formula": metric.formula,
+        "depends_on": metric.depends_on
+    });
+    if let Some(source_record) = &metric.source_record {
+        value["source"] = serde_json::json!({
+            "kind": "record",
+            "name": source_record
+        });
+    }
+    if let Some(aggregate) = &metric.aggregate {
+        value["measure"] = serde_json::json!({
+            "aggregate": aggregate,
+            "field": metric.field
+        });
+    }
+    if let (Some(time_field), Some(grain)) = (&metric.time_field, &metric.grain) {
+        value["time"] = serde_json::json!({
+            "field": time_field,
+            "grain": grain
+        });
+    }
+    value
 }
 
 #[cfg(test)]
@@ -1734,6 +2226,80 @@ mod tests {
     }
 
     #[test]
+    fn metrics_prompt_asks_adaptive_kpi_questions() {
+        let engine = DefaultPromptAuthoringEngine::new(FakePromptLlm);
+        let output = engine
+            .next_turn(PromptTurnInput {
+                session: engine.start_session(config()).unwrap(),
+                user_message:
+                    "I want to track clicks, revenues, costs and KPIs monthly with gross margin."
+                        .to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(output.next_questions[0].id, "metrics.grain");
+        let questions = output.session.questions;
+        assert!(
+            questions
+                .iter()
+                .any(|question| question.id == "metrics.revenue_source")
+        );
+        assert!(
+            questions
+                .iter()
+                .any(|question| question.id == "metrics.cost_source")
+        );
+        assert!(
+            questions
+                .iter()
+                .any(|question| question.id == "metrics.gross_margin")
+        );
+        let draft = output.session.draft_model.as_ref().unwrap();
+        assert!(draft.metrics.iter().any(|metric| metric.name == "clicks"));
+        assert!(draft.metrics.iter().any(|metric| metric.name == "revenue"));
+        assert!(draft.metrics.iter().any(|metric| metric.name == "cost"));
+        assert!(
+            draft
+                .metrics
+                .iter()
+                .any(|metric| metric.name == "gross_margin")
+        );
+    }
+
+    #[test]
+    fn fake_prompt_generates_valid_metric_answers() {
+        let engine = DefaultPromptAuthoringEngine::new(FakePromptLlm);
+        let output = engine
+            .next_turn(PromptTurnInput {
+                session: engine.start_session(config()).unwrap(),
+                user_message:
+                    "Track clicks, revenue, costs, gross margin, ROAS and KPI dashboards monthly."
+                        .to_string(),
+            })
+            .unwrap();
+
+        let answers = engine
+            .generate_answers(output.session)
+            .expect("metric answers generate");
+        crate::normalize_answers(answers.clone(), NormalizeOptions)
+            .expect("metric answers validate");
+        let metric_names = answers["metrics"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|metric| metric["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(metric_names.contains(&"clicks"));
+        assert!(metric_names.contains(&"revenue"));
+        assert!(metric_names.contains(&"cost"));
+        assert!(metric_names.contains(&"gross_margin"));
+        assert_eq!(
+            answers["metrics"]["items"][3]["depends_on"],
+            serde_json::json!(["revenue", "cost"])
+        );
+    }
+
+    #[test]
     fn generate_answers_command_writes_from_current_draft() {
         let engine = DefaultPromptAuthoringEngine::new(FakePromptLlm);
         let output = engine
@@ -1978,6 +2544,12 @@ mod tests {
         };
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["records"].is_object());
+        assert!(schema["properties"]["metrics"].is_object());
+        assert_eq!(
+            schema["properties"]["metrics"]["properties"]["items"]["items"]["properties"]["measure"]
+                ["properties"]["aggregate"]["enum"][0],
+            "count"
+        );
         assert!(
             schema["properties"]["records"]["properties"]
                 .as_object()

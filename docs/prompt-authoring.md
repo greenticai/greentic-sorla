@@ -30,6 +30,13 @@ The existing wizard pipeline remains the deterministic boundary. Prompt output
 should be validated with `normalize_answers` / `validate_model` and can then be
 applied with `apply_answers` or `greentic-sorla wizard --answers`.
 
+Prompt authoring can include metrics and KPIs in `answers.json` when the user
+asks to track clicks, revenue, costs, conversion, gross margin, ROAS, CAC, MRR,
+churn, targets, or reporting cadence. The prompt engine asks targeted follow-up
+questions about sources, amount fields, recognized statuses, grains, dimensions,
+formula inputs, and KPI thresholds, then emits `metrics.items` for the wizard
+pipeline to validate and render.
+
 ## LLM Capability
 
 Prompt authoring requires an LLM capability. There is no `--no-llm` mode.
@@ -123,6 +130,7 @@ Regression coverage should verify:
 - prompt sessions start, advance, save, and resume
 - adaptive follow-up questions respond to previous answers
 - generated `answers.json` validates through the library facade
+- generated metric/KPI answers validate through the same facade
 - generated answers apply through the wizard pipeline
 - prompt output does not generate `sorla.yaml`, `.gtpack`, component `src/`,
   component `assets/`, or `build-answers.json` directly

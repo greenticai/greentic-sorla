@@ -9,6 +9,9 @@ use greentic_qa_lib::{
     AnswerProvider, I18nConfig, QaLibError, ResolvedI18nMap, WizardDriver, WizardFrontend,
     WizardRunConfig,
 };
+use greentic_sorla_ir::lower_package;
+use greentic_sorla_lang::ast as sorla_ast;
+use greentic_sorla_lang::parser::parse_package;
 pub use greentic_sorla_pack::{
     AgentEndpointActionCatalogDocument, DEFAULT_DESIGNER_COMPONENT_OPERATION,
     DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypesDocument,
@@ -113,7 +116,456 @@ pub struct NormalizedSorlaModel {
     pub normalized_answers: serde_json::Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseSorlaInput {
+    pub source_yaml: String,
+    pub source_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParseSorlaOutput {
+    pub model: SorlaDesignModel,
+    pub diagnostics: Vec<SorlaDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaSourceRef {
+    pub kind: SorlaSourceKind,
+    pub path: Option<String>,
+    pub hash: String,
+    pub schema_version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SorlaSourceKind {
+    SorlaYaml,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaDesignModel {
+    pub source: SorlaSourceRef,
+    pub package: Option<SorlaPackageView>,
+    pub records: Vec<SorlaRecordView>,
+    pub relationships: Vec<SorlaRelationshipView>,
+    pub events: Vec<SorlaEventView>,
+    pub projections: Vec<SorlaProjectionView>,
+    pub metrics: Vec<SorlaMetricView>,
+    pub policies: Vec<SorlaNamedView>,
+    pub approvals: Vec<SorlaNamedView>,
+    pub agent_endpoints: Vec<SorlaAgentEndpointView>,
+    pub provider_requirements: Vec<SorlaProviderRequirementView>,
+    pub diagnostics: Vec<SorlaDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaPackageView {
+    pub name: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaRecordView {
+    pub name: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub source: String,
+    pub source_location: Option<String>,
+    pub sensitive: bool,
+    pub pii: bool,
+    pub external_ref: Option<SorlaExternalRefView>,
+    pub fields: Vec<SorlaFieldView>,
+    pub references: Vec<SorlaFieldReferenceView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaExternalRefView {
+    pub system: String,
+    pub key: String,
+    pub authoritative: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaFieldView {
+    pub name: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+    pub required: bool,
+    pub sensitive: bool,
+    pub enum_values: Vec<String>,
+    pub authority: Option<String>,
+    pub references: Option<SorlaFieldReferenceView>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaFieldReferenceView {
+    pub record: String,
+    pub field: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaRelationshipView {
+    pub id: String,
+    pub label: Option<String>,
+    pub from: String,
+    pub to: String,
+    pub source: String,
+    pub cardinality: Option<SorlaRelationshipCardinalityView>,
+    pub backed_by: Option<SorlaRelationshipBackingView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaRelationshipCardinalityView {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaRelationshipBackingView {
+    pub record: String,
+    pub from_field: Option<String>,
+    pub to_field: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaEventView {
+    pub name: String,
+    pub record: String,
+    pub kind: String,
+    pub emits: Vec<SorlaEventFieldView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaEventFieldView {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaProjectionView {
+    pub name: String,
+    pub record: String,
+    pub source_event: String,
+    pub mode: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaMetricView {
+    pub name: String,
+    pub label: String,
+    pub description: Option<String>,
+    pub source: Option<String>,
+    pub aggregate: Option<String>,
+    pub formula: Option<String>,
+    pub unit: Option<String>,
+    pub dimensions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaNamedView {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaAgentEndpointView {
+    pub id: String,
+    pub title: String,
+    pub intent: String,
+    pub description: Option<String>,
+    pub inputs: Vec<SorlaAgentEndpointInputView>,
+    pub outputs: Vec<SorlaAgentEndpointOutputView>,
+    pub side_effects: Vec<String>,
+    pub risk: String,
+    pub approval: String,
+    pub provider_requirements: Vec<SorlaProviderRequirementView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaAgentEndpointInputView {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+    pub required: bool,
+    pub description: Option<String>,
+    pub enum_values: Vec<String>,
+    pub sensitive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaAgentEndpointOutputView {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaProviderRequirementView {
+    pub category: String,
+    pub capabilities: Vec<String>,
+}
+
+pub const CONCEPT_VIEW_SCHEMA: &str = "greentic.sorla.concept-view.v1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptViewInput {
+    pub model: SorlaDesignModel,
+    pub mode: ConceptViewMode,
+    pub renderer_capabilities: Option<RendererCapabilities>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptViewOutput {
+    pub view: ConceptViewModel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConceptViewMode {
+    Overview,
+    Review,
+    Edit,
+    Cli,
+    Designer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RendererCapabilities {
+    pub cards: bool,
+    pub tables: bool,
+    pub graphs: bool,
+    pub forms: bool,
+    pub charts: bool,
+    pub cli_tables: bool,
+}
+
+impl Default for RendererCapabilities {
+    fn default() -> Self {
+        Self {
+            cards: true,
+            tables: true,
+            graphs: true,
+            forms: true,
+            charts: false,
+            cli_tables: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptViewModel {
+    pub schema: String,
+    pub source: SorlaSourceRef,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub summary: Option<String>,
+    pub status: ConceptViewStatus,
+    pub sections: Vec<ConceptSection>,
+    pub actions: Vec<ConceptAction>,
+    pub artifacts: Vec<ConceptArtifact>,
+    pub diagnostics: Vec<SorlaDiagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConceptViewStatus {
+    Valid,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptSection {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub summary: Option<String>,
+    pub items: Vec<ConceptItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptItem {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub summary: Option<String>,
+    pub properties: BTreeMap<String, serde_json::Value>,
+    pub actions: Vec<ConceptAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptAction {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub patch_template: Option<String>,
+    pub target: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptArtifact {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+    pub path: Option<String>,
+}
+
+pub const SORLA_PATCH_SCHEMA: &str = "greentic.sorla.patch.v1";
+pub const CONCEPT_DIFF_SCHEMA: &str = "greentic.sorla.concept-diff.v1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplyPatchInput {
+    pub source_yaml: String,
+    pub patch: SorlaPatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplyPatchOutput {
+    pub status: String,
+    pub updated_yaml: String,
+    pub old_hash: String,
+    pub new_hash: String,
+    pub diagnostics: Vec<SorlaDiagnostic>,
+    pub diff: ConceptDiff,
+    pub view: ConceptViewModel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProposePatchInput {
+    pub source_yaml: String,
+    pub instruction: String,
+    pub llm: Option<prompt::LlmCapabilityConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProposePatchOutput {
+    pub patch: SorlaPatch,
+    pub explanation: String,
+    pub risks: Vec<PatchRisk>,
+    pub preview_diff: Option<ConceptDiff>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PatchRisk {
+    pub level: String,
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaPatch {
+    pub schema: String,
+    pub source: SorlaPatchSource,
+    pub author: Option<SorlaPatchAuthor>,
+    pub intent: Option<String>,
+    pub operations: Vec<SorlaPatchOperation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaPatchSource {
+    pub kind: SorlaSourceKind,
+    pub path: Option<String>,
+    pub base_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaPatchAuthor {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum SorlaPatchOperation {
+    AddRecord {
+        record: SorlaPatchRecord,
+    },
+    RenameRecord {
+        from: String,
+        to: String,
+    },
+    DeleteRecord {
+        name: String,
+    },
+    AddField {
+        record: String,
+        field: SorlaPatchField,
+    },
+    UpdateField {
+        record: String,
+        name: String,
+        #[serde(default)]
+        type_name: Option<String>,
+        #[serde(default)]
+        required: Option<bool>,
+        #[serde(default)]
+        sensitive: Option<bool>,
+        #[serde(default)]
+        enum_values: Option<Vec<String>>,
+        #[serde(default)]
+        references: Option<Option<SorlaFieldReferenceView>>,
+    },
+    RemoveField {
+        record: String,
+        name: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaPatchRecord {
+    pub name: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub fields: Vec<SorlaPatchField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaPatchField {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub sensitive: bool,
+    #[serde(default)]
+    pub enum_values: Vec<String>,
+    #[serde(default)]
+    pub references: Option<SorlaFieldReferenceView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptDiff {
+    pub schema: String,
+    pub changes: Vec<ConceptChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConceptChange {
+    pub kind: ConceptChangeKind,
+    pub target: String,
+    pub label: String,
+    pub before: Option<serde_json::Value>,
+    pub after: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConceptChangeKind {
+    Added,
+    Updated,
+    Removed,
+    Renamed,
+    Conflict,
+    Warning,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaDiagnostic {
     pub severity: DiagnosticSeverity,
     pub code: String,
@@ -122,7 +574,7 @@ pub struct SorlaDiagnostic {
     pub suggestion: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DiagnosticSeverity {
     Info,
@@ -157,6 +609,7 @@ pub struct SorlaPreviewSummary {
     pub records: usize,
     pub events: usize,
     pub projections: usize,
+    pub metrics: usize,
     pub agent_endpoints: usize,
 }
 
@@ -237,10 +690,94 @@ enum Commands {
     Wizard(WizardArgs),
     /// Interactively turn a business prompt into wizard answers JSON.
     Prompt(PromptArgs),
+    /// Render and patch sorla.yaml using the shared Designer model.
+    Design(DesignArgs),
     /// Build, inspect, or doctor deterministic SoRLa gtpack handoff artifacts.
     Pack(PackArgs),
     #[command(name = "__inspect-product-shape", hide = true)]
     InspectProductShape,
+}
+
+#[derive(Debug, Args)]
+struct DesignArgs {
+    #[command(subcommand)]
+    command: DesignCommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum DesignCommand {
+    /// Render a concept view from sorla.yaml.
+    View(DesignViewArgs),
+    /// Apply a semantic patch JSON file to sorla.yaml.
+    Patch(DesignPatchArgs),
+    /// Add a field to a record through the semantic patch engine.
+    AddField(DesignAddFieldArgs),
+    /// Ask an LLM capability to propose a semantic patch.
+    ProposePatch(DesignProposePatchArgs),
+    /// Validate sorla.yaml and print diagnostics.
+    Validate(DesignValidateArgs),
+}
+
+#[derive(Debug, Args)]
+struct DesignViewArgs {
+    #[arg(value_name = "SORLA_YAML")]
+    input: PathBuf,
+    #[arg(long, action = ArgAction::SetTrue)]
+    json: bool,
+}
+
+#[derive(Debug, Args)]
+struct DesignPatchArgs {
+    #[arg(value_name = "SORLA_YAML")]
+    input: PathBuf,
+    #[arg(long, value_name = "PATCH_JSON")]
+    patch: PathBuf,
+    #[arg(long, action = ArgAction::SetTrue)]
+    dry_run: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    force: bool,
+}
+
+#[derive(Debug, Args)]
+struct DesignAddFieldArgs {
+    #[arg(value_name = "SORLA_YAML")]
+    input: PathBuf,
+    #[arg(long)]
+    record: String,
+    #[arg(long)]
+    name: String,
+    #[arg(long = "type")]
+    type_name: String,
+    #[arg(long, action = ArgAction::SetTrue)]
+    required: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    sensitive: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct DesignProposePatchArgs {
+    #[arg(value_name = "SORLA_YAML")]
+    input: PathBuf,
+    #[arg(value_name = "INSTRUCTION")]
+    instruction: String,
+    #[arg(long, value_name = "PATCH_JSON")]
+    out: Option<PathBuf>,
+    #[arg(long)]
+    llm_provider: Option<String>,
+    #[arg(long)]
+    llm_model: Option<String>,
+    #[arg(long)]
+    llm_endpoint: Option<String>,
+    #[arg(long)]
+    llm_capability_id: Option<String>,
+}
+
+#[derive(Debug, Args)]
+struct DesignValidateArgs {
+    #[arg(value_name = "SORLA_YAML")]
+    input: PathBuf,
 }
 
 #[derive(Args)]
@@ -477,6 +1014,8 @@ struct AnswersDocument {
     events: Option<EventAnswers>,
     #[serde(default)]
     projections: Option<ProjectionAnswers>,
+    #[serde(default)]
+    metrics: Option<MetricAnswers>,
     #[serde(default)]
     provider_requirements: Vec<ProviderRequirementAnswer>,
     #[serde(default)]
@@ -792,6 +1331,85 @@ struct ProjectionItemAnswer {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MetricAnswers {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    items: Vec<MetricItemAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MetricItemAnswer {
+    name: String,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    source: Option<MetricSourceAnswer>,
+    #[serde(default)]
+    measure: Option<MetricMeasureAnswer>,
+    #[serde(default)]
+    filters: Vec<MetricFilterAnswer>,
+    #[serde(default)]
+    time: Option<MetricTimeAnswer>,
+    #[serde(default)]
+    window: Option<MetricWindowAnswer>,
+    #[serde(default)]
+    unit: Option<String>,
+    #[serde(default)]
+    dimensions: Vec<String>,
+    #[serde(default)]
+    formula: Option<String>,
+    #[serde(default)]
+    depends_on: Vec<String>,
+    #[serde(default)]
+    target: Option<MetricTargetAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MetricSourceAnswer {
+    kind: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MetricMeasureAnswer {
+    aggregate: String,
+    #[serde(default)]
+    field: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MetricFilterAnswer {
+    field: String,
+    operator: String,
+    #[serde(default)]
+    value: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MetricTimeAnswer {
+    field: String,
+    grain: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MetricWindowAnswer {
+    mode: String,
+    size: u32,
+    unit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct MetricTargetAnswer {
+    operator: String,
+    value: serde_json::Value,
+    #[serde(default)]
+    unit: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct MigrationAnswers {
     #[serde(default)]
     compatibility: Option<String>,
@@ -971,6 +1589,8 @@ struct ResolvedAnswers {
     #[serde(default)]
     projection_items: Vec<ProjectionItemAnswer>,
     #[serde(default)]
+    metric_items: Vec<MetricItemAnswer>,
+    #[serde(default)]
     provider_requirements: Vec<ProviderRequirementAnswer>,
     #[serde(default)]
     policies: Vec<NamedAnswer>,
@@ -1061,10 +1681,1662 @@ pub fn normalize_answers(
     })
 }
 
+pub fn parse_sorla_yaml(input: ParseSorlaInput) -> Result<ParseSorlaOutput, SorlaError> {
+    let source = SorlaSourceRef {
+        kind: SorlaSourceKind::SorlaYaml,
+        path: input
+            .source_path
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        hash: format!("sha256:{}", sha256_hex_public(input.source_yaml.as_bytes())),
+        schema_version: None,
+    };
+
+    let parsed = match parse_package(&input.source_yaml) {
+        Ok(parsed) => parsed,
+        Err(message) => {
+            let diagnostics = vec![SorlaDiagnostic {
+                severity: DiagnosticSeverity::Error,
+                code: "sorla.parse".to_string(),
+                message,
+                path: input
+                    .source_path
+                    .as_ref()
+                    .map(|path| path.display().to_string()),
+                suggestion: Some(
+                    "Fix the SoRLa YAML syntax or schema fields and parse again.".to_string(),
+                ),
+            }];
+            let model = empty_design_model(source, diagnostics.clone());
+            return Ok(ParseSorlaOutput { model, diagnostics });
+        }
+    };
+
+    let _ir = lower_package(&parsed.package);
+    let mut diagnostics = parsed
+        .warnings
+        .iter()
+        .map(|warning| SorlaDiagnostic {
+            severity: DiagnosticSeverity::Warning,
+            code: "sorla.parse.warning".to_string(),
+            message: warning.message.clone(),
+            path: Some(warning.path.clone()),
+            suggestion: Some("Update the YAML to the normalized SoRLa shape.".to_string()),
+        })
+        .collect::<Vec<_>>();
+    diagnostics.extend(metric_diagnostics_from_package(&parsed.package));
+    diagnostics.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then(left.code.cmp(&right.code))
+            .then(left.message.cmp(&right.message))
+    });
+
+    let model = design_model_from_package(source, &parsed.package, diagnostics.clone());
+    Ok(ParseSorlaOutput { model, diagnostics })
+}
+
+fn metric_diagnostics_from_package(package: &sorla_ast::Package) -> Vec<SorlaDiagnostic> {
+    validate_package_metrics(package)
+        .into_iter()
+        .map(|message| SorlaDiagnostic {
+            severity: DiagnosticSeverity::Error,
+            code: "sorla.metrics.validation".to_string(),
+            message,
+            path: Some("metrics".to_string()),
+            suggestion: Some(
+                "Update metric source, measure, filters, time grain, or dependencies.".to_string(),
+            ),
+        })
+        .collect()
+}
+
+fn validate_package_metrics(package: &sorla_ast::Package) -> Vec<String> {
+    let record_fields = package
+        .records
+        .iter()
+        .map(|record| {
+            (
+                record.name.clone(),
+                record
+                    .fields
+                    .iter()
+                    .map(|field| field.name.clone())
+                    .collect::<BTreeSet<_>>(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let event_names = package
+        .events
+        .iter()
+        .map(|event| event.name.clone())
+        .collect::<BTreeSet<_>>();
+    let projection_names = package
+        .projections
+        .iter()
+        .map(|projection| projection.name.clone())
+        .collect::<BTreeSet<_>>();
+    let metric_names = package
+        .metrics
+        .iter()
+        .map(|metric| metric.name.clone())
+        .collect::<BTreeSet<_>>();
+    let mut errors = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut dependencies = BTreeMap::<String, Vec<String>>::new();
+
+    for (index, metric) in package.metrics.iter().enumerate() {
+        let path = format!("metrics[{index}]");
+        if !seen.insert(metric.name.clone()) {
+            errors.push(format!("{path}.name duplicates metric `{}`", metric.name));
+        }
+        let is_formula = metric
+            .formula
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty());
+        if is_formula {
+            if metric.depends_on.is_empty() {
+                errors.push(format!("{path}.depends_on is required for formula metrics"));
+            }
+            dependencies.insert(metric.name.clone(), metric.depends_on.clone());
+        } else {
+            let Some(source) = &metric.source else {
+                errors.push(format!("{path}.source is required for aggregate metrics"));
+                continue;
+            };
+            if !["record", "event", "projection"].contains(&source.kind.as_str()) {
+                errors.push(format!(
+                    "{path}.source.kind has unsupported value `{}`",
+                    source.kind
+                ));
+            }
+            match source.kind.as_str() {
+                "record" if !record_fields.contains_key(&source.name) => {
+                    errors.push(format!(
+                        "{path}.source.name points to unknown record `{}`",
+                        source.name
+                    ));
+                }
+                "event" if !event_names.contains(&source.name) => {
+                    errors.push(format!(
+                        "{path}.source.name points to unknown event `{}`",
+                        source.name
+                    ));
+                }
+                "projection" if !projection_names.contains(&source.name) => {
+                    errors.push(format!(
+                        "{path}.source.name points to unknown projection `{}`",
+                        source.name
+                    ));
+                }
+                _ => {}
+            }
+            let Some(measure) = &metric.measure else {
+                errors.push(format!("{path}.measure is required for aggregate metrics"));
+                continue;
+            };
+            if ![
+                "count",
+                "sum",
+                "avg",
+                "average",
+                "min",
+                "max",
+                "distinct_count",
+                "count_distinct",
+            ]
+            .contains(&measure.aggregate.as_str())
+            {
+                errors.push(format!(
+                    "{path}.measure.aggregate has unsupported value `{}`",
+                    measure.aggregate
+                ));
+            }
+            if measure.aggregate != "count"
+                && measure.field.as_deref().unwrap_or("").trim().is_empty()
+            {
+                errors.push(format!(
+                    "{path}.measure.field is required for `{}` metrics",
+                    measure.aggregate
+                ));
+            }
+            if source.kind == "record"
+                && let Some(field) = &measure.field
+                && let Some(fields) = record_fields.get(&source.name)
+                && !fields.contains(field)
+            {
+                errors.push(format!(
+                    "{path}.measure.field points to unknown field `{field}` on record `{}`",
+                    source.name
+                ));
+            }
+            if source.kind == "record"
+                && let Some(fields) = record_fields.get(&source.name)
+            {
+                for dimension in &metric.dimensions {
+                    if !fields.contains(dimension) {
+                        errors.push(format!(
+                            "{path}.dimensions contains unknown field `{dimension}` on record `{}`",
+                            source.name
+                        ));
+                    }
+                }
+            }
+        }
+        for (filter_index, filter) in metric.filters.iter().enumerate() {
+            if ![
+                "equals",
+                "not_equals",
+                "in",
+                "not_in",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "exists",
+                "not_exists",
+            ]
+            .contains(&filter.operator.as_str())
+            {
+                errors.push(format!(
+                    "{path}.filters[{filter_index}].operator has unsupported value `{}`",
+                    filter.operator
+                ));
+            }
+        }
+        if let Some(time) = &metric.time
+            && !["hour", "day", "week", "month", "quarter", "year"].contains(&time.grain.as_str())
+        {
+            errors.push(format!(
+                "{path}.time.grain has unsupported value `{}`",
+                time.grain
+            ));
+        }
+        if let Some(window) = &metric.window {
+            if window.size == 0 {
+                errors.push(format!("{path}.window.size must be greater than 0"));
+            }
+            if !["hours", "days", "weeks", "months", "quarters", "years"]
+                .contains(&window.unit.as_str())
+            {
+                errors.push(format!(
+                    "{path}.window.unit has unsupported value `{}`",
+                    window.unit
+                ));
+            }
+        }
+        if let Some(target) = &metric.target
+            && ![">", ">=", "<", "<=", "==", "!="].contains(&target.operator.as_str())
+        {
+            errors.push(format!(
+                "{path}.target.operator has unsupported value `{}`",
+                target.operator
+            ));
+        }
+    }
+    for (metric, depends_on) in &dependencies {
+        for dependency in depends_on {
+            if !metric_names.contains(dependency) {
+                errors.push(format!(
+                    "metric `{metric}` depends_on unknown metric `{dependency}`"
+                ));
+            }
+        }
+    }
+    errors.extend(metric_dependency_cycles(&dependencies));
+    errors
+}
+
+fn metric_dependency_cycles(dependencies: &BTreeMap<String, Vec<String>>) -> Vec<String> {
+    fn visit(
+        metric: &str,
+        dependencies: &BTreeMap<String, Vec<String>>,
+        visiting: &mut Vec<String>,
+        visited: &mut BTreeSet<String>,
+        errors: &mut Vec<String>,
+    ) {
+        if visited.contains(metric) {
+            return;
+        }
+        if visiting.iter().any(|item| item == metric) {
+            let mut cycle = visiting.clone();
+            cycle.push(metric.to_string());
+            errors.push(format!(
+                "metric dependency cycle detected: {}",
+                cycle.join(" -> ")
+            ));
+            return;
+        }
+        visiting.push(metric.to_string());
+        for dependency in dependencies.get(metric).cloned().unwrap_or_default() {
+            if dependencies.contains_key(&dependency) {
+                visit(&dependency, dependencies, visiting, visited, errors);
+            }
+        }
+        visiting.pop();
+        visited.insert(metric.to_string());
+    }
+
+    let mut visited = BTreeSet::new();
+    let mut errors = Vec::new();
+    for metric in dependencies.keys() {
+        visit(
+            metric,
+            dependencies,
+            &mut Vec::new(),
+            &mut visited,
+            &mut errors,
+        );
+    }
+    errors.sort();
+    errors.dedup();
+    errors
+}
+
+fn empty_design_model(
+    source: SorlaSourceRef,
+    diagnostics: Vec<SorlaDiagnostic>,
+) -> SorlaDesignModel {
+    SorlaDesignModel {
+        source,
+        package: None,
+        records: Vec::new(),
+        relationships: Vec::new(),
+        events: Vec::new(),
+        projections: Vec::new(),
+        metrics: Vec::new(),
+        policies: Vec::new(),
+        approvals: Vec::new(),
+        agent_endpoints: Vec::new(),
+        provider_requirements: Vec::new(),
+        diagnostics,
+    }
+}
+
+fn design_model_from_package(
+    source: SorlaSourceRef,
+    package: &sorla_ast::Package,
+    diagnostics: Vec<SorlaDiagnostic>,
+) -> SorlaDesignModel {
+    let mut records = package
+        .records
+        .iter()
+        .map(record_view)
+        .collect::<Vec<SorlaRecordView>>();
+    records.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut relationships = explicit_relationship_views(package);
+    relationships.extend(field_relationship_views(package));
+    relationships.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut events = package
+        .events
+        .iter()
+        .map(event_view)
+        .collect::<Vec<SorlaEventView>>();
+    events.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut projections = package
+        .projections
+        .iter()
+        .map(projection_view)
+        .collect::<Vec<SorlaProjectionView>>();
+    projections.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut metrics = package
+        .metrics
+        .iter()
+        .map(metric_view)
+        .collect::<Vec<SorlaMetricView>>();
+    metrics.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut policies = package
+        .policies
+        .iter()
+        .map(named_view)
+        .collect::<Vec<SorlaNamedView>>();
+    policies.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut approvals = package
+        .approvals
+        .iter()
+        .map(named_view)
+        .collect::<Vec<SorlaNamedView>>();
+    approvals.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut agent_endpoints = package
+        .agent_endpoints
+        .iter()
+        .map(agent_endpoint_view)
+        .collect::<Vec<SorlaAgentEndpointView>>();
+    agent_endpoints.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let mut provider_requirements = package
+        .provider_requirements
+        .iter()
+        .map(provider_requirement_view)
+        .collect::<Vec<SorlaProviderRequirementView>>();
+    provider_requirements.sort_by(|left, right| left.category.cmp(&right.category));
+
+    SorlaDesignModel {
+        source,
+        package: Some(SorlaPackageView {
+            name: package.package.name.clone(),
+            version: package.package.version.clone(),
+        }),
+        records,
+        relationships,
+        events,
+        projections,
+        metrics,
+        policies,
+        approvals,
+        agent_endpoints,
+        provider_requirements,
+        diagnostics,
+    }
+}
+
+fn record_view(record: &sorla_ast::Record) -> SorlaRecordView {
+    let mut fields = record
+        .fields
+        .iter()
+        .map(field_view)
+        .collect::<Vec<SorlaFieldView>>();
+    fields.sort_by(|left, right| left.name.cmp(&right.name));
+    let references = fields
+        .iter()
+        .filter_map(|field| field.references.clone())
+        .collect::<Vec<_>>();
+    let sensitive = fields.iter().any(|field| field.sensitive);
+    SorlaRecordView {
+        name: record.name.clone(),
+        label: human_label(&record.name),
+        description: None,
+        source: record
+            .source
+            .as_ref()
+            .map(serde_enum_string)
+            .unwrap_or_else(|| "native".to_string()),
+        source_location: None,
+        sensitive,
+        pii: sensitive,
+        external_ref: record
+            .external_ref
+            .as_ref()
+            .map(|external_ref| SorlaExternalRefView {
+                system: external_ref.system.clone(),
+                key: external_ref.key.clone(),
+                authoritative: external_ref.authoritative,
+            }),
+        fields,
+        references,
+    }
+}
+
+fn field_view(field: &sorla_ast::Field) -> SorlaFieldView {
+    SorlaFieldView {
+        name: field.name.clone(),
+        label: human_label(&field.name),
+        type_name: field.type_name.clone(),
+        required: field.required,
+        sensitive: field.sensitive,
+        enum_values: field.enum_values.clone(),
+        authority: field.authority.as_ref().map(serde_enum_string),
+        references: field
+            .references
+            .as_ref()
+            .map(|reference| SorlaFieldReferenceView {
+                record: reference.record.clone(),
+                field: reference.field.clone(),
+            }),
+        description: None,
+    }
+}
+
+fn explicit_relationship_views(package: &sorla_ast::Package) -> Vec<SorlaRelationshipView> {
+    package
+        .ontology
+        .as_ref()
+        .map(|ontology| {
+            ontology
+                .relationships
+                .iter()
+                .map(|relationship| SorlaRelationshipView {
+                    id: relationship.id.clone(),
+                    label: relationship.label.clone(),
+                    from: relationship.from.clone(),
+                    to: relationship.to.clone(),
+                    source: "ontology".to_string(),
+                    cardinality: relationship.cardinality.as_ref().map(|cardinality| {
+                        SorlaRelationshipCardinalityView {
+                            from: serde_enum_string(&cardinality.from),
+                            to: serde_enum_string(&cardinality.to),
+                        }
+                    }),
+                    backed_by: relationship.backed_by.as_ref().map(|backing| {
+                        SorlaRelationshipBackingView {
+                            record: backing.record.clone(),
+                            from_field: backing.from_field.clone(),
+                            to_field: backing.to_field.clone(),
+                        }
+                    }),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn field_relationship_views(package: &sorla_ast::Package) -> Vec<SorlaRelationshipView> {
+    package
+        .records
+        .iter()
+        .flat_map(|record| {
+            record.fields.iter().filter_map(|field| {
+                field
+                    .references
+                    .as_ref()
+                    .map(|reference| SorlaRelationshipView {
+                        id: format!(
+                            "field-ref.{}.{}.{}.{}",
+                            record.name, field.name, reference.record, reference.field
+                        ),
+                        label: Some(format!(
+                            "{} {} references {} {}",
+                            human_label(&record.name),
+                            human_label(&field.name),
+                            human_label(&reference.record),
+                            human_label(&reference.field)
+                        )),
+                        from: record.name.clone(),
+                        to: reference.record.clone(),
+                        source: "field-reference".to_string(),
+                        cardinality: None,
+                        backed_by: Some(SorlaRelationshipBackingView {
+                            record: record.name.clone(),
+                            from_field: Some(field.name.clone()),
+                            to_field: Some(reference.field.clone()),
+                        }),
+                    })
+            })
+        })
+        .collect()
+}
+
+fn event_view(event: &sorla_ast::EventDecl) -> SorlaEventView {
+    let mut emits = event
+        .emits
+        .iter()
+        .map(|field| SorlaEventFieldView {
+            name: field.name.clone(),
+            type_name: field.type_name.clone(),
+        })
+        .collect::<Vec<_>>();
+    emits.sort_by(|left, right| left.name.cmp(&right.name));
+    SorlaEventView {
+        name: event.name.clone(),
+        record: event.record.clone(),
+        kind: serde_enum_string(&event.kind),
+        emits,
+    }
+}
+
+fn projection_view(projection: &sorla_ast::ProjectionDecl) -> SorlaProjectionView {
+    SorlaProjectionView {
+        name: projection.name.clone(),
+        record: projection.record.clone(),
+        source_event: projection.source_event.clone(),
+        mode: serde_enum_string(&projection.mode),
+    }
+}
+
+fn metric_view(metric: &sorla_ast::MetricDecl) -> SorlaMetricView {
+    SorlaMetricView {
+        name: metric.name.clone(),
+        label: metric
+            .label
+            .clone()
+            .unwrap_or_else(|| human_label(&metric.name)),
+        description: metric.description.clone(),
+        source: metric
+            .source
+            .as_ref()
+            .map(|source| format!("{}:{}", source.kind, source.name)),
+        aggregate: metric
+            .measure
+            .as_ref()
+            .map(|measure| measure.aggregate.clone()),
+        formula: metric.formula.clone(),
+        unit: metric.unit.clone(),
+        dimensions: metric.dimensions.clone(),
+    }
+}
+
+fn named_view(block: &sorla_ast::NamedBlock) -> SorlaNamedView {
+    SorlaNamedView {
+        name: block.name.clone(),
+    }
+}
+
+fn provider_requirement_view(
+    requirement: &sorla_ast::ProviderRequirement,
+) -> SorlaProviderRequirementView {
+    let mut capabilities = requirement.capabilities.clone();
+    capabilities.sort();
+    SorlaProviderRequirementView {
+        category: requirement.category.clone(),
+        capabilities,
+    }
+}
+
+fn agent_endpoint_view(endpoint: &sorla_ast::AgentEndpointDecl) -> SorlaAgentEndpointView {
+    let mut inputs = endpoint
+        .inputs
+        .iter()
+        .map(|input| SorlaAgentEndpointInputView {
+            name: input.name.clone(),
+            type_name: input.type_name.clone(),
+            required: input.required,
+            description: input.description.clone(),
+            enum_values: input.enum_values.clone(),
+            sensitive: input.sensitive,
+        })
+        .collect::<Vec<_>>();
+    inputs.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut outputs = endpoint
+        .outputs
+        .iter()
+        .map(|output| SorlaAgentEndpointOutputView {
+            name: output.name.clone(),
+            type_name: output.type_name.clone(),
+            description: output.description.clone(),
+        })
+        .collect::<Vec<_>>();
+    outputs.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut provider_requirements = endpoint
+        .provider_requirements
+        .iter()
+        .map(provider_requirement_view)
+        .collect::<Vec<_>>();
+    provider_requirements.sort_by(|left, right| left.category.cmp(&right.category));
+
+    let mut side_effects = endpoint.side_effects.clone();
+    side_effects.sort();
+
+    SorlaAgentEndpointView {
+        id: endpoint.id.clone(),
+        title: endpoint.title.clone(),
+        intent: endpoint.intent.clone(),
+        description: endpoint.description.clone(),
+        inputs,
+        outputs,
+        side_effects,
+        risk: serde_enum_string(&endpoint.risk),
+        approval: serde_enum_string(&endpoint.approval),
+        provider_requirements,
+    }
+}
+
+fn serde_enum_string<T>(value: &T) -> String
+where
+    T: Serialize,
+{
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn human_label(name: &str) -> String {
+    name.split(['_', '-'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn generate_concept_view(input: ConceptViewInput) -> Result<ConceptViewOutput, SorlaError> {
+    let capabilities = input.renderer_capabilities.unwrap_or_default();
+    let model = input.model;
+    let title = model
+        .package
+        .as_ref()
+        .map(|package| human_label(&package.name))
+        .unwrap_or_else(|| "SoRLa package".to_string());
+    let subtitle = model
+        .package
+        .as_ref()
+        .map(|package| format!("{} {}", package.name, package.version));
+    let status = concept_status(&model.diagnostics);
+    let summary = Some(format!(
+        "{} records, {} relationships, {} events, {} projections, {} agent endpoints",
+        model.records.len(),
+        model.relationships.len(),
+        model.events.len(),
+        model.projections.len(),
+        model.agent_endpoints.len()
+    ));
+
+    let mut sections = Vec::new();
+    sections.push(overview_section(&model));
+    sections.push(records_section(&model));
+    if capabilities.graphs && !model.relationships.is_empty() {
+        sections.push(relationships_section(&model, "graph"));
+    } else if !model.relationships.is_empty() {
+        sections.push(relationships_section(&model, "relationship-list"));
+    }
+    if !model.events.is_empty() {
+        sections.push(events_section(&model));
+    }
+    if !model.projections.is_empty() {
+        sections.push(projections_section(&model));
+    }
+    if !model.metrics.is_empty() {
+        sections.push(metrics_section(&model));
+    }
+    if !model.policies.is_empty() {
+        sections.push(named_section(
+            "policies",
+            "policy-list",
+            "Policies",
+            "policy-card",
+            &model.policies,
+        ));
+    }
+    if !model.approvals.is_empty() {
+        sections.push(named_section(
+            "approvals",
+            "approval-flow",
+            "Approvals",
+            "approval-card",
+            &model.approvals,
+        ));
+    }
+    if !model.agent_endpoints.is_empty() {
+        sections.push(agent_endpoints_section(&model));
+    }
+    if !model.diagnostics.is_empty() {
+        sections.push(diagnostics_section(&model));
+    }
+
+    let mut artifacts = vec![
+        ConceptArtifact {
+            id: "sorla-yaml".to_string(),
+            label: "SoRLa YAML".to_string(),
+            kind: "source".to_string(),
+            path: model.source.path.clone(),
+        },
+        ConceptArtifact {
+            id: "gtpack-entries".to_string(),
+            label: "Deterministic gtpack entries".to_string(),
+            kind: "pack-plan".to_string(),
+            path: None,
+        },
+    ];
+    artifacts.sort_by(|left, right| left.id.cmp(&right.id));
+    sections.push(artifacts_section(&artifacts));
+
+    let mut actions = concept_actions(&model, &input.mode);
+    actions.sort_by(|left, right| left.id.cmp(&right.id));
+
+    Ok(ConceptViewOutput {
+        view: ConceptViewModel {
+            schema: CONCEPT_VIEW_SCHEMA.to_string(),
+            source: model.source,
+            title,
+            subtitle,
+            summary,
+            status,
+            sections,
+            actions,
+            artifacts,
+            diagnostics: model.diagnostics,
+        },
+    })
+}
+
+pub fn render_concept_view_cli(view: &ConceptViewModel) -> String {
+    let mut lines = Vec::new();
+    lines.push(view.title.clone());
+    lines.push(format!("Status: {}", serde_enum_string(&view.status)));
+    if let Some(summary) = &view.summary {
+        lines.push(String::new());
+        lines.push(summary.clone());
+    }
+    for section in &view.sections {
+        if section.items.is_empty() && section.summary.is_none() {
+            continue;
+        }
+        lines.push(String::new());
+        lines.push(format!("{}:", section.title));
+        if let Some(summary) = &section.summary {
+            lines.push(format!("  {summary}"));
+        }
+        for item in &section.items {
+            lines.push(format!("  {}", item.title));
+            if let Some(summary) = &item.summary {
+                lines.push(format!("    {summary}"));
+            }
+            for (key, value) in &item.properties {
+                if let Some(text) = concept_property_text(value) {
+                    lines.push(format!("    {key}: {text}"));
+                }
+            }
+        }
+    }
+    if !view.diagnostics.is_empty() {
+        lines.push(String::new());
+        lines.push("Diagnostics:".to_string());
+        for diagnostic in &view.diagnostics {
+            lines.push(format!(
+                "  {} {}: {}",
+                serde_enum_string(&diagnostic.severity),
+                diagnostic.code,
+                diagnostic.message
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn concept_property_text(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::Bool(value) => Some(value.to_string()),
+        serde_json::Value::Number(value) => Some(value.to_string()),
+        serde_json::Value::String(value) if value.is_empty() => None,
+        serde_json::Value::String(value) => Some(value.clone()),
+        serde_json::Value::Array(values) if values.is_empty() => None,
+        serde_json::Value::Array(values) => Some(
+            values
+                .iter()
+                .filter_map(concept_property_text)
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+        serde_json::Value::Object(values) if values.is_empty() => None,
+        serde_json::Value::Object(values) => Some(
+            values
+                .iter()
+                .filter_map(|(key, value)| {
+                    concept_property_text(value).map(|text| format!("{key}={text}"))
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+        ),
+    }
+}
+
+fn concept_status(diagnostics: &[SorlaDiagnostic]) -> ConceptViewStatus {
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    {
+        ConceptViewStatus::Error
+    } else if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Warning)
+    {
+        ConceptViewStatus::Warning
+    } else {
+        ConceptViewStatus::Valid
+    }
+}
+
+fn overview_section(model: &SorlaDesignModel) -> ConceptSection {
+    let mut properties = BTreeMap::new();
+    properties.insert(
+        "records".to_string(),
+        serde_json::json!(model.records.len()),
+    );
+    properties.insert(
+        "relationships".to_string(),
+        serde_json::json!(model.relationships.len()),
+    );
+    properties.insert("events".to_string(), serde_json::json!(model.events.len()));
+    properties.insert(
+        "projections".to_string(),
+        serde_json::json!(model.projections.len()),
+    );
+    properties.insert(
+        "agent_endpoints".to_string(),
+        serde_json::json!(model.agent_endpoints.len()),
+    );
+    ConceptSection {
+        id: "overview".to_string(),
+        kind: "overview".to_string(),
+        title: "Overview".to_string(),
+        summary: None,
+        items: vec![ConceptItem {
+            id: "overview.summary".to_string(),
+            kind: "summary-card".to_string(),
+            title: "Package summary".to_string(),
+            summary: None,
+            properties,
+            actions: Vec::new(),
+        }],
+    }
+}
+
+fn records_section(model: &SorlaDesignModel) -> ConceptSection {
+    ConceptSection {
+        id: "records".to_string(),
+        kind: "entity-grid".to_string(),
+        title: "Records".to_string(),
+        summary: Some(format!("{} records", model.records.len())),
+        items: model.records.iter().map(record_item).collect(),
+    }
+}
+
+fn record_item(record: &SorlaRecordView) -> ConceptItem {
+    let mut properties = BTreeMap::new();
+    properties.insert("name".to_string(), serde_json::json!(record.name));
+    properties.insert("source".to_string(), serde_json::json!(record.source));
+    properties.insert("fields".to_string(), serde_json::json!(record.fields));
+    properties.insert("sensitive".to_string(), serde_json::json!(record.sensitive));
+    ConceptItem {
+        id: format!("record.{}", record.name),
+        kind: "record-card".to_string(),
+        title: record.label.clone(),
+        summary: Some(format!("{} fields", record.fields.len())),
+        properties,
+        actions: vec![ConceptAction {
+            id: format!("add_field.{}", record.name),
+            label: "Add field".to_string(),
+            kind: "patch_template".to_string(),
+            patch_template: Some("add_field".to_string()),
+            target: serde_json::json!({ "record": record.name }),
+        }],
+    }
+}
+
+fn relationships_section(model: &SorlaDesignModel, kind: &str) -> ConceptSection {
+    ConceptSection {
+        id: "relationships".to_string(),
+        kind: kind.to_string(),
+        title: "Relationships".to_string(),
+        summary: Some(format!("{} relationships", model.relationships.len())),
+        items: model
+            .relationships
+            .iter()
+            .map(|relationship| {
+                let mut properties = BTreeMap::new();
+                properties.insert("from".to_string(), serde_json::json!(relationship.from));
+                properties.insert("to".to_string(), serde_json::json!(relationship.to));
+                properties.insert("source".to_string(), serde_json::json!(relationship.source));
+                ConceptItem {
+                    id: format!("relationship.{}", relationship.id),
+                    kind: "relationship-edge".to_string(),
+                    title: relationship
+                        .label
+                        .clone()
+                        .unwrap_or_else(|| relationship.id.clone()),
+                    summary: Some(format!("{} -> {}", relationship.from, relationship.to)),
+                    properties,
+                    actions: Vec::new(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn events_section(model: &SorlaDesignModel) -> ConceptSection {
+    ConceptSection {
+        id: "events".to_string(),
+        kind: "timeline".to_string(),
+        title: "Events".to_string(),
+        summary: Some(format!("{} events", model.events.len())),
+        items: model
+            .events
+            .iter()
+            .map(|event| {
+                let mut properties = BTreeMap::new();
+                properties.insert("record".to_string(), serde_json::json!(event.record));
+                properties.insert("kind".to_string(), serde_json::json!(event.kind));
+                properties.insert("emits".to_string(), serde_json::json!(event.emits));
+                ConceptItem {
+                    id: format!("event.{}", event.name),
+                    kind: "event-card".to_string(),
+                    title: human_label(&event.name),
+                    summary: Some(format!("Record {}", event.record)),
+                    properties,
+                    actions: Vec::new(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn projections_section(model: &SorlaDesignModel) -> ConceptSection {
+    ConceptSection {
+        id: "projections".to_string(),
+        kind: "projection-list".to_string(),
+        title: "Projections".to_string(),
+        summary: Some(format!("{} projections", model.projections.len())),
+        items: model
+            .projections
+            .iter()
+            .map(|projection| {
+                let mut properties = BTreeMap::new();
+                properties.insert("record".to_string(), serde_json::json!(projection.record));
+                properties.insert(
+                    "source_event".to_string(),
+                    serde_json::json!(projection.source_event),
+                );
+                properties.insert("mode".to_string(), serde_json::json!(projection.mode));
+                ConceptItem {
+                    id: format!("projection.{}", projection.name),
+                    kind: "projection-card".to_string(),
+                    title: human_label(&projection.name),
+                    summary: Some(format!(
+                        "{} from {}",
+                        projection.record, projection.source_event
+                    )),
+                    properties,
+                    actions: Vec::new(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn metrics_section(model: &SorlaDesignModel) -> ConceptSection {
+    ConceptSection {
+        id: "metrics".to_string(),
+        kind: "metric-board".to_string(),
+        title: "Metrics".to_string(),
+        summary: Some(format!("{} metrics", model.metrics.len())),
+        items: model
+            .metrics
+            .iter()
+            .map(|metric| {
+                let mut properties = BTreeMap::new();
+                properties.insert("name".to_string(), serde_json::json!(metric.name));
+                ConceptItem {
+                    id: format!("metric.{}", metric.name),
+                    kind: "metric-card".to_string(),
+                    title: human_label(&metric.name),
+                    summary: metric.description.clone(),
+                    properties,
+                    actions: Vec::new(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn named_section(
+    id: &str,
+    section_kind: &str,
+    title: &str,
+    item_kind: &str,
+    items: &[SorlaNamedView],
+) -> ConceptSection {
+    ConceptSection {
+        id: id.to_string(),
+        kind: section_kind.to_string(),
+        title: title.to_string(),
+        summary: Some(format!("{} {}", items.len(), title.to_lowercase())),
+        items: items
+            .iter()
+            .map(|item| {
+                let mut properties = BTreeMap::new();
+                properties.insert("name".to_string(), serde_json::json!(item.name));
+                ConceptItem {
+                    id: format!("{id}.{}", item.name),
+                    kind: item_kind.to_string(),
+                    title: human_label(&item.name),
+                    summary: None,
+                    properties,
+                    actions: Vec::new(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn agent_endpoints_section(model: &SorlaDesignModel) -> ConceptSection {
+    ConceptSection {
+        id: "agent-endpoints".to_string(),
+        kind: "agent-endpoint-list".to_string(),
+        title: "Agent endpoints".to_string(),
+        summary: Some(format!("{} endpoints", model.agent_endpoints.len())),
+        items: model
+            .agent_endpoints
+            .iter()
+            .map(|endpoint| {
+                let mut properties = BTreeMap::new();
+                properties.insert("id".to_string(), serde_json::json!(endpoint.id));
+                properties.insert("intent".to_string(), serde_json::json!(endpoint.intent));
+                properties.insert("inputs".to_string(), serde_json::json!(endpoint.inputs));
+                properties.insert("outputs".to_string(), serde_json::json!(endpoint.outputs));
+                properties.insert("risk".to_string(), serde_json::json!(endpoint.risk));
+                properties.insert("approval".to_string(), serde_json::json!(endpoint.approval));
+                ConceptItem {
+                    id: format!("agent-endpoint.{}", endpoint.id),
+                    kind: "agent-endpoint-card".to_string(),
+                    title: endpoint.title.clone(),
+                    summary: endpoint.description.clone(),
+                    properties,
+                    actions: vec![ConceptAction {
+                        id: format!("edit_agent_endpoint.{}", endpoint.id),
+                        label: "Edit endpoint".to_string(),
+                        kind: "patch_template".to_string(),
+                        patch_template: Some("update_agent_endpoint".to_string()),
+                        target: serde_json::json!({ "agent_endpoint": endpoint.id }),
+                    }],
+                }
+            })
+            .collect(),
+    }
+}
+
+fn diagnostics_section(model: &SorlaDesignModel) -> ConceptSection {
+    ConceptSection {
+        id: "diagnostics".to_string(),
+        kind: "diagnostics".to_string(),
+        title: "Diagnostics".to_string(),
+        summary: Some(format!("{} diagnostics", model.diagnostics.len())),
+        items: model
+            .diagnostics
+            .iter()
+            .enumerate()
+            .map(|(index, diagnostic)| {
+                let mut properties = BTreeMap::new();
+                properties.insert(
+                    "severity".to_string(),
+                    serde_json::json!(diagnostic.severity),
+                );
+                properties.insert("code".to_string(), serde_json::json!(diagnostic.code));
+                properties.insert("path".to_string(), serde_json::json!(diagnostic.path));
+                ConceptItem {
+                    id: format!("diagnostic.{index}"),
+                    kind: "diagnostic-card".to_string(),
+                    title: diagnostic.code.clone(),
+                    summary: Some(diagnostic.message.clone()),
+                    properties,
+                    actions: Vec::new(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn artifacts_section(artifacts: &[ConceptArtifact]) -> ConceptSection {
+    ConceptSection {
+        id: "artifacts".to_string(),
+        kind: "artifacts".to_string(),
+        title: "Artifacts".to_string(),
+        summary: Some(format!("{} artifacts", artifacts.len())),
+        items: artifacts
+            .iter()
+            .map(|artifact| {
+                let mut properties = BTreeMap::new();
+                properties.insert("kind".to_string(), serde_json::json!(artifact.kind));
+                properties.insert("path".to_string(), serde_json::json!(artifact.path));
+                ConceptItem {
+                    id: format!("artifact.{}", artifact.id),
+                    kind: "artifact-card".to_string(),
+                    title: artifact.label.clone(),
+                    summary: artifact.path.clone(),
+                    properties,
+                    actions: Vec::new(),
+                }
+            })
+            .collect(),
+    }
+}
+
+fn concept_actions(model: &SorlaDesignModel, mode: &ConceptViewMode) -> Vec<ConceptAction> {
+    if matches!(mode, ConceptViewMode::Overview | ConceptViewMode::Review) {
+        return Vec::new();
+    }
+    let mut actions = vec![ConceptAction {
+        id: "add_record".to_string(),
+        label: "Add record".to_string(),
+        kind: "patch_template".to_string(),
+        patch_template: Some("add_record".to_string()),
+        target: serde_json::json!({}),
+    }];
+    actions.extend(model.records.iter().map(|record| ConceptAction {
+        id: format!("add_field.{}", record.name),
+        label: format!("Add field to {}", record.label),
+        kind: "patch_template".to_string(),
+        patch_template: Some("add_field".to_string()),
+        target: serde_json::json!({ "record": record.name }),
+    }));
+    actions
+}
+
+pub fn apply_sorla_patch(input: ApplyPatchInput) -> Result<ApplyPatchOutput, SorlaError> {
+    if input.patch.schema != SORLA_PATCH_SCHEMA {
+        return Err(format!(
+            "unsupported patch schema `{}`; expected `{}`",
+            input.patch.schema, SORLA_PATCH_SCHEMA
+        ));
+    }
+    if input.patch.source.kind != SorlaSourceKind::SorlaYaml {
+        return Err("unsupported patch source kind".to_string());
+    }
+    if input.patch.operations.is_empty() {
+        return Err("patch must contain at least one operation".to_string());
+    }
+
+    let old_hash = format!("sha256:{}", sha256_hex_public(input.source_yaml.as_bytes()));
+    if input.patch.source.base_hash != old_hash {
+        return Err(format!(
+            "base_hash_mismatch: base_hash={}, current_hash={}, resolution=refresh_required",
+            input.patch.source.base_hash, old_hash
+        ));
+    }
+
+    let mut parsed = parse_package(&input.source_yaml)
+        .map_err(|message| format!("failed to parse source YAML before patching: {message}"))?;
+    let mut changes = Vec::new();
+    for operation in &input.patch.operations {
+        apply_patch_operation(&mut parsed.package, operation, &mut changes)?;
+    }
+    sort_package_for_render(&mut parsed.package);
+    let updated_yaml = render_canonical_sorla_yaml(&parsed.package)?;
+    parse_package(&updated_yaml)
+        .map_err(|message| format!("patch produced invalid SoRLa YAML: {message}"))?;
+    let new_hash = format!("sha256:{}", sha256_hex_public(updated_yaml.as_bytes()));
+    let parsed_design = parse_sorla_yaml(ParseSorlaInput {
+        source_yaml: updated_yaml.clone(),
+        source_path: input.patch.source.path.as_ref().map(PathBuf::from),
+    })?;
+    let view = generate_concept_view(ConceptViewInput {
+        model: parsed_design.model,
+        mode: ConceptViewMode::Review,
+        renderer_capabilities: None,
+    })?
+    .view;
+    Ok(ApplyPatchOutput {
+        status: "applied".to_string(),
+        updated_yaml,
+        old_hash,
+        new_hash,
+        diagnostics: parsed_design.diagnostics,
+        diff: ConceptDiff {
+            schema: CONCEPT_DIFF_SCHEMA.to_string(),
+            changes,
+        },
+        view,
+    })
+}
+
+pub fn propose_patch_from_instruction(
+    input: ProposePatchInput,
+    llm: &dyn prompt::LlmCapability,
+) -> Result<ProposePatchOutput, SorlaError> {
+    if input.instruction.trim().is_empty() {
+        return Err("patch instruction must not be empty".to_string());
+    }
+    let parsed = parse_sorla_yaml(ParseSorlaInput {
+        source_yaml: input.source_yaml.clone(),
+        source_path: None,
+    })?;
+    let package_summary = parsed
+        .model
+        .package
+        .as_ref()
+        .map(|package| format!("{} {}", package.name, package.version))
+        .unwrap_or_else(|| "unknown package".to_string());
+    let records = parsed
+        .model
+        .records
+        .iter()
+        .map(|record| record.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let llm_config = input.llm.unwrap_or_else(default_patch_llm_config);
+    let request = prompt::LlmRequest {
+        provider: llm_config.provider,
+        model: llm_config.model,
+        api_key: llm_config.api_key,
+        endpoint: llm_config.endpoint,
+        system_prompt: "You propose SoRLa semantic patches only. Return JSON with a `patch` object using schema greentic.sorla.patch.v1, plus optional `explanation`. Do not return raw YAML or credentials.".to_string(),
+        messages: vec![prompt::LlmMessage {
+            role: prompt::LlmRole::User,
+            content: format!(
+                "Package: {package_summary}\nRecords: {records}\nCurrent source hash: {}\nInstruction: {}\nReturn only semantic patch JSON.",
+                parsed.model.source.hash,
+                input.instruction
+            ),
+        }],
+        response_format: Some(prompt::LlmResponseFormat::Json),
+    };
+    let response = llm.complete(request)?;
+    let (mut patch, explanation) = parse_patch_proposal_response(&response.content)?;
+    patch.source.base_hash = parsed.model.source.hash;
+    patch.source.kind = SorlaSourceKind::SorlaYaml;
+    if patch.schema.is_empty() {
+        patch.schema = SORLA_PATCH_SCHEMA.to_string();
+    }
+    let risks = patch_risks(&patch);
+    let preview = apply_sorla_patch(ApplyPatchInput {
+        source_yaml: input.source_yaml,
+        patch: patch.clone(),
+    })?;
+    Ok(ProposePatchOutput {
+        patch,
+        explanation,
+        risks,
+        preview_diff: Some(preview.diff),
+    })
+}
+
+fn default_patch_llm_config() -> prompt::LlmCapabilityConfig {
+    prompt::LlmCapabilityConfig {
+        provider: "host".to_string(),
+        model: None,
+        api_key: None,
+        endpoint: None,
+        capability_id: Some(prompt::DEFAULT_LLM_CAPABILITY_ID.to_string()),
+    }
+}
+
+fn parse_patch_proposal_response(content: &str) -> Result<(SorlaPatch, String), SorlaError> {
+    let value: serde_json::Value = serde_json::from_str(content)
+        .map_err(|err| format!("LLM patch proposal was not valid JSON: {err}"))?;
+    if value.get("schema").and_then(serde_json::Value::as_str) == Some(SORLA_PATCH_SCHEMA) {
+        let patch: SorlaPatch = serde_json::from_value(value)
+            .map_err(|err| format!("LLM patch proposal was not a SorLa patch: {err}"))?;
+        return Ok((patch, "Semantic patch proposed.".to_string()));
+    }
+    let patch_value = value
+        .get("patch")
+        .or_else(|| value.get("patch_proposal"))
+        .cloned()
+        .ok_or_else(|| "LLM patch proposal must contain a `patch` object".to_string())?;
+    let patch: SorlaPatch = serde_json::from_value(patch_value)
+        .map_err(|err| format!("LLM patch proposal was not a SorLa patch: {err}"))?;
+    let explanation = value
+        .get("explanation")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Semantic patch proposed.")
+        .to_string();
+    Ok((patch, explanation))
+}
+
+fn patch_risks(patch: &SorlaPatch) -> Vec<PatchRisk> {
+    let mut risks = Vec::new();
+    for operation in &patch.operations {
+        match operation {
+            SorlaPatchOperation::DeleteRecord { name } => risks.push(PatchRisk {
+                level: "high".to_string(),
+                code: "delete_record".to_string(),
+                message: format!("Deletes record `{name}`."),
+            }),
+            SorlaPatchOperation::RemoveField { record, name } => risks.push(PatchRisk {
+                level: "medium".to_string(),
+                code: "remove_field".to_string(),
+                message: format!("Removes field `{name}` from record `{record}`."),
+            }),
+            SorlaPatchOperation::AddField { record, field } if field.sensitive => {
+                risks.push(PatchRisk {
+                    level: "medium".to_string(),
+                    code: "sensitive_field".to_string(),
+                    message: format!(
+                        "Adds sensitive field `{}` to record `{record}`.",
+                        field.name
+                    ),
+                });
+            }
+            SorlaPatchOperation::UpdateField {
+                record,
+                name,
+                sensitive: Some(true),
+                ..
+            } => risks.push(PatchRisk {
+                level: "medium".to_string(),
+                code: "sensitive_field".to_string(),
+                message: format!("Marks field `{name}` on record `{record}` as sensitive."),
+            }),
+            _ => {}
+        }
+    }
+    risks
+}
+
+fn apply_patch_operation(
+    package: &mut sorla_ast::Package,
+    operation: &SorlaPatchOperation,
+    changes: &mut Vec<ConceptChange>,
+) -> Result<(), SorlaError> {
+    match operation {
+        SorlaPatchOperation::AddRecord { record } => {
+            validate_sorla_identifier("record", &record.name)?;
+            if package.records.iter().any(|item| item.name == record.name) {
+                return Err(format!("record `{}` already exists", record.name));
+            }
+            for field in &record.fields {
+                validate_sorla_identifier("field", &field.name)?;
+            }
+            let record_ast = patch_record_to_ast(record)?;
+            package.records.push(record_ast.clone());
+            changes.push(ConceptChange {
+                kind: ConceptChangeKind::Added,
+                target: format!("record.{}", record.name),
+                label: format!("Added record {}", record.name),
+                before: None,
+                after: Some(json_value(&record_ast)?),
+            });
+        }
+        SorlaPatchOperation::RenameRecord { from, to } => {
+            validate_sorla_identifier("record", to)?;
+            if package.records.iter().any(|item| item.name == *to) {
+                return Err(format!("record `{to}` already exists"));
+            }
+            let record = package
+                .records
+                .iter_mut()
+                .find(|record| record.name == *from)
+                .ok_or_else(|| format!("record `{from}` not found"))?;
+            let before = json_value(&record)?;
+            record.name = to.clone();
+            changes.push(ConceptChange {
+                kind: ConceptChangeKind::Renamed,
+                target: format!("record.{to}"),
+                label: format!("Renamed record {from} to {to}"),
+                before: Some(before),
+                after: Some(json_value(&record)?),
+            });
+        }
+        SorlaPatchOperation::DeleteRecord { name } => {
+            let index = package
+                .records
+                .iter()
+                .position(|record| record.name == *name)
+                .ok_or_else(|| format!("record `{name}` not found"))?;
+            let removed = package.records.remove(index);
+            changes.push(ConceptChange {
+                kind: ConceptChangeKind::Removed,
+                target: format!("record.{name}"),
+                label: format!("Removed record {name}"),
+                before: Some(json_value(&removed)?),
+                after: None,
+            });
+        }
+        SorlaPatchOperation::AddField { record, field } => {
+            validate_sorla_identifier("field", &field.name)?;
+            let target_record = find_record_mut(package, record)?;
+            if target_record
+                .fields
+                .iter()
+                .any(|item| item.name == field.name)
+            {
+                return Err(format!(
+                    "field `{}` already exists on record `{record}`",
+                    field.name
+                ));
+            }
+            let field_ast = patch_field_to_ast(field);
+            target_record.fields.push(field_ast.clone());
+            changes.push(ConceptChange {
+                kind: ConceptChangeKind::Added,
+                target: format!("record.{record}.field.{}", field.name),
+                label: format!("Added field {} to {record}", field.name),
+                before: None,
+                after: Some(json_value(&field_ast)?),
+            });
+        }
+        SorlaPatchOperation::UpdateField {
+            record,
+            name,
+            type_name,
+            required,
+            sensitive,
+            enum_values,
+            references,
+        } => {
+            let target_record = find_record_mut(package, record)?;
+            let field = target_record
+                .fields
+                .iter_mut()
+                .find(|field| field.name == *name)
+                .ok_or_else(|| format!("field `{name}` not found on record `{record}`"))?;
+            let before = json_value(&field)?;
+            if let Some(type_name) = type_name {
+                field.type_name = type_name.clone();
+            }
+            if let Some(required) = required {
+                field.required = *required;
+            }
+            if let Some(sensitive) = sensitive {
+                field.sensitive = *sensitive;
+            }
+            if let Some(enum_values) = enum_values {
+                field.enum_values = enum_values.clone();
+            }
+            if let Some(references) = references {
+                field.references = references
+                    .as_ref()
+                    .map(|reference| sorla_ast::FieldReference {
+                        record: reference.record.clone(),
+                        field: reference.field.clone(),
+                    });
+            }
+            changes.push(ConceptChange {
+                kind: ConceptChangeKind::Updated,
+                target: format!("record.{record}.field.{name}"),
+                label: format!("Updated field {name} on {record}"),
+                before: Some(before),
+                after: Some(json_value(&field)?),
+            });
+        }
+        SorlaPatchOperation::RemoveField { record, name } => {
+            let target_record = find_record_mut(package, record)?;
+            let index = target_record
+                .fields
+                .iter()
+                .position(|field| field.name == *name)
+                .ok_or_else(|| format!("field `{name}` not found on record `{record}`"))?;
+            let removed = target_record.fields.remove(index);
+            changes.push(ConceptChange {
+                kind: ConceptChangeKind::Removed,
+                target: format!("record.{record}.field.{name}"),
+                label: format!("Removed field {name} from {record}"),
+                before: Some(json_value(&removed)?),
+                after: None,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_sorla_identifier(kind: &str, value: &str) -> Result<(), SorlaError> {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return Err(format!("{kind} name must not be empty"));
+    };
+    if !(first.is_ascii_lowercase() || first == '_') {
+        return Err(format!(
+            "{kind} name `{value}` must start with a lowercase ASCII letter or underscore"
+        ));
+    }
+    if chars.any(|ch| !(ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')) {
+        return Err(format!(
+            "{kind} name `{value}` must contain only lowercase ASCII letters, digits, or underscores"
+        ));
+    }
+    Ok(())
+}
+
+fn patch_record_to_ast(record: &SorlaPatchRecord) -> Result<sorla_ast::Record, SorlaError> {
+    let source = match record.source.as_deref().unwrap_or("native") {
+        "native" => sorla_ast::RecordSource::Native,
+        "external" => sorla_ast::RecordSource::External,
+        "hybrid" => sorla_ast::RecordSource::Hybrid,
+        other => return Err(format!("unsupported record source `{other}`")),
+    };
+    Ok(sorla_ast::Record {
+        name: record.name.clone(),
+        source: Some(source),
+        external_ref: None,
+        fields: record.fields.iter().map(patch_field_to_ast).collect(),
+    })
+}
+
+fn patch_field_to_ast(field: &SorlaPatchField) -> sorla_ast::Field {
+    sorla_ast::Field {
+        name: field.name.clone(),
+        type_name: field.type_name.clone(),
+        required: field.required,
+        sensitive: field.sensitive,
+        enum_values: field.enum_values.clone(),
+        authority: None,
+        references: field
+            .references
+            .as_ref()
+            .map(|reference| sorla_ast::FieldReference {
+                record: reference.record.clone(),
+                field: reference.field.clone(),
+            }),
+    }
+}
+
+fn find_record_mut<'a>(
+    package: &'a mut sorla_ast::Package,
+    name: &str,
+) -> Result<&'a mut sorla_ast::Record, SorlaError> {
+    package
+        .records
+        .iter_mut()
+        .find(|record| record.name == name)
+        .ok_or_else(|| format!("record `{name}` not found"))
+}
+
+fn sort_package_for_render(package: &mut sorla_ast::Package) {
+    package
+        .records
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    for record in &mut package.records {
+        record
+            .fields
+            .sort_by(|left, right| left.name.cmp(&right.name));
+    }
+    package
+        .events
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    package
+        .projections
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    package
+        .metrics
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    package
+        .policies
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    package
+        .approvals
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    package
+        .provider_requirements
+        .sort_by(|left, right| left.category.cmp(&right.category));
+    package
+        .agent_endpoints
+        .sort_by(|left, right| left.id.cmp(&right.id));
+}
+
+fn render_canonical_sorla_yaml(package: &sorla_ast::Package) -> Result<String, SorlaError> {
+    let mut yaml = serde_yaml::to_string(package)
+        .map_err(|err| format!("failed to render patched SoRLa YAML: {err}"))?;
+    if !yaml.ends_with('\n') {
+        yaml.push('\n');
+    }
+    Ok(yaml)
+}
+
+fn json_value<T: Serialize>(value: &T) -> Result<serde_json::Value, SorlaError> {
+    serde_json::to_value(value).map_err(|err| err.to_string())
+}
+
 pub fn validate_model(
     model: &NormalizedSorlaModel,
     _options: ValidateOptions,
 ) -> SorlaValidationReport {
+    if let Ok(parsed) = parse_sorla_yaml(ParseSorlaInput {
+        source_yaml: model.source_yaml.clone(),
+        source_path: None,
+    }) && parsed
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    {
+        return SorlaValidationReport {
+            diagnostics: parsed.diagnostics,
+        };
+    }
     match build_handoff_artifacts_from_yaml(&model.source_yaml) {
         Ok(_) => SorlaValidationReport {
             diagnostics: Vec::new(),
@@ -1104,26 +3376,40 @@ pub fn generate_preview(
             records: ir.records.len(),
             events: ir.events.len(),
             projections: ir.projections.len(),
+            metrics: ir.metrics.len(),
             agent_endpoints: ir.agent_endpoints.len(),
         },
-        cards: vec![
-            SorlaPreviewCard {
-                title: "Records".to_string(),
-                items: ir
-                    .records
-                    .iter()
-                    .map(|record| record.name.clone())
-                    .collect(),
-            },
-            SorlaPreviewCard {
-                title: "Agent endpoints".to_string(),
-                items: ir
-                    .agent_endpoints
-                    .iter()
-                    .map(|endpoint| endpoint.id.clone())
-                    .collect(),
-            },
-        ],
+        cards: {
+            let mut cards = vec![
+                SorlaPreviewCard {
+                    title: "Records".to_string(),
+                    items: ir
+                        .records
+                        .iter()
+                        .map(|record| record.name.clone())
+                        .collect(),
+                },
+                SorlaPreviewCard {
+                    title: "Agent endpoints".to_string(),
+                    items: ir
+                        .agent_endpoints
+                        .iter()
+                        .map(|endpoint| endpoint.id.clone())
+                        .collect(),
+                },
+            ];
+            if !ir.metrics.is_empty() {
+                cards.push(SorlaPreviewCard {
+                    title: "Metrics".to_string(),
+                    items: ir
+                        .metrics
+                        .iter()
+                        .map(|metric| metric.name.clone())
+                        .collect(),
+                });
+            }
+            cards
+        },
         graph: Some(SorlaPreviewGraph {
             nodes: ir.records.len() + ontology_nodes,
             edges: ir.projections.len() + ontology_edges,
@@ -1209,6 +3495,13 @@ pub fn build_gtpack_entries(
         bytes: artifacts.executable_contract_json.as_bytes().to_vec(),
         sha256: sha256_hex_public(artifacts.executable_contract_json.as_bytes()),
     });
+    if let Some(metrics_json) = &artifacts.metrics_json {
+        entries.push(PackEntry {
+            path: "assets/sorla/metrics.json".to_string(),
+            bytes: metrics_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(metrics_json.as_bytes()),
+        });
+    }
     if !artifacts.ir.agent_endpoints.is_empty() {
         entries.push(PackEntry {
             path: "assets/sorla/designer-node-types.json".to_string(),
@@ -1335,6 +3628,7 @@ where
     match cli.command {
         Commands::Wizard(args) => run_wizard(args),
         Commands::Prompt(args) => run_prompt(args),
+        Commands::Design(args) => run_design(args),
         Commands::Pack(args) => run_pack(args),
         Commands::InspectProductShape => {
             println!("wizard-first-plus-pack");
@@ -1885,6 +4179,206 @@ fn validation_inspection_json(inspection: &SorlaGtpackInspection) -> serde_json:
         "ontology": inspection.ontology,
         "retrieval_bindings": inspection.retrieval_bindings
     })
+}
+
+fn run_design(args: DesignArgs) -> Result<(), String> {
+    match args.command {
+        DesignCommand::View(args) => run_design_view(args),
+        DesignCommand::Patch(args) => run_design_patch(args),
+        DesignCommand::AddField(args) => run_design_add_field(args),
+        DesignCommand::ProposePatch(args) => run_design_propose_patch(args),
+        DesignCommand::Validate(args) => run_design_validate(args),
+    }
+}
+
+fn run_design_view(args: DesignViewArgs) -> Result<(), String> {
+    let source_yaml = read_utf8_file(&args.input)?;
+    let parsed = parse_sorla_yaml(ParseSorlaInput {
+        source_yaml,
+        source_path: Some(args.input.clone()),
+    })?;
+    let output = generate_concept_view(ConceptViewInput {
+        model: parsed.model,
+        mode: if args.json {
+            ConceptViewMode::Designer
+        } else {
+            ConceptViewMode::Cli
+        },
+        renderer_capabilities: None,
+    })?;
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output.view).map_err(|err| err.to_string())?
+        );
+    } else {
+        print!("{}", render_concept_view_cli(&output.view));
+    }
+    Ok(())
+}
+
+fn run_design_patch(args: DesignPatchArgs) -> Result<(), String> {
+    let source_yaml = read_utf8_file(&args.input)?;
+    let patch_text = read_utf8_file(&args.patch)?;
+    let mut patch: SorlaPatch = serde_json::from_str(&patch_text)
+        .map_err(|err| format!("failed to parse patch JSON {}: {err}", args.patch.display()))?;
+    if args.force {
+        patch.source.base_hash = current_sorla_source_hash(&source_yaml)?;
+    }
+    let output = apply_sorla_patch(ApplyPatchInput { source_yaml, patch })?;
+    if !args.dry_run {
+        fs::write(&args.input, &output.updated_yaml)
+            .map_err(|err| format!("failed to write {}: {err}", args.input.display()))?;
+    }
+    print_concept_diff(&output.diff);
+    print_design_diagnostics(&output.diagnostics);
+    Ok(())
+}
+
+fn run_design_add_field(args: DesignAddFieldArgs) -> Result<(), String> {
+    let source_yaml = read_utf8_file(&args.input)?;
+    let base_hash = current_sorla_source_hash(&source_yaml)?;
+    let patch = SorlaPatch {
+        schema: SORLA_PATCH_SCHEMA.to_string(),
+        source: SorlaPatchSource {
+            kind: SorlaSourceKind::SorlaYaml,
+            path: Some(args.input.display().to_string()),
+            base_hash,
+        },
+        author: None,
+        intent: Some(format!("add field {} to {}", args.name, args.record)),
+        operations: vec![SorlaPatchOperation::AddField {
+            record: args.record,
+            field: SorlaPatchField {
+                name: args.name,
+                type_name: args.type_name,
+                required: args.required,
+                sensitive: args.sensitive,
+                enum_values: Vec::new(),
+                references: None,
+            },
+        }],
+    };
+    let output = apply_sorla_patch(ApplyPatchInput { source_yaml, patch })?;
+    if !args.dry_run {
+        fs::write(&args.input, &output.updated_yaml)
+            .map_err(|err| format!("failed to write {}: {err}", args.input.display()))?;
+    }
+    print_concept_diff(&output.diff);
+    print_design_diagnostics(&output.diagnostics);
+    Ok(())
+}
+
+fn run_design_propose_patch(args: DesignProposePatchArgs) -> Result<(), String> {
+    if args.llm_provider.is_none() && args.llm_capability_id.is_none() {
+        return Err("design propose-patch requires `--llm-provider <PROVIDER>` or `--llm-capability-id <ID>`".to_string());
+    }
+    let source_yaml = read_utf8_file(&args.input)?;
+    let output = propose_patch_from_instruction(
+        ProposePatchInput {
+            source_yaml,
+            instruction: args.instruction,
+            llm: Some(prompt::LlmCapabilityConfig {
+                provider: args
+                    .llm_provider
+                    .unwrap_or_else(|| "capability".to_string()),
+                model: args.llm_model,
+                api_key: None,
+                endpoint: args.llm_endpoint,
+                capability_id: args.llm_capability_id,
+            }),
+        },
+        &CliPromptLlm,
+    )?;
+    if let Some(path) = args.out {
+        let rendered =
+            serde_json::to_string_pretty(&output.patch).map_err(|err| err.to_string())?;
+        fs::write(&path, rendered)
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&output).map_err(|err| err.to_string())?
+        );
+    }
+    if let Some(diff) = &output.preview_diff {
+        print_concept_diff(diff);
+    }
+    Ok(())
+}
+
+fn run_design_validate(args: DesignValidateArgs) -> Result<(), String> {
+    let source_yaml = read_utf8_file(&args.input)?;
+    let parsed = parse_sorla_yaml(ParseSorlaInput {
+        source_yaml,
+        source_path: Some(args.input),
+    })?;
+    if parsed.diagnostics.is_empty() {
+        println!("Validation:\n  OK");
+        return Ok(());
+    }
+    print_design_diagnostics(&parsed.diagnostics);
+    if parsed
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    {
+        return Err("sorla.yaml is invalid".to_string());
+    }
+    Ok(())
+}
+
+fn read_utf8_file(path: &Path) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|err| format!("failed to read {}: {err}", path.display()))
+}
+
+fn current_sorla_source_hash(source_yaml: &str) -> Result<String, String> {
+    Ok(parse_sorla_yaml(ParseSorlaInput {
+        source_yaml: source_yaml.to_string(),
+        source_path: None,
+    })?
+    .model
+    .source
+    .hash)
+}
+
+fn print_concept_diff(diff: &ConceptDiff) {
+    println!("Applied patch:");
+    if diff.changes.is_empty() {
+        println!("  No changes");
+    } else {
+        for change in &diff.changes {
+            println!("  {} {}", concept_change_marker(&change.kind), change.label);
+        }
+    }
+}
+
+fn concept_change_marker(kind: &ConceptChangeKind) -> &'static str {
+    match kind {
+        ConceptChangeKind::Added => "+",
+        ConceptChangeKind::Updated => "~",
+        ConceptChangeKind::Removed => "-",
+        ConceptChangeKind::Renamed => ">",
+        ConceptChangeKind::Conflict => "!",
+        ConceptChangeKind::Warning => "!",
+    }
+}
+
+fn print_design_diagnostics(diagnostics: &[SorlaDiagnostic]) {
+    println!();
+    println!("Validation:");
+    if diagnostics.is_empty() {
+        println!("  OK");
+        return;
+    }
+    for diagnostic in diagnostics {
+        println!(
+            "  {} {}: {}",
+            serde_enum_string(&diagnostic.severity),
+            diagnostic.code,
+            diagnostic.message
+        );
+    }
 }
 
 fn run_prompt(args: PromptArgs) -> Result<(), String> {
@@ -3167,8 +5661,8 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
         }
     }
 
+    let mut projection_names = BTreeSet::new();
     if let Some(projections) = &answers.projections {
-        let mut projection_names = BTreeSet::new();
         for (projection_index, projection) in projections.items.iter().enumerate() {
             require_non_empty(
                 &projection.name,
@@ -3202,6 +5696,13 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
             }
         }
     }
+
+    validate_metric_answers(
+        answers.metrics.as_ref(),
+        &record_fields,
+        &event_names,
+        &projection_names,
+    )?;
 
     for (requirement_index, requirement) in answers.provider_requirements.iter().enumerate() {
         validate_provider_requirement_answer(
@@ -3480,6 +5981,185 @@ fn validate_ontology_backing_answer(
                 backing.record
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_metric_answers(
+    metrics: Option<&MetricAnswers>,
+    record_fields: &BTreeMap<String, BTreeSet<String>>,
+    event_names: &BTreeSet<String>,
+    projection_names: &BTreeSet<String>,
+) -> Result<(), String> {
+    let Some(metrics) = metrics else {
+        return Ok(());
+    };
+    if !metrics.enabled.unwrap_or(!metrics.items.is_empty()) {
+        return Ok(());
+    }
+    let mut metric_names = BTreeSet::new();
+    let mut dependencies = BTreeMap::<String, Vec<String>>::new();
+    for (index, metric) in metrics.items.iter().enumerate() {
+        let path = format!("metrics.items[{index}]");
+        validate_url_safe_id(&metric.name, &format!("{path}.name"))?;
+        if !metric_names.insert(metric.name.clone()) {
+            return Err(format!("{path}.name duplicates metric `{}`", metric.name));
+        }
+        let is_formula = metric
+            .formula
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty());
+        if is_formula {
+            if metric.depends_on.is_empty() {
+                return Err(format!("{path}.depends_on is required for formula metrics"));
+            }
+            dependencies.insert(metric.name.clone(), metric.depends_on.clone());
+        } else {
+            let source = metric
+                .source
+                .as_ref()
+                .ok_or_else(|| format!("{path}.source is required for aggregate metrics"))?;
+            validate_choice(
+                Some(source.kind.as_str()),
+                &["record", "event", "projection"],
+                &format!("{path}.source.kind"),
+            )?;
+            match source.kind.as_str() {
+                "record"
+                    if !record_fields.is_empty() && !record_fields.contains_key(&source.name) =>
+                {
+                    return Err(format!(
+                        "{path}.source.name points to unknown record `{}`",
+                        source.name
+                    ));
+                }
+                "event" if !event_names.is_empty() && !event_names.contains(&source.name) => {
+                    return Err(format!(
+                        "{path}.source.name points to unknown event `{}`",
+                        source.name
+                    ));
+                }
+                "projection"
+                    if !projection_names.is_empty() && !projection_names.contains(&source.name) =>
+                {
+                    return Err(format!(
+                        "{path}.source.name points to unknown projection `{}`",
+                        source.name
+                    ));
+                }
+                _ => {}
+            }
+            let measure = metric
+                .measure
+                .as_ref()
+                .ok_or_else(|| format!("{path}.measure is required for aggregate metrics"))?;
+            validate_choice(
+                Some(measure.aggregate.as_str()),
+                &[
+                    "count",
+                    "sum",
+                    "avg",
+                    "average",
+                    "min",
+                    "max",
+                    "distinct_count",
+                    "count_distinct",
+                ],
+                &format!("{path}.measure.aggregate"),
+            )?;
+            if measure.aggregate != "count"
+                && measure.field.as_deref().unwrap_or("").trim().is_empty()
+            {
+                return Err(format!(
+                    "{path}.measure.field is required for `{}` metrics",
+                    measure.aggregate
+                ));
+            }
+            if source.kind == "record"
+                && let Some(field) = &measure.field
+                && let Some(fields) = record_fields.get(&source.name)
+                && !fields.contains(field)
+            {
+                return Err(format!(
+                    "{path}.measure.field points to unknown field `{field}` on record `{}`",
+                    source.name
+                ));
+            }
+            if source.kind == "record"
+                && let Some(fields) = record_fields.get(&source.name)
+            {
+                for dimension in &metric.dimensions {
+                    if !fields.contains(dimension) {
+                        return Err(format!(
+                            "{path}.dimensions contains unknown field `{dimension}` on record `{}`",
+                            source.name
+                        ));
+                    }
+                }
+            }
+        }
+        for (filter_index, filter) in metric.filters.iter().enumerate() {
+            let filter_path = format!("{path}.filters[{filter_index}]");
+            require_non_empty(&filter.field, &format!("{filter_path}.field"))?;
+            validate_choice(
+                Some(filter.operator.as_str()),
+                &[
+                    "equals",
+                    "not_equals",
+                    "in",
+                    "not_in",
+                    "gt",
+                    "gte",
+                    "lt",
+                    "lte",
+                    "exists",
+                    "not_exists",
+                ],
+                &format!("{filter_path}.operator"),
+            )?;
+        }
+        if let Some(time) = &metric.time {
+            require_non_empty(&time.field, &format!("{path}.time.field"))?;
+            validate_choice(
+                Some(time.grain.as_str()),
+                &["hour", "day", "week", "month", "quarter", "year"],
+                &format!("{path}.time.grain"),
+            )?;
+        }
+        if let Some(window) = &metric.window {
+            validate_choice(
+                Some(window.mode.as_str()),
+                &["rolling"],
+                &format!("{path}.window.mode"),
+            )?;
+            if window.size == 0 {
+                return Err(format!("{path}.window.size must be greater than 0"));
+            }
+            validate_choice(
+                Some(window.unit.as_str()),
+                &["hours", "days", "weeks", "months", "quarters", "years"],
+                &format!("{path}.window.unit"),
+            )?;
+        }
+        if let Some(target) = &metric.target {
+            validate_choice(
+                Some(target.operator.as_str()),
+                &[">", ">=", "<", "<=", "==", "!="],
+                &format!("{path}.target.operator"),
+            )?;
+        }
+    }
+    for (metric, depends_on) in &dependencies {
+        for dependency in depends_on {
+            if !metric_names.contains(dependency) {
+                return Err(format!(
+                    "metrics.items `{metric}` depends_on unknown metric `{dependency}`"
+                ));
+            }
+        }
+    }
+    if let Some(cycle) = metric_dependency_cycles(&dependencies).into_iter().next() {
+        return Err(cycle);
     }
     Ok(())
 }
@@ -4155,6 +6835,12 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
         actions: answers.actions.clone(),
         event_items: resolved_event_items,
         projection_items: resolved_projection_items,
+        metric_items: answers
+            .metrics
+            .as_ref()
+            .filter(|metrics| metrics.enabled.unwrap_or(!metrics.items.is_empty()))
+            .map(|metrics| metrics.items.clone())
+            .unwrap_or_default(),
         provider_requirements: answers.provider_requirements.clone(),
         policies: answers.policies.clone(),
         approvals: answers.approvals.clone(),
@@ -4364,6 +7050,19 @@ fn resolve_update_answers(
         actions: resolved_actions,
         event_items: resolved_event_items,
         projection_items: resolved_projection_items,
+        metric_items: answers
+            .metrics
+            .as_ref()
+            .and_then(|metrics| {
+                if !metrics.enabled.unwrap_or(!metrics.items.is_empty()) {
+                    Some(Vec::new())
+                } else if metrics.items.is_empty() {
+                    None
+                } else {
+                    Some(metrics.items.clone())
+                }
+            })
+            .unwrap_or(previous.metric_items),
         provider_requirements: if answers.provider_requirements.is_empty() {
             previous.provider_requirements
         } else {
@@ -5074,6 +7773,7 @@ fn has_rich_domain_answers(resolved: &ResolvedAnswers) -> bool {
         || !resolved.actions.is_empty()
         || !resolved.event_items.is_empty()
         || !resolved.projection_items.is_empty()
+        || !resolved.metric_items.is_empty()
         || !resolved.provider_requirements.is_empty()
         || !resolved.policies.is_empty()
         || !resolved.approvals.is_empty()
@@ -5101,6 +7801,7 @@ fn render_rich_package_yaml(resolved: &ResolvedAnswers) -> String {
     render_actions(&resolved.actions, &mut lines);
     render_events(resolved, &mut lines);
     render_projections(resolved, &mut lines);
+    render_metrics(resolved, &mut lines);
     render_provider_requirements(resolved, &mut lines);
     render_named_section("policies", &resolved.policies, &mut lines);
     render_named_section("approvals", &resolved.approvals, &mut lines);
@@ -5584,6 +8285,97 @@ fn render_projections(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
                     .unwrap_or(resolved.projection_mode.as_str())
             )
         ));
+    }
+}
+
+fn render_metrics(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if resolved.metric_items.is_empty() {
+        return;
+    }
+    lines.push("metrics:".to_string());
+    let mut metrics = resolved.metric_items.clone();
+    metrics.sort_by(|left, right| left.name.cmp(&right.name));
+    for metric in metrics {
+        lines.push(format!("  - name: {}", yaml_scalar_string(&metric.name)));
+        if let Some(label) = &metric.label {
+            lines.push(format!("    label: {}", yaml_scalar_string(label)));
+        }
+        if let Some(description) = &metric.description {
+            lines.push(format!(
+                "    description: {}",
+                yaml_scalar_string(description)
+            ));
+        }
+        if let Some(source) = &metric.source {
+            lines.push("    source:".to_string());
+            lines.push(format!("      kind: {}", yaml_scalar_string(&source.kind)));
+            lines.push(format!("      name: {}", yaml_scalar_string(&source.name)));
+        }
+        if let Some(measure) = &metric.measure {
+            lines.push("    measure:".to_string());
+            lines.push(format!(
+                "      aggregate: {}",
+                yaml_scalar_string(&measure.aggregate)
+            ));
+            if let Some(field) = &measure.field {
+                lines.push(format!("      field: {}", yaml_scalar_string(field)));
+            }
+        }
+        if !metric.filters.is_empty() {
+            lines.push("    filters:".to_string());
+            for filter in &metric.filters {
+                lines.push(format!(
+                    "      - field: {}",
+                    yaml_scalar_string(&filter.field)
+                ));
+                lines.push(format!(
+                    "        operator: {}",
+                    yaml_scalar_string(&filter.operator)
+                ));
+                if let Some(value) = &filter.value {
+                    lines.push(format!("        value: {}", yaml_value_scalar(value)));
+                }
+            }
+        }
+        if let Some(time) = &metric.time {
+            lines.push("    time:".to_string());
+            lines.push(format!("      field: {}", yaml_scalar_string(&time.field)));
+            lines.push(format!("      grain: {}", yaml_scalar_string(&time.grain)));
+        }
+        if let Some(window) = &metric.window {
+            lines.push("    window:".to_string());
+            lines.push(format!("      mode: {}", yaml_scalar_string(&window.mode)));
+            lines.push(format!("      size: {}", window.size));
+            lines.push(format!("      unit: {}", yaml_scalar_string(&window.unit)));
+        }
+        if let Some(unit) = &metric.unit {
+            lines.push(format!("    unit: {}", yaml_scalar_string(unit)));
+        }
+        render_string_list("    dimensions", &metric.dimensions, lines);
+        if let Some(formula) = &metric.formula {
+            lines.push(format!("    formula: {}", yaml_scalar_string(formula)));
+        }
+        render_string_list("    depends_on", &metric.depends_on, lines);
+        if let Some(target) = &metric.target {
+            lines.push("    target:".to_string());
+            lines.push(format!(
+                "      operator: {}",
+                yaml_scalar_string(&target.operator)
+            ));
+            lines.push(format!("      value: {}", yaml_value_scalar(&target.value)));
+            if let Some(unit) = &target.unit {
+                lines.push(format!("      unit: {}", yaml_scalar_string(unit)));
+            }
+        }
+    }
+}
+
+fn yaml_value_scalar(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(value) => yaml_scalar_string(value),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Number(value) => value.to_string(),
+        _ => yaml_scalar_string(&value.to_string()),
     }
 }
 
@@ -6621,6 +9413,10 @@ fn answers_document_from_qa_answers(answers: serde_json::Value) -> Result<Answer
             mode: Some(get_required_string(object, "projection_mode")?),
             items: Vec::new(),
         }),
+        metrics: Some(MetricAnswers {
+            enabled: Some(false),
+            items: Vec::new(),
+        }),
         provider_requirements: Vec::new(),
         policies: Vec::new(),
         approvals: Vec::new(),
@@ -6883,6 +9679,7 @@ fn default_schema_for_locale(locale: &str) -> WizardSchema {
             "provider-contract.cbor",
             "package-manifest.cbor",
             "agent-tools.json",
+            "metrics.json",
             "provider-requirements.json",
             "locale-manifest.json",
         ],
@@ -7077,6 +9874,75 @@ fn default_schema_for_locale(locale: &str) -> WizardSchema {
                             },
                         ],
                         visibility: None,
+                    },
+                ],
+            },
+            WizardSection {
+                id: "metrics",
+                title_key: "wizard.sections.metrics.title",
+                description_key: "wizard.sections.metrics.description",
+                flows: vec![SchemaFlow::Create, SchemaFlow::Update],
+                questions: vec![
+                    WizardQuestion {
+                        id: "metrics.enabled",
+                        label_key: "wizard.questions.metrics_enabled.label",
+                        help_key: Some("wizard.questions.metrics_enabled.help"),
+                        kind: WizardQuestionKind::Boolean,
+                        required: false,
+                        default_value: Some("false"),
+                        choices: vec![],
+                        visibility: None,
+                    },
+                    WizardQuestion {
+                        id: "metrics.names",
+                        label_key: "wizard.questions.metric_names.label",
+                        help_key: Some("wizard.questions.metric_names.help"),
+                        kind: WizardQuestionKind::TextList,
+                        required: false,
+                        default_value: None,
+                        choices: vec![],
+                        visibility: Some(SchemaVisibility {
+                            depends_on: "metrics.enabled",
+                            equals: "true",
+                        }),
+                    },
+                    WizardQuestion {
+                        id: "metrics.grains",
+                        label_key: "wizard.questions.metric_grains.label",
+                        help_key: Some("wizard.questions.metric_grains.help"),
+                        kind: WizardQuestionKind::MultiSelect,
+                        required: false,
+                        default_value: Some("month"),
+                        choices: vec![
+                            WizardChoice {
+                                value: "hour",
+                                label_key: "wizard.choices.metric_grain.hour",
+                            },
+                            WizardChoice {
+                                value: "day",
+                                label_key: "wizard.choices.metric_grain.day",
+                            },
+                            WizardChoice {
+                                value: "week",
+                                label_key: "wizard.choices.metric_grain.week",
+                            },
+                            WizardChoice {
+                                value: "month",
+                                label_key: "wizard.choices.metric_grain.month",
+                            },
+                            WizardChoice {
+                                value: "quarter",
+                                label_key: "wizard.choices.metric_grain.quarter",
+                            },
+                            WizardChoice {
+                                value: "year",
+                                label_key: "wizard.choices.metric_grain.year",
+                            },
+                        ],
+                        visibility: Some(SchemaVisibility {
+                            depends_on: "metrics.enabled",
+                            equals: "true",
+                        }),
                     },
                 ],
             },
@@ -7729,6 +10595,881 @@ mod tests {
 
         assert!(model.source_yaml.contains("name: bug_case_changed"));
         assert!(model.source_yaml.contains("source_event: bug_case_changed"));
+    }
+
+    #[test]
+    fn parse_sorla_yaml_exposes_design_model() {
+        let answers_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("answers")
+            .join("create_agent_endpoints.json");
+        let input: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(answers_path).expect("example answers read"))
+                .expect("example answers parse");
+        let normalized = normalize_answers(input, NormalizeOptions).expect("answers normalize");
+
+        let parsed = parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: normalized.source_yaml.clone(),
+            source_path: Some(PathBuf::from("sorla.yaml")),
+        })
+        .expect("yaml parses");
+
+        assert!(parsed.model.source.hash.starts_with("sha256:"));
+        assert_eq!(parsed.model.source.path.as_deref(), Some("sorla.yaml"));
+        assert_eq!(
+            parsed
+                .model
+                .package
+                .as_ref()
+                .map(|package| package.name.as_str()),
+            Some(normalized.package_name.as_str())
+        );
+        assert!(!parsed.model.records.is_empty());
+        assert!(!parsed.model.events.is_empty());
+        assert!(!parsed.model.agent_endpoints.is_empty());
+        assert_eq!(parsed.model.metrics, Vec::<SorlaMetricView>::new());
+        assert_eq!(parsed.model.diagnostics, parsed.diagnostics);
+
+        let serialized = serde_json::to_string(&parsed.model).expect("model serializes");
+        assert!(!serialized.contains("AdaptiveCard"));
+    }
+
+    #[test]
+    fn parse_sorla_yaml_returns_diagnostics_for_invalid_yaml() {
+        let parsed = parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: "package: [".to_string(),
+            source_path: Some(PathBuf::from("bad-sorla.yaml")),
+        })
+        .expect("parse facade returns diagnostics");
+
+        assert!(parsed.model.package.is_none());
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(parsed.diagnostics[0].severity, DiagnosticSeverity::Error);
+        assert_eq!(parsed.diagnostics[0].code, "sorla.parse");
+        assert_eq!(
+            parsed.diagnostics[0].path.as_deref(),
+            Some("bad-sorla.yaml")
+        );
+    }
+
+    #[test]
+    fn generate_concept_view_from_design_model() {
+        let answers_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples")
+            .join("answers")
+            .join("create_agent_endpoints.json");
+        let input: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(answers_path).expect("example answers read"))
+                .expect("example answers parse");
+        let normalized = normalize_answers(input, NormalizeOptions).expect("answers normalize");
+        let parsed = parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: normalized.source_yaml,
+            source_path: Some(PathBuf::from("sorla.yaml")),
+        })
+        .expect("yaml parses");
+
+        let output = generate_concept_view(ConceptViewInput {
+            model: parsed.model,
+            mode: ConceptViewMode::Designer,
+            renderer_capabilities: Some(RendererCapabilities {
+                graphs: true,
+                ..RendererCapabilities::default()
+            }),
+        })
+        .expect("concept view generates");
+
+        assert_eq!(output.view.schema, CONCEPT_VIEW_SCHEMA);
+        assert_eq!(output.view.status, ConceptViewStatus::Valid);
+        assert!(
+            output
+                .view
+                .sections
+                .iter()
+                .any(|section| section.kind == "entity-grid")
+        );
+        assert!(
+            output
+                .view
+                .sections
+                .iter()
+                .any(|section| section.kind == "agent-endpoint-list")
+        );
+        assert!(
+            output
+                .view
+                .actions
+                .iter()
+                .any(|action| action.patch_template.as_deref() == Some("add_record"))
+        );
+
+        let serialized = serde_json::to_string(&output.view).expect("view serializes");
+        assert!(!serialized.contains("<"));
+        assert!(!serialized.contains("AdaptiveCard"));
+    }
+
+    #[test]
+    fn apply_sorla_patch_add_update_remove_field() {
+        let source_yaml = r#"
+package:
+  name: patch-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+events:
+  - name: property_changed
+    record: property
+projections:
+  - name: property_list
+    record: property
+    source_event: property_changed
+"#
+        .trim_start()
+        .to_string();
+        let base_hash = format!("sha256:{}", sha256_hex_public(source_yaml.as_bytes()));
+
+        let added = apply_sorla_patch(ApplyPatchInput {
+            source_yaml,
+            patch: SorlaPatch {
+                schema: SORLA_PATCH_SCHEMA.to_string(),
+                source: SorlaPatchSource {
+                    kind: SorlaSourceKind::SorlaYaml,
+                    path: Some("sorla.yaml".to_string()),
+                    base_hash,
+                },
+                author: None,
+                intent: Some("exercise field patch operations".to_string()),
+                operations: vec![
+                    SorlaPatchOperation::AddField {
+                        record: "property".to_string(),
+                        field: SorlaPatchField {
+                            name: "postcode".to_string(),
+                            type_name: "string".to_string(),
+                            required: false,
+                            sensitive: false,
+                            enum_values: Vec::new(),
+                            references: None,
+                        },
+                    },
+                    SorlaPatchOperation::UpdateField {
+                        record: "property".to_string(),
+                        name: "postcode".to_string(),
+                        type_name: None,
+                        required: Some(true),
+                        sensitive: Some(true),
+                        enum_values: None,
+                        references: None,
+                    },
+                    SorlaPatchOperation::RemoveField {
+                        record: "property".to_string(),
+                        name: "postcode".to_string(),
+                    },
+                ],
+            },
+        })
+        .expect("patch applies");
+
+        assert_eq!(added.status, "applied");
+        assert_ne!(added.old_hash, added.new_hash);
+        assert_eq!(added.diff.schema, CONCEPT_DIFF_SCHEMA);
+        assert_eq!(added.diff.changes.len(), 3);
+        assert!(added.updated_yaml.contains("property_id"));
+        assert!(!added.updated_yaml.contains("postcode"));
+        assert_eq!(added.view.status, ConceptViewStatus::Valid);
+    }
+
+    #[test]
+    fn apply_sorla_patch_rejects_stale_base_hash() {
+        let source_yaml = r#"
+package:
+  name: stale-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+        .trim_start()
+        .to_string();
+        let err = apply_sorla_patch(ApplyPatchInput {
+            source_yaml,
+            patch: SorlaPatch {
+                schema: SORLA_PATCH_SCHEMA.to_string(),
+                source: SorlaPatchSource {
+                    kind: SorlaSourceKind::SorlaYaml,
+                    path: None,
+                    base_hash: "sha256:stale".to_string(),
+                },
+                author: None,
+                intent: None,
+                operations: vec![SorlaPatchOperation::AddRecord {
+                    record: SorlaPatchRecord {
+                        name: "tenant".to_string(),
+                        source: None,
+                        fields: Vec::new(),
+                    },
+                }],
+            },
+        })
+        .expect_err("stale hash is rejected");
+
+        assert!(err.contains("base_hash_mismatch"));
+        assert!(err.contains("refresh_required"));
+    }
+
+    #[test]
+    fn apply_sorla_patch_rejects_invalid_patch() {
+        let source_yaml = r#"
+package:
+  name: invalid-patch-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+        .trim_start()
+        .to_string();
+        let base_hash = format!("sha256:{}", sha256_hex_public(source_yaml.as_bytes()));
+
+        let empty_err = apply_sorla_patch(ApplyPatchInput {
+            source_yaml: source_yaml.clone(),
+            patch: SorlaPatch {
+                schema: SORLA_PATCH_SCHEMA.to_string(),
+                source: SorlaPatchSource {
+                    kind: SorlaSourceKind::SorlaYaml,
+                    path: None,
+                    base_hash: base_hash.clone(),
+                },
+                author: None,
+                intent: None,
+                operations: Vec::new(),
+            },
+        })
+        .expect_err("empty patch is rejected");
+        assert!(empty_err.contains("at least one operation"));
+
+        let invalid_name_err = apply_sorla_patch(ApplyPatchInput {
+            source_yaml,
+            patch: SorlaPatch {
+                schema: SORLA_PATCH_SCHEMA.to_string(),
+                source: SorlaPatchSource {
+                    kind: SorlaSourceKind::SorlaYaml,
+                    path: None,
+                    base_hash,
+                },
+                author: None,
+                intent: None,
+                operations: vec![SorlaPatchOperation::AddField {
+                    record: "property".to_string(),
+                    field: SorlaPatchField {
+                        name: "Postal Code".to_string(),
+                        type_name: "string".to_string(),
+                        required: false,
+                        sensitive: false,
+                        enum_values: Vec::new(),
+                        references: None,
+                    },
+                }],
+            },
+        })
+        .expect_err("invalid semantic target is rejected");
+        assert!(invalid_name_err.contains("field name"));
+    }
+
+    #[test]
+    fn design_cli_renders_validates_and_adds_field() {
+        let dir = unique_temp_dir();
+        let yaml_path = dir.join("sorla.yaml");
+        fs::write(
+            &yaml_path,
+            r#"
+package:
+  name: design-cli-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+            .trim_start(),
+        )
+        .unwrap();
+
+        run([
+            "greentic-sorla",
+            "design",
+            "validate",
+            yaml_path.to_str().unwrap(),
+        ])
+        .expect("design validate succeeds");
+        run([
+            "greentic-sorla",
+            "design",
+            "view",
+            yaml_path.to_str().unwrap(),
+            "--json",
+        ])
+        .expect("design view json succeeds");
+        run([
+            "greentic-sorla",
+            "design",
+            "add-field",
+            yaml_path.to_str().unwrap(),
+            "--record",
+            "property",
+            "--name",
+            "postcode",
+            "--type",
+            "string",
+            "--required",
+        ])
+        .expect("design add-field succeeds");
+
+        let updated = fs::read_to_string(&yaml_path).unwrap();
+        assert!(updated.contains("postcode"));
+        assert!(updated.contains("required: true"));
+    }
+
+    #[test]
+    fn propose_patch_from_instruction_uses_semantic_patch_json() {
+        struct FakePatchLlm;
+        impl prompt::LlmCapability for FakePatchLlm {
+            fn complete(
+                &self,
+                request: prompt::LlmRequest,
+            ) -> Result<prompt::LlmResponse, SorlaError> {
+                assert!(request.system_prompt.contains("semantic patches"));
+                Ok(prompt::LlmResponse {
+                    content: serde_json::json!({
+                        "patch": {
+                            "schema": "greentic.sorla.patch.v1",
+                            "source": {
+                                "kind": "sorla-yaml",
+                                "path": null,
+                                "base_hash": ""
+                            },
+                            "author": null,
+                            "intent": "add postcode",
+                            "operations": [{
+                                "op": "add_field",
+                                "record": "property",
+                                "field": {
+                                    "name": "postcode",
+                                    "type": "string",
+                                    "required": false
+                                }
+                            }]
+                        },
+                        "explanation": "Adds postcode to property."
+                    })
+                    .to_string(),
+                })
+            }
+        }
+
+        let source_yaml = r#"
+package:
+  name: proposal-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+        .trim_start()
+        .to_string();
+        let output = propose_patch_from_instruction(
+            ProposePatchInput {
+                source_yaml,
+                instruction: "Add postcode to property".to_string(),
+                llm: None,
+            },
+            &FakePatchLlm,
+        )
+        .expect("proposal succeeds");
+
+        assert_eq!(output.patch.operations.len(), 1);
+        assert_eq!(output.explanation, "Adds postcode to property.");
+        assert!(
+            output.preview_diff.unwrap().changes[0]
+                .label
+                .contains("postcode")
+        );
+        assert!(output.patch.source.base_hash.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn wizard_schema_and_answers_support_metrics() {
+        let schema = default_schema();
+        assert!(
+            schema
+                .sections
+                .iter()
+                .any(|section| section.id == "metrics")
+        );
+
+        let answers = serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": ".",
+            "locale": "en",
+            "package": {
+                "name": "metrics-commerce",
+                "version": "0.1.0"
+            },
+            "providers": {
+                "storage_category": "storage"
+            },
+            "records": {
+                "default_source": "native",
+                "items": [
+                    {
+                        "name": "click",
+                        "fields": [
+                            {"name": "click_id", "type": "string", "required": true},
+                            {"name": "occurred_at", "type": "datetime", "required": true}
+                        ]
+                    },
+                    {
+                        "name": "payment",
+                        "fields": [
+                            {"name": "payment_id", "type": "string", "required": true},
+                            {"name": "amount", "type": "decimal", "required": true},
+                            {"name": "status", "type": "string", "required": true},
+                            {"name": "paid_at", "type": "datetime", "required": true},
+                            {"name": "product_id", "type": "string"}
+                        ]
+                    },
+                    {
+                        "name": "cost_entry",
+                        "fields": [
+                            {"name": "cost_id", "type": "string", "required": true},
+                            {"name": "amount", "type": "decimal", "required": true},
+                            {"name": "incurred_at", "type": "datetime", "required": true}
+                        ]
+                    }
+                ]
+            },
+            "events": {
+                "enabled": true,
+                "items": [
+                    {"name": "click_recorded", "record": "click"},
+                    {"name": "payment_changed", "record": "payment"},
+                    {"name": "cost_changed", "record": "cost_entry"}
+                ]
+            },
+            "metrics": {
+                "enabled": true,
+                "items": [
+                    {
+                        "name": "daily_clicks",
+                        "label": "Daily Clicks",
+                        "source": {"kind": "event", "name": "click_recorded"},
+                        "measure": {"aggregate": "count"},
+                        "time": {"field": "occurred_at", "grain": "day"},
+                        "unit": "count"
+                    },
+                    {
+                        "name": "monthly_revenue",
+                        "label": "Monthly Revenue",
+                        "source": {"kind": "record", "name": "payment"},
+                        "measure": {"aggregate": "sum", "field": "amount"},
+                        "filters": [{"field": "status", "operator": "equals", "value": "paid"}],
+                        "time": {"field": "paid_at", "grain": "month"},
+                        "unit": "GBP",
+                        "dimensions": ["product_id"]
+                    },
+                    {
+                        "name": "monthly_cost",
+                        "source": {"kind": "record", "name": "cost_entry"},
+                        "measure": {"aggregate": "sum", "field": "amount"},
+                        "time": {"field": "incurred_at", "grain": "month"},
+                        "unit": "GBP"
+                    },
+                    {
+                        "name": "gross_margin",
+                        "formula": "(monthly_revenue - monthly_cost) / monthly_revenue",
+                        "depends_on": ["monthly_revenue", "monthly_cost"],
+                        "unit": "percentage"
+                    }
+                ]
+            }
+        });
+
+        let model = normalize_answers(answers, NormalizeOptions).expect("metrics answers validate");
+        assert!(model.source_yaml.contains("metrics:"));
+        assert!(model.source_yaml.contains("gross_margin"));
+    }
+
+    #[test]
+    fn metrics_yaml_lowers_to_ir_and_preview() {
+        let source_yaml = r#"
+package:
+  name: metrics-yaml-demo
+  version: 0.1.0
+records:
+  - name: payment
+    source: native
+    fields:
+      - name: amount
+        type: decimal
+      - name: paid_at
+        type: datetime
+events:
+  - name: payment_changed
+    record: payment
+projections:
+  - name: payment_list
+    record: payment
+    source_event: payment_changed
+metrics:
+  - name: monthly_revenue
+    label: Monthly Revenue
+    source:
+      kind: record
+      name: payment
+    measure:
+      aggregate: sum
+      field: amount
+    time:
+      field: paid_at
+      grain: month
+    unit: GBP
+"#
+        .trim_start()
+        .to_string();
+        let parsed = parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: source_yaml.clone(),
+            source_path: None,
+        })
+        .expect("metrics YAML parses");
+        assert!(parsed.diagnostics.is_empty());
+        assert_eq!(parsed.model.metrics.len(), 1);
+        assert_eq!(parsed.model.metrics[0].name, "monthly_revenue");
+
+        let model = NormalizedSorlaModel {
+            package_name: "metrics-yaml-demo".to_string(),
+            package_version: "0.1.0".to_string(),
+            locale: "en".to_string(),
+            source_yaml,
+            normalized_answers: serde_json::Value::Null,
+        };
+        let preview = generate_preview(&model, PreviewOptions).expect("preview renders");
+        assert_eq!(preview.summary.metrics, 1);
+        assert!(preview.cards.iter().any(|card| card.title == "Metrics"));
+        let entries =
+            build_gtpack_entries(&model, PackBuildOptions::default()).expect("entries build");
+        let metrics_entry = entries
+            .iter()
+            .find(|entry| entry.path == "assets/sorla/metrics.json")
+            .expect("metrics artifact emitted");
+        let metrics_json: serde_json::Value =
+            serde_json::from_slice(&metrics_entry.bytes).expect("metrics JSON decodes");
+        assert_eq!(metrics_json["schema"], "greentic.sorla.metrics.v1");
+        assert_eq!(metrics_json["metrics"][0]["name"], "monthly_revenue");
+    }
+
+    #[test]
+    fn metrics_validation_rejects_bad_sources_and_cycles() {
+        let source_yaml = r#"
+package:
+  name: metrics-bad-demo
+  version: 0.1.0
+records:
+  - name: payment
+    source: native
+    fields:
+      - name: amount
+        type: decimal
+      - name: paid_at
+        type: timestamp
+metrics:
+  - name: missing_source
+    source:
+      kind: record
+      name: invoice
+    measure:
+      aggregate: sum
+      field: total
+  - name: missing_dimension
+    source:
+      kind: record
+      name: payment
+    measure:
+      aggregate: sum
+      field: amount
+    dimensions:
+      - campaign
+  - name: bad_aggregate
+    source:
+      kind: record
+      name: payment
+    measure:
+      aggregate: median
+      field: amount
+  - name: bad_grain
+    source:
+      kind: record
+      name: payment
+    measure:
+      aggregate: count
+    time:
+      field: paid_at
+      grain: decade
+  - name: bad_window
+    source:
+      kind: record
+      name: payment
+    measure:
+      aggregate: count
+    window:
+      mode: rolling
+      size: 0
+      unit: months
+  - name: missing_dependency
+    formula: missing_metric
+    depends_on:
+      - missing_metric
+  - name: formula_a
+    formula: formula_b
+    depends_on:
+      - formula_b
+  - name: formula_b
+    formula: formula_a
+    depends_on:
+      - formula_a
+"#
+        .trim_start()
+        .to_string();
+        let parsed = parse_sorla_yaml(ParseSorlaInput {
+            source_yaml,
+            source_path: None,
+        })
+        .expect("bad metrics YAML still parses");
+        let messages = parsed
+            .diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("unknown record"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("unknown field `campaign`"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("unsupported value `median`"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("unsupported value `decade`"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("size must be greater than 0"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("depends_on unknown metric"))
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("dependency cycle"))
+        );
+    }
+
+    #[test]
+    fn metrics_commerce_example_answers_are_deterministic() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let fixture_dir = root.join("examples/metrics-commerce");
+        let answers: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(fixture_dir.join("answers.json")).expect("answers read"),
+        )
+        .expect("answers parse");
+        let expected_yaml =
+            fs::read_to_string(fixture_dir.join("sorla.yaml.expected")).expect("yaml read");
+        let expected_metrics_json =
+            fs::read_to_string(fixture_dir.join("metrics.json.expected")).expect("metrics read");
+
+        let model = normalize_answers(answers, NormalizeOptions).expect("answers normalize");
+        let expected_yaml = expected_yaml
+            .lines()
+            .filter(|line| !line.starts_with("# --- "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(model.source_yaml.trim_end(), expected_yaml.trim_end());
+        let report = validate_model(&model, ValidateOptions);
+        assert!(!report.has_errors(), "{report:?}");
+
+        let parsed = parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: model.source_yaml.clone(),
+            source_path: None,
+        })
+        .expect("example YAML parses");
+        assert!(
+            !parsed
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error),
+            "{:?}",
+            parsed.diagnostics
+        );
+        assert_eq!(parsed.model.metrics.len(), 8);
+        let concept = generate_concept_view(ConceptViewInput {
+            model: parsed.model,
+            mode: ConceptViewMode::Designer,
+            renderer_capabilities: Some(RendererCapabilities::default()),
+        })
+        .expect("concept view renders");
+        assert!(
+            concept
+                .view
+                .sections
+                .iter()
+                .any(|section| section.id == "metrics" && section.items.len() == 8)
+        );
+        let preview = generate_preview(&model, PreviewOptions).expect("preview renders");
+        assert_eq!(preview.summary.metrics, 8);
+
+        let entries =
+            build_gtpack_entries(&model, PackBuildOptions::default()).expect("entries build");
+        let metrics_entry = entries
+            .iter()
+            .find(|entry| entry.path == "assets/sorla/metrics.json")
+            .expect("metrics entry emitted");
+        let metrics_json = String::from_utf8(metrics_entry.bytes.clone()).unwrap();
+        assert_eq!(metrics_json.trim_end(), expected_metrics_json.trim_end());
+
+        let pack = build_gtpack_bytes(&model, PackBuildOptions::default()).expect("pack builds");
+        let inspection = inspect_gtpack_bytes(&pack.bytes).expect("pack inspects");
+        assert_eq!(inspection.metrics.as_ref().unwrap().count, 8);
+        assert!(
+            inspection
+                .metrics
+                .as_ref()
+                .unwrap()
+                .names
+                .contains(&"monthly_revenue".to_string())
+        );
+        let doctor = doctor_gtpack_bytes(&pack.bytes);
+        assert!(!doctor.has_errors(), "{doctor:?}");
+    }
+
+    #[test]
+    fn designer_property_management_fixture_e2e() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let fixture_dir = root.join("examples/designer-property-management");
+        let source_yaml = fs::read_to_string(fixture_dir.join("sorla.yaml")).unwrap();
+        let expected_view: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(fixture_dir.join("concept-view.expected.json")).unwrap(),
+        )
+        .unwrap();
+        let patch: SorlaPatch = serde_json::from_str(
+            &fs::read_to_string(fixture_dir.join("add-postcode.patch.json")).unwrap(),
+        )
+        .unwrap();
+        let expected_result =
+            fs::read_to_string(fixture_dir.join("add-postcode.result.yaml")).unwrap();
+        let expected_diff: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(fixture_dir.join("add-postcode.diff.expected.json")).unwrap(),
+        )
+        .unwrap();
+
+        let parsed = parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: source_yaml.clone(),
+            source_path: Some(fixture_dir.join("sorla.yaml")),
+        })
+        .expect("fixture parses");
+        let view = generate_concept_view(ConceptViewInput {
+            model: parsed.model,
+            mode: ConceptViewMode::Designer,
+            renderer_capabilities: None,
+        })
+        .expect("concept view renders")
+        .view;
+        assert_eq!(view.schema, expected_view["schema"]);
+        assert_eq!(view.title, expected_view["title"]);
+        assert_eq!(serde_enum_string(&view.status), expected_view["status"]);
+        for section in expected_view["required_sections"].as_array().unwrap() {
+            assert!(
+                view.sections
+                    .iter()
+                    .any(|candidate| candidate.id == section.as_str().unwrap()),
+                "missing section {section}"
+            );
+        }
+        for action in expected_view["required_actions"].as_array().unwrap() {
+            assert!(
+                view.actions
+                    .iter()
+                    .any(|candidate| candidate.id == action.as_str().unwrap()),
+                "missing action {action}"
+            );
+        }
+        let cli_text = render_concept_view_cli(&view);
+        assert!(cli_text.contains("Designer Property Management"));
+        assert!(cli_text.contains("property"));
+
+        let patched = apply_sorla_patch(ApplyPatchInput { source_yaml, patch })
+            .expect("fixture patch applies");
+        assert_eq!(patched.updated_yaml, expected_result);
+        assert_eq!(patched.diff.schema, expected_diff["schema"]);
+        assert_eq!(
+            patched.diff.changes[0].target,
+            expected_diff["changes"][0]["target"]
+        );
+        assert_eq!(
+            patched.diff.changes[0].label,
+            expected_diff["changes"][0]["label"]
+        );
+
+        let reparsed = parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: patched.updated_yaml.clone(),
+            source_path: None,
+        })
+        .expect("patched fixture parses");
+        assert!(reparsed.diagnostics.is_empty());
+        let model = NormalizedSorlaModel {
+            package_name: "designer-property-management".to_string(),
+            package_version: "0.1.0".to_string(),
+            locale: "en".to_string(),
+            source_yaml: patched.updated_yaml,
+            normalized_answers: serde_json::Value::Null,
+        };
+        let entries = build_gtpack_entries(&model, PackBuildOptions::default())
+            .expect("fixture pack entries generate");
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.path == "assets/sorla/model.cbor")
+        );
     }
 
     #[test]

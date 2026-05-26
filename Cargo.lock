@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "criterion",
  "greentic-sorla-lib",
@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-designer-extension"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "greentic-sorla-lib",
  "serde",
@@ -876,7 +876,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-ir"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "ciborium",
  "greentic-sorla-lang",
@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lang"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "serde",
  "serde_json",
@@ -896,11 +896,13 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lib"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "ciborium",
  "clap",
  "greentic-qa-lib",
+ "greentic-sorla-ir",
+ "greentic-sorla-lang",
  "greentic-sorla-pack",
  "serde",
  "serde_json",
@@ -911,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-pack"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "ciborium",
  "greentic-sorla-ir",
@@ -927,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-wizard"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "greentic-sorla",
  "greentic-sorla-lang",
@@ -1034,9 +1036,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3ba2a386d7f85a81f119ad7498ebe444d2e22c2af0b86b069416ace48b3311a"
+checksum = "8be7462df143984c4598a256ef469b251d7d7f9e271135073e78fc535414f3d0"
 dependencies = [
  "bytes",
  "itoa",
@@ -1274,9 +1276,9 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "log"
-version = "0.4.29"
+version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
+checksum = "616ec5685824bcc94416c6d4a7a446eea774a31efd7062c8480ba6fd06d7a6e5"
 
 [[package]]
 name = "lzma-rust2"
@@ -2635,7 +2637,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "0.1.13"
+version = "0.1.14"
 
 [[package]]
 name = "yoke"
