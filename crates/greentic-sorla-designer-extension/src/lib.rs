@@ -1127,7 +1127,7 @@ fn pack_entries_output(
     entries: Vec<greentic_sorla_lib::PackEntry>,
     mut diagnostics: Vec<greentic_sorla_lib::SorlaDiagnostic>,
 ) -> serde_json::Value {
-    diagnostics.push(greentic_sorla_lib::SorlaDiagnostic {
+    diagnostics.insert(0, greentic_sorla_lib::SorlaDiagnostic {
         severity: greentic_sorla_lib::DiagnosticSeverity::Warning,
         code: "sorla.gtpack.host_packaging_required".to_string(),
         message: "WASM extension returned deterministic pack entries; host/native packaging must produce ZIP bytes.".to_string(),
