@@ -250,6 +250,8 @@ pub struct OperationalIndexDecl {
     pub kind: OperationalIndexKind,
     #[serde(default)]
     pub fields: Vec<String>,
+    #[serde(default)]
+    pub unique: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -666,6 +668,8 @@ pub struct AgentEndpointDecl {
     pub examples: Vec<AgentEndpointExampleDecl>,
     #[serde(default)]
     pub emits: Option<AgentEndpointEmitDecl>,
+    #[serde(default)]
+    pub execution: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

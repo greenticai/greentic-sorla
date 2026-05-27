@@ -2,6 +2,7 @@
     any(not(feature = "cli"), not(feature = "pack-zip")),
     allow(dead_code, unused_imports)
 )]
+#![recursion_limit = "512"]
 
 use clap::{ArgAction, Args, Parser, Subcommand};
 #[cfg(feature = "cli")]
@@ -20,9 +21,10 @@ use greentic_sorla_pack::{
     DesignerNodeTypeGenerationOptions, PROVIDER_BINDINGS_TEMPLATE_FILENAME,
     RUNTIME_TEMPLATE_FILENAME, SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA,
     SORX_VALIDATION_SCHEMA, START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
-    build_handoff_artifacts_from_yaml, generate_agent_endpoint_action_catalog_from_ir,
-    generate_designer_node_types_from_ir, generate_sorx_validation_manifest_from_ir,
-    ontology_schema_json, retrieval_bindings_schema_json, sorx_validation_schema_json,
+    agent_endpoint_contract_warnings, build_handoff_artifacts_from_yaml,
+    generate_agent_endpoint_action_catalog_from_ir, generate_designer_node_types_from_ir,
+    generate_sorx_validation_manifest_from_ir, ontology_schema_json,
+    retrieval_bindings_schema_json, sorx_validation_schema_json,
 };
 #[cfg(feature = "pack-zip")]
 use greentic_sorla_pack::{build_sorla_gtpack, doctor_sorla_gtpack, inspect_sorla_gtpack};
@@ -1015,6 +1017,8 @@ struct AnswersDocument {
     #[serde(default)]
     projections: Option<ProjectionAnswers>,
     #[serde(default)]
+    operational_indexes: Option<serde_json::Value>,
+    #[serde(default)]
     metrics: Option<MetricAnswers>,
     #[serde(default)]
     provider_requirements: Vec<ProviderRequirementAnswer>,
@@ -1505,6 +1509,8 @@ struct AgentEndpointItemAnswer {
     agent_visibility: Option<AgentVisibilityAnswer>,
     #[serde(default)]
     examples: Vec<AgentEndpointExampleAnswer>,
+    #[serde(default)]
+    execution: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1588,6 +1594,8 @@ struct ResolvedAnswers {
     event_items: Vec<EventItemAnswer>,
     #[serde(default)]
     projection_items: Vec<ProjectionItemAnswer>,
+    #[serde(default)]
+    operational_indexes: Option<serde_json::Value>,
     #[serde(default)]
     metric_items: Vec<MetricItemAnswer>,
     #[serde(default)]
@@ -1712,7 +1720,7 @@ pub fn parse_sorla_yaml(input: ParseSorlaInput) -> Result<ParseSorlaOutput, Sorl
         }
     };
 
-    let _ir = lower_package(&parsed.package);
+    let ir = lower_package(&parsed.package);
     let mut diagnostics = parsed
         .warnings
         .iter()
@@ -1725,6 +1733,7 @@ pub fn parse_sorla_yaml(input: ParseSorlaInput) -> Result<ParseSorlaOutput, Sorl
         })
         .collect::<Vec<_>>();
     diagnostics.extend(metric_diagnostics_from_package(&parsed.package));
+    diagnostics.extend(agent_endpoint_diagnostics_from_ir(&ir));
     diagnostics.sort_by(|left, right| {
         left.path
             .cmp(&right.path)
@@ -1746,6 +1755,22 @@ fn metric_diagnostics_from_package(package: &sorla_ast::Package) -> Vec<SorlaDia
             path: Some("metrics".to_string()),
             suggestion: Some(
                 "Update metric source, measure, filters, time grain, or dependencies.".to_string(),
+            ),
+        })
+        .collect()
+}
+
+fn agent_endpoint_diagnostics_from_ir(ir: &greentic_sorla_ir::CanonicalIr) -> Vec<SorlaDiagnostic> {
+    agent_endpoint_contract_warnings(ir)
+        .into_iter()
+        .map(|warning| SorlaDiagnostic {
+            severity: DiagnosticSeverity::Warning,
+            code: warning.code,
+            message: warning.message,
+            path: Some(format!("agent_endpoints.{}", warning.endpoint_id)),
+            suggestion: Some(
+                "Add explicit executable backing for the endpoint, align declared outputs with generated returns, or simplify the endpoint description."
+                    .to_string(),
             ),
         })
         .collect()
@@ -3325,21 +3350,25 @@ pub fn validate_model(
     model: &NormalizedSorlaModel,
     _options: ValidateOptions,
 ) -> SorlaValidationReport {
-    if let Ok(parsed) = parse_sorla_yaml(ParseSorlaInput {
+    let parse_report = parse_sorla_yaml(ParseSorlaInput {
         source_yaml: model.source_yaml.clone(),
         source_path: None,
-    }) && parsed
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    });
+    if let Ok(parsed) = &parse_report
+        && parsed
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
     {
         return SorlaValidationReport {
-            diagnostics: parsed.diagnostics,
+            diagnostics: parsed.diagnostics.clone(),
         };
     }
     match build_handoff_artifacts_from_yaml(&model.source_yaml) {
         Ok(_) => SorlaValidationReport {
-            diagnostics: Vec::new(),
+            diagnostics: parse_report
+                .map(|parsed| parsed.diagnostics)
+                .unwrap_or_default(),
         },
         Err(message) => SorlaValidationReport {
             diagnostics: vec![SorlaDiagnostic {
@@ -6835,6 +6864,7 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
         actions: answers.actions.clone(),
         event_items: resolved_event_items,
         projection_items: resolved_projection_items,
+        operational_indexes: answers.operational_indexes.clone(),
         metric_items: answers
             .metrics
             .as_ref()
@@ -7050,6 +7080,10 @@ fn resolve_update_answers(
         actions: resolved_actions,
         event_items: resolved_event_items,
         projection_items: resolved_projection_items,
+        operational_indexes: answers
+            .operational_indexes
+            .clone()
+            .or(previous.operational_indexes),
         metric_items: answers
             .metrics
             .as_ref()
@@ -7224,6 +7258,7 @@ fn action_endpoints_from_answers(
                     llms_txt: Some(true),
                 }),
                 examples: Vec::new(),
+                execution: None,
             }
         })
         .collect()
@@ -7773,6 +7808,7 @@ fn has_rich_domain_answers(resolved: &ResolvedAnswers) -> bool {
         || !resolved.actions.is_empty()
         || !resolved.event_items.is_empty()
         || !resolved.projection_items.is_empty()
+        || resolved.operational_indexes.is_some()
         || !resolved.metric_items.is_empty()
         || !resolved.provider_requirements.is_empty()
         || !resolved.policies.is_empty()
@@ -7801,6 +7837,7 @@ fn render_rich_package_yaml(resolved: &ResolvedAnswers) -> String {
     render_actions(&resolved.actions, &mut lines);
     render_events(resolved, &mut lines);
     render_projections(resolved, &mut lines);
+    render_operational_indexes(resolved, &mut lines);
     render_metrics(resolved, &mut lines);
     render_provider_requirements(resolved, &mut lines);
     render_named_section("policies", &resolved.policies, &mut lines);
@@ -7809,6 +7846,14 @@ fn render_rich_package_yaml(resolved: &ResolvedAnswers) -> String {
     render_agent_endpoints(resolved, &mut lines);
 
     lines.join("\n") + "\n"
+}
+
+fn render_operational_indexes(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    let Some(operational_indexes) = &resolved.operational_indexes else {
+        return;
+    };
+    lines.push("operational_indexes:".to_string());
+    render_json_value(operational_indexes, 2, lines);
 }
 
 fn render_ontology(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
@@ -8582,6 +8627,10 @@ fn render_agent_endpoints(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
                 lines.push("        expected_output:".to_string());
                 render_json_value(&example.expected_output, 10, lines);
             }
+        }
+        if let Some(execution) = &endpoint.execution {
+            lines.push("    execution:".to_string());
+            render_json_value(execution, 6, lines);
         }
     }
 }
@@ -9413,6 +9462,7 @@ fn answers_document_from_qa_answers(answers: serde_json::Value) -> Result<Answer
             mode: Some(get_required_string(object, "projection_mode")?),
             items: Vec::new(),
         }),
+        operational_indexes: None,
         metrics: Some(MetricAnswers {
             enabled: Some(false),
             items: Vec::new(),
@@ -10653,6 +10703,58 @@ mod tests {
     }
 
     #[test]
+    fn validate_model_surfaces_agent_endpoint_contract_warnings() {
+        let source_yaml = r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: waiting_list_entry
+    fields:
+      - name: entry_id
+        type: string
+      - name: lab_id
+        type: string
+      - name: user_id
+        type: string
+agent_endpoints:
+  - id: join_waiting_list
+    title: Join waiting list
+    intent: Add a user and return their current position.
+    inputs:
+      - name: lab_id
+        type: string
+        required: true
+      - name: user_id
+        type: string
+        required: true
+    outputs:
+      - name: entry_id
+        type: string
+      - name: position
+        type: integer
+"#
+        .trim_start()
+        .to_string();
+        let model = NormalizedSorlaModel {
+            package_name: "waitlist".to_string(),
+            package_version: "0.1.0".to_string(),
+            locale: "en".to_string(),
+            source_yaml,
+            normalized_answers: serde_json::json!({}),
+        };
+
+        let report = validate_model(&model, ValidateOptions);
+
+        assert!(!report.has_errors(), "{report:?}");
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == DiagnosticSeverity::Warning
+                && diagnostic.code == "sorla.agent_endpoint.output_contract"
+                && diagnostic.path.as_deref() == Some("agent_endpoints.join_waiting_list")
+        }));
+    }
+
+    #[test]
     fn generate_concept_view_from_design_model() {
         let answers_path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("examples")
@@ -10679,7 +10781,14 @@ mod tests {
         .expect("concept view generates");
 
         assert_eq!(output.view.schema, CONCEPT_VIEW_SCHEMA);
-        assert_eq!(output.view.status, ConceptViewStatus::Valid);
+        assert_eq!(output.view.status, ConceptViewStatus::Warning);
+        assert!(
+            output
+                .view
+                .diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.code == "sorla.agent_endpoint.output_contract" })
+        );
         assert!(
             output
                 .view
@@ -12513,6 +12622,160 @@ metrics:
         )
         .unwrap();
         assert!(provider_manifest.contains("\"agent_endpoint_handoff\""));
+    }
+
+    #[test]
+    fn answers_agent_endpoint_execution_renders_to_source_yaml() {
+        let answers = serde_json::json!({
+            "schema_version": "0.4",
+            "flow": "create",
+            "output_dir": "/tmp/sorla-execution-answer",
+            "package": {
+                "name": "waiting-list",
+                "version": "0.1.0"
+            },
+            "actions": [
+                {
+                    "name": "join_waiting_list",
+                    "description": "Create or return the waiting-list entry for a lab and email."
+                }
+            ],
+            "records": {
+                "items": [
+                    {
+                        "name": "waiting_list_entry",
+                        "fields": [
+                            {
+                                "name": "lab_id",
+                                "type": "string"
+                            },
+                            {
+                                "name": "email",
+                                "type": "string"
+                            },
+                            {
+                                "name": "invitation_code",
+                                "type": "string"
+                            },
+                            {
+                                "name": "referred_count",
+                                "type": "integer"
+                            }
+                        ]
+                    }
+                ]
+            },
+            "operational_indexes": {
+                "schema": "greentic.sorla.operational-indexes.v1",
+                "indexes": [
+                    {
+                        "id": "waiting_list_entry_lab_email_unique",
+                        "record": "waiting_list_entry",
+                        "kind": "composite",
+                        "unique": true,
+                        "fields": ["lab_id", "email"]
+                    }
+                ],
+                "query_requirements": [
+                    {
+                        "id": "join_waiting_list_idempotency",
+                        "used_by": {
+                            "agent_endpoint": "join_waiting_list"
+                        },
+                        "requires_index": "waiting_list_entry_lab_email_unique"
+                    }
+                ]
+            },
+            "agent_endpoints": {
+                "enabled": true,
+                "default_risk": "medium",
+                "default_approval": "policy-driven",
+                "exports": ["openapi", "mcp"],
+                "provider_category": "storage",
+                "items": [
+                    {
+                        "id": "join_waiting_list",
+                        "title": "Join waiting list",
+                        "intent": "Create or return the waiting-list entry for a lab and email.",
+                        "inputs": [
+                            {
+                                "name": "lab_id",
+                                "type": "string",
+                                "required": true
+                            },
+                            {
+                                "name": "email",
+                                "type": "string",
+                                "required": true
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "name": "entry_id",
+                                "type": "string"
+                            }
+                        ],
+                        "backing": {
+                            "actions": ["join_waiting_list"]
+                        },
+                        "execution": {
+                            "kind": "record_mutation",
+                            "action": "join_waiting_list",
+                            "steps": [
+                                {
+                                    "op": "increment_where",
+                                    "collection": "waiting_list_entries",
+                                    "where": {
+                                        "lab_id": "$input.lab_id",
+                                        "invitation_code": "$input.invited_by_code"
+                                    },
+                                    "increments": {
+                                        "referred_count": 1
+                                    }
+                                }
+                            ],
+                            "return": {
+                                "entry_id": "$entry.entry_id"
+                            }
+                        }
+                    }
+                ]
+            }
+        });
+
+        let model = normalize_answers(answers, NormalizeOptions).expect("answers normalize");
+
+        assert!(model.source_yaml.contains("execution:"));
+        assert!(model.source_yaml.contains("operational_indexes:"));
+        assert!(model.source_yaml.contains("unique: true"));
+        assert!(
+            model
+                .source_yaml
+                .contains("requires_index: waiting_list_entry_lab_email_unique")
+        );
+        assert!(model.source_yaml.contains("op: increment_where"));
+        assert!(
+            model
+                .source_yaml
+                .contains("collection: waiting_list_entries")
+        );
+        assert!(model.source_yaml.contains("referred_count: 1"));
+
+        let parsed = parse_package(&model.source_yaml).expect("generated source should parse");
+        let endpoint = parsed
+            .package
+            .agent_endpoints
+            .iter()
+            .find(|endpoint| endpoint.id == "join_waiting_list")
+            .expect("join endpoint should exist");
+        assert_eq!(
+            endpoint
+                .execution
+                .as_ref()
+                .and_then(|execution| execution.get("kind"))
+                .and_then(|kind| kind.as_str()),
+            Some("record_mutation")
+        );
     }
 
     #[test]

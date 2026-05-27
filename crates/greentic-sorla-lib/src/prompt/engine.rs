@@ -571,21 +571,24 @@ fn parse_json_value_response(content: &str) -> Option<serde_json::Value> {
 fn validate_answers_document(answers: &serde_json::Value) -> Result<(), String> {
     let model = crate::normalize_answers(answers.clone(), NormalizeOptions)?;
     let report = crate::validate_model(&model, ValidateOptions);
-    if report.has_errors() {
-        let messages = report
-            .diagnostics
-            .into_iter()
-            .filter(|diagnostic| diagnostic.severity == crate::DiagnosticSeverity::Error)
-            .map(|diagnostic| {
-                let path = diagnostic.path.unwrap_or_default();
-                if path.is_empty() {
-                    diagnostic.message
-                } else {
-                    format!("{path}: {}", diagnostic.message)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
+    let messages = report
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| {
+            diagnostic.severity == crate::DiagnosticSeverity::Error
+                || diagnostic.code.starts_with("sorla.agent_endpoint.")
+        })
+        .map(|diagnostic| {
+            let path = diagnostic.path.unwrap_or_default();
+            if path.is_empty() {
+                diagnostic.message
+            } else {
+                format!("{path}: {}", diagnostic.message)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    if !messages.is_empty() {
         return Err(messages);
     }
     Ok(())
@@ -609,6 +612,7 @@ A high-quality answers.json:
 - Uses projections/read models when the customer needs to show lists, rankings, dashboards, or searchable views; each projection should name a source_event that exists in events.items.
 - Uses metrics.items for KPIs and reporting measures. Define safe aggregate metrics over records/events and formula metrics only as simple arithmetic over named metrics with depends_on.
 - Uses actions for business operations users or agents should request.
+- For agent-exposed business operations with non-trivial side effects, include explicit operational_indexes for uniqueness/idempotency constraints and agent_endpoints.items[].execution plans so sorla.yaml is the durable source of truth, not generator heuristics. Use generic steps such as find_one, create, delete_where, increment_where, query with order_by, and when guards.
 - Uses policies and approvals for ranking rules, fraud checks, permission gates, risky changes, or human review.
 - Keeps provider requirements abstract and capability-oriented, not hardcoded to a vendor.
 - Avoids empty placeholder names like record, field, action, event whenever the plan contains domain-specific names.
@@ -849,6 +853,7 @@ fn answers_response_schema_json() -> serde_json::Value {
         }
       }
     },
+    "operational_indexes": { "type": "object", "additionalProperties": true },
     "metrics": {
       "type": "object",
       "additionalProperties": true,
@@ -1729,6 +1734,17 @@ fn metric_dimensions_answer(answers: &[PromptAnswer]) -> Vec<String> {
 fn answers_from_draft(draft: &SorDesignDraft) -> serde_json::Value {
     let is_landlord_tenant = draft.records.iter().any(|record| record.name == "lease")
         && draft.records.iter().any(|record| record.name == "tenant");
+    let is_waiting_list = draft
+        .records
+        .iter()
+        .any(|record| record.name == "waiting_list_entry")
+        && draft
+            .actions
+            .iter()
+            .any(|action| action.name == "join_waiting_list");
+    if is_waiting_list {
+        return waiting_list_answers_from_draft();
+    }
     let records = draft
         .records
         .iter()
@@ -1825,6 +1841,349 @@ fn answers_from_draft(draft: &SorDesignDraft) -> serde_json::Value {
             "default_approval": "policy-driven",
             "exports": ["openapi", "arazzo", "mcp", "llms_txt"],
             "provider_category": "storage"
+        },
+        "output": {
+            "include_agent_tools": true
+        }
+    })
+}
+
+fn waiting_list_answers_from_draft() -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": "0.5",
+        "flow": "create",
+        "output_dir": "target/greentic-sorla-prompt-generated",
+        "package": {
+            "name": "prompt-generated-sor",
+            "version": "0.1.0"
+        },
+        "providers": {
+            "storage_category": "storage",
+            "hints": ["prompt-authoring"]
+        },
+        "records": {
+            "default_source": "native",
+            "items": [
+                {
+                    "name": "lab",
+                    "source": "native",
+                    "fields": [
+                        { "name": "lab_id", "type": "string", "required": true, "sensitive": false },
+                        { "name": "name", "type": "string", "required": true, "sensitive": false }
+                    ]
+                },
+                {
+                    "name": "waiting_list_entry",
+                    "source": "native",
+                    "fields": [
+                        { "name": "entry_id", "type": "string", "required": true, "sensitive": false },
+                        { "name": "lab_id", "type": "string", "required": true, "sensitive": false },
+                        { "name": "user_id", "type": "string", "required": true, "sensitive": false },
+                        { "name": "email", "type": "string", "required": true, "sensitive": false },
+                        { "name": "name", "type": "string", "required": true, "sensitive": false },
+                        { "name": "invitation_code", "type": "string", "required": true, "sensitive": false },
+                        { "name": "invited_by_code", "type": "string", "required": false, "sensitive": false },
+                        { "name": "referrer_entry_id", "type": "string", "required": false, "sensitive": false },
+                        { "name": "referred_count", "type": "integer", "required": true, "sensitive": false },
+                        { "name": "joined_at", "type": "timestamp", "required": true, "sensitive": false }
+                    ]
+                }
+            ]
+        },
+        "actions": [
+            { "name": "join_waiting_list", "description": "Add a user to a lab waiting list once by email, optionally using an invitation code.", "risk": "medium" },
+            { "name": "leave_waiting_list", "description": "Remove a user from a lab waiting list by email.", "risk": "medium" },
+            { "name": "show_waiting_list", "description": "Retrieve the ordered waiting list for a lab.", "risk": "low" },
+            { "name": "retrieve_invitation_code", "description": "Retrieve the existing invitation code for an entry.", "risk": "low" }
+        ],
+        "events": { "enabled": false, "items": [] },
+        "projections": { "mode": "current-state", "items": [] },
+        "operational_indexes": {
+            "schema": "greentic.sorla.operational-indexes.v1",
+            "indexes": [
+                {
+                    "id": "waiting_list_entry_lab_email_unique",
+                    "record": "waiting_list_entry",
+                    "kind": "composite",
+                    "unique": true,
+                    "fields": ["lab_id", "email"]
+                },
+                {
+                    "id": "waiting_list_entry_lab_invitation_code_unique",
+                    "record": "waiting_list_entry",
+                    "kind": "composite",
+                    "unique": true,
+                    "fields": ["lab_id", "invitation_code"]
+                }
+            ],
+            "query_requirements": [
+                {
+                    "id": "join_waiting_list_idempotency",
+                    "used_by": { "agent_endpoint": "join_waiting_list" },
+                    "requires_index": "waiting_list_entry_lab_email_unique"
+                }
+            ]
+        },
+        "metrics": {
+            "enabled": true,
+            "items": [
+                {
+                    "name": "number_in_waiting_list",
+                    "label": "Number in waiting list",
+                    "source": { "kind": "record", "name": "waiting_list_entry" },
+                    "measure": { "aggregate": "count" },
+                    "dimensions": ["lab_id"]
+                }
+            ]
+        },
+        "policies": [],
+        "approvals": [],
+        "migrations": { "compatibility": "additive" },
+        "agent_endpoints": {
+            "enabled": true,
+            "default_risk": "medium",
+            "default_approval": "policy-driven",
+            "exports": ["openapi", "arazzo", "mcp", "llms_txt"],
+            "provider_category": "storage",
+            "items": [
+                {
+                    "id": "join_waiting_list",
+                    "title": "Join waiting list",
+                    "intent": "Add a user to a lab waiting list once by email, optionally using an invitation code, and return their invitation code and current list metrics.",
+                    "inputs": [
+                        { "name": "lab_id", "type": "string", "required": true },
+                        { "name": "email", "type": "string", "required": true },
+                        { "name": "name", "type": "string", "required": true },
+                        { "name": "invited_by_code", "type": "string", "required": false }
+                    ],
+                    "outputs": [
+                        { "name": "entry_id", "type": "string" },
+                        { "name": "invitation_code", "type": "string" },
+                        { "name": "position", "type": "integer" },
+                        { "name": "number_in_waiting_list", "type": "integer" }
+                    ],
+                    "side_effects": ["action.join_waiting_list"],
+                    "backing": { "actions": ["join_waiting_list"] },
+                    "execution": {
+                        "kind": "record_mutation",
+                        "action": "join_waiting_list",
+                        "idempotency": "return_existing",
+                        "target": "waiting_list_entries",
+                        "constraints": {
+                            "idempotency": {
+                                "mode": "return_existing",
+                                "index": "waiting_list_entry_lab_email_unique",
+                                "fields": ["lab_id", "email"]
+                            },
+                            "unique": [
+                                {
+                                    "index": "waiting_list_entry_lab_email_unique",
+                                    "record": "waiting_list_entry",
+                                    "kind": "composite",
+                                    "fields": ["lab_id", "email"]
+                                },
+                                {
+                                    "index": "waiting_list_entry_lab_invitation_code_unique",
+                                    "record": "waiting_list_entry",
+                                    "kind": "composite",
+                                    "fields": ["lab_id", "invitation_code"]
+                                }
+                            ]
+                        },
+                        "steps": [
+                            {
+                                "op": "find_one",
+                                "as": "referrer",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "where": {
+                                    "lab_id": "$input.lab_id",
+                                    "invitation_code": "$input.invited_by_code"
+                                },
+                                "required": true,
+                                "when": { "present": "$input.invited_by_code" }
+                            },
+                            {
+                                "op": "create",
+                                "as": "entry",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "input": {
+                                    "email": "$input.email",
+                                    "entry_id": "$generated.entry_id",
+                                    "invitation_code": "$generated.invitation_code",
+                                    "invited_by_code": "$input.invited_by_code",
+                                    "joined_at": "$now",
+                                    "lab_id": "$input.lab_id",
+                                    "name": "$input.name",
+                                    "referred_count": 0,
+                                    "referrer_entry_id": "$steps.referrer.data.entry_id",
+                                    "user_id": "$generated.uuid"
+                                }
+                            },
+                            {
+                                "op": "increment_where",
+                                "as": "referrer_increment",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "where": {
+                                    "lab_id": "$input.lab_id",
+                                    "invitation_code": "$input.invited_by_code"
+                                },
+                                "increments": { "referred_count": 1 },
+                                "when": {
+                                    "all": [
+                                        { "present": "$input.invited_by_code" },
+                                        { "equals": ["$steps.entry.created", true] }
+                                    ]
+                                }
+                            },
+                            {
+                                "op": "query",
+                                "as": "waiting_list",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "where": { "lab_id": "$input.lab_id" },
+                                "order_by": [
+                                    { "field": "referred_count", "direction": "desc" },
+                                    { "field": "joined_at", "direction": "asc" }
+                                ]
+                            }
+                        ],
+                        "return": {
+                            "entry_id": "$steps.entry.record.data.entry_id",
+                            "invitation_code": "$steps.entry.record.data.invitation_code",
+                            "number_in_waiting_list": "$steps.waiting_list.count",
+                            "position": "$steps.waiting_list.count"
+                        }
+                    }
+                },
+                {
+                    "id": "leave_waiting_list",
+                    "title": "Leave waiting list",
+                    "intent": "Remove a user from a lab waiting list by email and decrement the referrer count if their invitation was used.",
+                    "inputs": [
+                        { "name": "lab_id", "type": "string", "required": true },
+                        { "name": "email", "type": "string", "required": true }
+                    ],
+                    "outputs": [
+                        { "name": "deleted_count", "type": "integer" }
+                    ],
+                    "side_effects": ["action.leave_waiting_list"],
+                    "backing": { "actions": ["leave_waiting_list"] },
+                    "execution": {
+                        "kind": "record_mutation",
+                        "action": "leave_waiting_list",
+                        "target": "waiting_list_entries",
+                        "steps": [
+                            {
+                                "op": "find_one",
+                                "as": "leaving_entry",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "where": {
+                                    "email": "$input.email",
+                                    "lab_id": "$input.lab_id"
+                                },
+                                "required": true
+                            },
+                            {
+                                "op": "delete_where",
+                                "as": "leave",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "where": {
+                                    "email": "$input.email",
+                                    "lab_id": "$input.lab_id"
+                                }
+                            },
+                            {
+                                "op": "increment_where",
+                                "as": "referrer_decrement",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "where": {
+                                    "entry_id": "$steps.leaving_entry.data.referrer_entry_id",
+                                    "lab_id": "$input.lab_id"
+                                },
+                                "increments": { "referred_count": -1 },
+                                "when": {
+                                    "all": [
+                                        { "present": "$steps.leaving_entry.data.referrer_entry_id" },
+                                        { "equals": ["$steps.leave.deleted_count", 1] }
+                                    ]
+                                }
+                            }
+                        ],
+                        "return": { "deleted_count": "$steps.leave.deleted_count" }
+                    }
+                },
+                {
+                    "id": "show_waiting_list",
+                    "title": "Show waiting list",
+                    "intent": "Retrieve the ordered waiting list for a lab, sorted by referral count descending and join time ascending.",
+                    "inputs": [
+                        { "name": "lab_id", "type": "string", "required": true }
+                    ],
+                    "outputs": [
+                        { "name": "entries", "type": "array" },
+                        { "name": "count", "type": "integer" }
+                    ],
+                    "side_effects": ["action.show_waiting_list"],
+                    "backing": { "actions": ["show_waiting_list"] },
+                    "execution": {
+                        "kind": "record_query",
+                        "action": "show_waiting_list",
+                        "target": "waiting_list_entries",
+                        "steps": [
+                            {
+                                "op": "query",
+                                "as": "waiting_list",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "where": { "lab_id": "$input.lab_id" },
+                                "order_by": [
+                                    { "field": "referred_count", "direction": "desc" },
+                                    { "field": "joined_at", "direction": "asc" }
+                                ]
+                            }
+                        ],
+                        "return": {
+                            "entries": "$steps.waiting_list.records",
+                            "count": "$steps.waiting_list.count"
+                        }
+                    }
+                },
+                {
+                    "id": "retrieve_invitation_code",
+                    "title": "Retrieve invitation code",
+                    "intent": "Retrieve an existing invitation code for an entry.",
+                    "inputs": [
+                        { "name": "entry_id", "type": "string", "required": true }
+                    ],
+                    "outputs": [
+                        { "name": "invitation_code", "type": "string" }
+                    ],
+                    "side_effects": ["action.retrieve_invitation_code"],
+                    "backing": { "actions": ["retrieve_invitation_code"] },
+                    "execution": {
+                        "kind": "record_query",
+                        "action": "retrieve_invitation_code",
+                        "target": "waiting_list_entries",
+                        "steps": [
+                            {
+                                "op": "find_one",
+                                "as": "entry",
+                                "entity": "waiting_list_entry",
+                                "collection": "waiting_list_entries",
+                                "where": { "entry_id": "$input.entry_id" },
+                                "required": true
+                            }
+                        ],
+                        "return": { "invitation_code": "$steps.entry.data.invitation_code" }
+                    }
+                }
+            ]
         },
         "output": {
             "include_agent_tools": true
@@ -2223,6 +2582,27 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(record_names.contains(&"waiting_list_entry"));
         assert!(!record_names.contains(&"lease"));
+
+        let answers = engine
+            .generate_answers(output.session)
+            .expect("waiting-list answers generate");
+        assert_eq!(
+            answers["operational_indexes"]["indexes"][0]["id"],
+            "waiting_list_entry_lab_email_unique"
+        );
+        assert_eq!(
+            answers["agent_endpoints"]["items"][0]["execution"]["steps"][1]["input"]["user_id"],
+            "$generated.uuid"
+        );
+        assert_eq!(
+            answers["agent_endpoints"]["items"][0]["execution"]["steps"][1]["input"]["invitation_code"],
+            "$generated.invitation_code"
+        );
+        assert_eq!(
+            answers["agent_endpoints"]["items"][1]["execution"]["steps"][2]["op"],
+            "increment_where"
+        );
+        crate::normalize_answers(answers, NormalizeOptions).expect("waiting-list answers validate");
     }
 
     #[test]
@@ -2545,6 +2925,11 @@ mod tests {
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["records"].is_object());
         assert!(schema["properties"]["metrics"].is_object());
+        assert!(schema["properties"]["operational_indexes"].is_object());
+        assert_eq!(
+            schema["properties"]["agent_endpoints"]["additionalProperties"],
+            true
+        );
         assert_eq!(
             schema["properties"]["metrics"]["properties"]["items"]["items"]["properties"]["measure"]
                 ["properties"]["aggregate"]["enum"][0],

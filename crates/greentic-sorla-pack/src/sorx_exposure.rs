@@ -217,6 +217,7 @@ mod tests {
             },
             examples: Vec::new(),
             emits: None,
+            execution: None,
         }
     }
 
