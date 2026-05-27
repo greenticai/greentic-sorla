@@ -1,0 +1,373 @@
+# --- BEGIN GREENTIC-SORLA GENERATED ---
+package:
+  name: demo_sorla_full_coverage
+  version: 0.1.0
+records:
+  - name: sample_entity
+    source: native
+    fields:
+      - name: entity_id
+        type: string
+        sensitive: false
+      - name: name
+        type: string
+        sensitive: false
+      - name: created_at
+        type: timestamp
+        sensitive: false
+      - name: is_active
+        type: boolean
+        sensitive: false
+      - name: secret_token
+        type: string
+        sensitive: true
+  - name: secondary_entity
+    source: hybrid
+    external_ref:
+      system: TestExternalSys
+      key: record_id
+      authoritative: true
+    fields:
+      - name: secondary_id
+        type: string
+        authority: local
+        sensitive: false
+      - name: sample_entity_id
+        type: string
+        authority: local
+        sensitive: false
+        references:
+          record: sample_entity
+          field: entity_id
+      - name: external_ref_id
+        type: string
+        authority: external
+        sensitive: false
+  - name: external_data
+    source: external
+    external_ref:
+      system: TestExternalSys
+      key: record_id
+      authoritative: true
+    fields:
+      - name: external_id
+        type: string
+        authority: external
+        sensitive: false
+      - name: payload
+        type: string
+        authority: external
+        sensitive: false
+actions:
+  - name: create_sample_entity
+  - name: update_sample_entity
+  - name: archive_sample_entity
+  - name: restore_sample_entity
+  - name: delete_sample_entity
+  - name: apply_external_data
+  - name: trigger_policy_action
+  - name: custom_workflow_action
+events: []
+projections: []
+provider_requirements:
+  - category: storage
+    capabilities:
+      - event-log
+      - projections
+policies:
+  - name: lifecycle_policy
+  - name: external_data_sync_policy
+  - name: approval_policy
+approvals:
+  - name: archive_entity_approval
+  - name: delete_entity_approval
+migrations:
+  - name: demo_sorla_full_coverage-compatibility
+    compatibility: additive
+    projection_updates: []
+agent_endpoints:
+  - id: create_sample_entity
+    title: "create sample entity"
+    intent: "Create a new sample_entity."
+    description: "Create a new sample_entity."
+    inputs:
+      - name: entity_id
+        type: string
+        required: true
+        sensitive: false
+        description: "Unique synthetic entity ID (PK)."
+      - name: name
+        type: string
+        required: true
+        sensitive: false
+        description: "Human-friendly test entity name."
+      - name: created_at
+        type: timestamp
+        required: true
+        sensitive: false
+        description: "Timestamp of record creation."
+      - name: is_active
+        type: boolean
+        required: true
+        sensitive: false
+        description: "Lifecycle/status feature."
+      - name: secret_token
+        type: string
+        required: true
+        sensitive: true
+        description: "Sensitive demo field for security/policy tests."
+    outputs: []
+    side_effects:
+      - action.create_sample_entity
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - create_sample_entity
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: update_sample_entity
+    title: "update sample entity"
+    intent: "Update fields on sample_entity."
+    description: "Update fields on sample_entity."
+    inputs:
+      - name: id
+        type: string
+        required: true
+      - name: entity_id
+        type: string
+        required: false
+        sensitive: false
+        description: "Unique synthetic entity ID (PK)."
+      - name: name
+        type: string
+        required: false
+        sensitive: false
+        description: "Human-friendly test entity name."
+      - name: created_at
+        type: timestamp
+        required: false
+        sensitive: false
+        description: "Timestamp of record creation."
+      - name: is_active
+        type: boolean
+        required: false
+        sensitive: false
+        description: "Lifecycle/status feature."
+      - name: secret_token
+        type: string
+        required: false
+        sensitive: true
+        description: "Sensitive demo field for security/policy tests."
+    outputs: []
+    side_effects:
+      - action.update_sample_entity
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - update_sample_entity
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: archive_sample_entity
+    title: "archive sample entity"
+    intent: "Archive a sample_entity (policy trigger)."
+    description: "Archive a sample_entity (policy trigger)."
+    inputs:
+      - name: entity_id
+        type: string
+        required: true
+        sensitive: false
+        description: "Unique synthetic entity ID (PK)."
+      - name: name
+        type: string
+        required: true
+        sensitive: false
+        description: "Human-friendly test entity name."
+      - name: created_at
+        type: timestamp
+        required: true
+        sensitive: false
+        description: "Timestamp of record creation."
+      - name: is_active
+        type: boolean
+        required: true
+        sensitive: false
+        description: "Lifecycle/status feature."
+      - name: secret_token
+        type: string
+        required: true
+        sensitive: true
+        description: "Sensitive demo field for security/policy tests."
+    outputs: []
+    side_effects:
+      - action.archive_sample_entity
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - archive_sample_entity
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: restore_sample_entity
+    title: "restore sample entity"
+    intent: "Restore an archived sample_entity."
+    description: "Restore an archived sample_entity."
+    inputs:
+      - name: entity_id
+        type: string
+        required: true
+        sensitive: false
+        description: "Unique synthetic entity ID (PK)."
+      - name: name
+        type: string
+        required: true
+        sensitive: false
+        description: "Human-friendly test entity name."
+      - name: created_at
+        type: timestamp
+        required: true
+        sensitive: false
+        description: "Timestamp of record creation."
+      - name: is_active
+        type: boolean
+        required: true
+        sensitive: false
+        description: "Lifecycle/status feature."
+      - name: secret_token
+        type: string
+        required: true
+        sensitive: true
+        description: "Sensitive demo field for security/policy tests."
+    outputs: []
+    side_effects:
+      - action.restore_sample_entity
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - restore_sample_entity
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: delete_sample_entity
+    title: "delete sample entity"
+    intent: "Delete a sample_entity (approval required)."
+    description: "Delete a sample_entity (approval required)."
+    inputs:
+      - name: id
+        type: string
+        required: true
+    outputs: []
+    side_effects:
+      - action.delete_sample_entity
+    risk: high
+    approval: policy-driven
+    backing:
+      actions:
+        - delete_sample_entity
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: apply_external_data
+    title: "apply external data"
+    intent: "Operation to ingest or sync external/hybrid record into the system for mapping test."
+    description: "Operation to ingest or sync external/hybrid record into the system for mapping test."
+    inputs:
+      - name: external_id
+        type: string
+        required: true
+        sensitive: false
+        description: "External/hybrid ID."
+      - name: payload
+        type: string
+        required: true
+        sensitive: false
+        description: "Opaque data to demo external field mapping."
+    outputs: []
+    side_effects:
+      - action.apply_external_data
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - apply_external_data
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: trigger_policy_action
+    title: "trigger policy action"
+    intent: "Invoke demo policy for coverage."
+    description: "Invoke demo policy for coverage."
+    inputs: []
+    outputs: []
+    side_effects:
+      - action.trigger_policy_action
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - trigger_policy_action
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+  - id: custom_workflow_action
+    title: "custom workflow action"
+    intent: "User-defined or agent-triggered operation, used for endpoint and custom event coverage."
+    description: "User-defined or agent-triggered operation, used for endpoint and custom event coverage."
+    inputs: []
+    outputs: []
+    side_effects:
+      - action.custom_workflow_action
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - custom_workflow_action
+      events: []
+      policies: []
+      approvals: []
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+# --- END GREENTIC-SORLA GENERATED ---

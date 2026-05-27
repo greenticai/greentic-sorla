@@ -9,27 +9,48 @@
     {
       "name": "campaign_roas",
       "label": "Campaign ROAS",
-      "filters": [],
-      "unit": "ratio",
       "dimensions": [
-        "campaign"
+        {
+          "name": "campaign",
+          "field": "campaign"
+        }
       ],
-      "formula": "monthly_revenue / monthly_cost",
-      "depends_on": [
-        "monthly_revenue",
-        "monthly_cost"
-      ]
+      "formula": {
+        "expression": "monthly_revenue / monthly_cost",
+        "dependencies": [
+          "monthly_revenue",
+          "monthly_cost"
+        ]
+      }
     },
     {
       "name": "completed_orders",
       "label": "Completed Orders",
       "source": {
-        "kind": "record",
-        "name": "order"
+        "entity": "order",
+        "collection": "orders"
       },
       "measure": {
         "aggregate": "count"
       },
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "customer",
+          "field": "customer"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
       "filters": [
         {
           "field": "status",
@@ -39,34 +60,30 @@
       ],
       "time": {
         "field": "ordered_at",
-        "grain": "day"
-      },
-      "dimensions": [
-        "campaign",
-        "product",
-        "customer",
-        "region"
-      ],
-      "depends_on": []
+        "grains": [
+          "day"
+        ]
+      }
     },
     {
       "name": "conversion_rate",
       "label": "Conversion Rate",
-      "filters": [],
-      "unit": "percent",
       "dimensions": [
-        "campaign",
-        "region"
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
       ],
-      "formula": "completed_orders / visitor_sessions",
-      "depends_on": [
-        "completed_orders",
-        "visitor_sessions"
-      ],
-      "target": {
-        "operator": ">=",
-        "value": 0.05,
-        "unit": "ratio"
+      "formula": {
+        "expression": "completed_orders / visitor_sessions",
+        "dependencies": [
+          "completed_orders",
+          "visitor_sessions"
+        ]
       }
     },
     {
@@ -74,80 +91,119 @@
       "label": "Daily Clicks",
       "description": "Total clicks by day.",
       "source": {
-        "kind": "record",
-        "name": "click"
+        "entity": "click",
+        "collection": "clicks"
       },
       "measure": {
         "aggregate": "count"
       },
-      "filters": [],
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
       "time": {
         "field": "clicked_at",
-        "grain": "day"
-      },
-      "dimensions": [
-        "campaign",
-        "product",
-        "region"
-      ],
-      "depends_on": []
+        "grains": [
+          "day"
+        ]
+      }
     },
     {
       "name": "gross_margin",
       "label": "Gross Margin",
-      "filters": [],
-      "unit": "GBP",
       "dimensions": [
-        "campaign",
-        "product",
-        "region"
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
       ],
-      "formula": "monthly_revenue - monthly_cost",
-      "depends_on": [
-        "monthly_revenue",
-        "monthly_cost"
-      ]
+      "formula": {
+        "expression": "monthly_revenue - monthly_cost",
+        "dependencies": [
+          "monthly_revenue",
+          "monthly_cost"
+        ]
+      }
     },
     {
       "name": "monthly_cost",
       "label": "Monthly Cost",
       "source": {
-        "kind": "record",
-        "name": "cost_entry"
+        "entity": "cost_entry",
+        "collection": "cost_entries"
       },
       "measure": {
         "aggregate": "sum",
         "field": "amount"
       },
-      "filters": [],
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
       "time": {
         "field": "incurred_at",
-        "grain": "month"
-      },
-      "window": {
-        "mode": "rolling",
-        "size": 3,
-        "unit": "months"
-      },
-      "unit": "GBP",
-      "dimensions": [
-        "campaign",
-        "product",
-        "region"
-      ],
-      "depends_on": []
+        "grains": [
+          "month"
+        ]
+      }
     },
     {
       "name": "monthly_revenue",
       "label": "Monthly Revenue",
       "source": {
-        "kind": "record",
-        "name": "payment"
+        "entity": "payment",
+        "collection": "payments"
       },
       "measure": {
         "aggregate": "sum",
         "field": "amount"
       },
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "customer",
+          "field": "customer"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
       "filters": [
         {
           "field": "status",
@@ -157,42 +213,37 @@
       ],
       "time": {
         "field": "paid_at",
-        "grain": "month"
-      },
-      "unit": "GBP",
-      "dimensions": [
-        "campaign",
-        "product",
-        "customer",
-        "region"
-      ],
-      "depends_on": [],
-      "target": {
-        "operator": ">=",
-        "value": 100000,
-        "unit": "GBP"
+        "grains": [
+          "month"
+        ]
       }
     },
     {
       "name": "visitor_sessions",
       "label": "Visitor Sessions",
       "source": {
-        "kind": "record",
-        "name": "visitor"
+        "entity": "visitor",
+        "collection": "visitors"
       },
       "measure": {
         "aggregate": "count"
       },
-      "filters": [],
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
       "time": {
         "field": "visited_at",
-        "grain": "day"
-      },
-      "dimensions": [
-        "campaign",
-        "region"
-      ],
-      "depends_on": []
+        "grains": [
+          "day"
+        ]
+      }
     }
   ]
 }

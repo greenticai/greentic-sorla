@@ -197,6 +197,8 @@ pub struct OperationalIndexIr {
     pub record: String,
     pub kind: OperationalIndexKindIr,
     pub fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unique: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -563,6 +565,8 @@ pub struct AgentEndpointIr {
     pub examples: Vec<AgentEndpointExampleIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emits: Option<AgentEndpointEmitIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1016,6 +1020,7 @@ fn lower_operational_indexes(package: &Package) -> Option<OperationalIndexesIr> 
                     OperationalIndexKind::Text => OperationalIndexKindIr::Text,
                 },
                 fields,
+                unique: index.unique,
             }
         })
         .collect::<Vec<_>>();
@@ -1388,6 +1393,7 @@ fn sorted_agent_endpoints(package: &Package) -> Vec<AgentEndpointIr> {
                     stream: emit.stream.clone(),
                     payload: emit.payload.clone(),
                 }),
+                execution: endpoint.execution.clone(),
             }
         })
         .collect();
@@ -1816,6 +1822,7 @@ operational_indexes:
     - id: tenant_by_email
       record: Tenant
       kind: exact
+      unique: true
       fields:
         - email
   query_requirements:
@@ -1834,7 +1841,9 @@ operational_indexes:
             .operational_indexes
             .expect("operational indexes should lower");
         assert_eq!(indexes.indexes[0].id, "tenant_by_email");
+        assert!(indexes.indexes[0].unique);
         assert_eq!(indexes.indexes[1].id, "tenant_status_lookup");
+        assert!(!indexes.indexes[1].unique);
         assert_eq!(
             indexes.query_requirements[0].requires_index.as_deref(),
             Some("tenant_status_lookup")

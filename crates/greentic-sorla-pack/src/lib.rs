@@ -256,6 +256,13 @@ pub struct AgentExportSet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentEndpointContractWarning {
+    pub endpoint_id: String,
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OntologyArtifactSet {
     pub ir_cbor: Vec<u8>,
     pub graph_json: String,
@@ -374,7 +381,7 @@ pub struct SorlaGtpackMetricsInspection {
 struct MetricsArtifactDocument {
     pub schema: String,
     pub package: MetricsArtifactPackage,
-    pub metrics: Vec<greentic_sorla_ir::MetricIr>,
+    pub metrics: Vec<MetricsArtifactMetric>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -382,6 +389,64 @@ struct MetricsArtifactPackage {
     pub name: String,
     pub version: String,
     pub ir_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetricsArtifactMetric {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<MetricsArtifactSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measure: Option<MetricsArtifactMeasure>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dimensions: Vec<MetricsArtifactDimension>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub filters: Vec<greentic_sorla_ir::MetricFilterIr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time: Option<MetricsArtifactTime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<MetricsArtifactFormula>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetricsArtifactSource {
+    pub entity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetricsArtifactMeasure {
+    pub aggregate: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetricsArtifactDimension {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sensitive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetricsArtifactTime {
+    pub field: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grains: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetricsArtifactFormula {
+    pub expression: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -873,9 +938,64 @@ fn metrics_artifact_json(ir: &CanonicalIr, ir_hash: &str) -> Result<String, Stri
             version: ir.package.version.clone(),
             ir_hash: ir_hash.to_string(),
         },
-        metrics: ir.metrics.clone(),
+        metrics: metrics_artifact_metrics(ir),
     };
     serde_json::to_string_pretty(&document).map_err(|err| err.to_string())
+}
+
+fn metrics_artifact_metrics(ir: &CanonicalIr) -> Vec<MetricsArtifactMetric> {
+    ir.metrics
+        .iter()
+        .map(|metric| MetricsArtifactMetric {
+            name: metric.name.clone(),
+            label: metric.label.clone(),
+            description: metric.description.clone(),
+            source: metric.source.as_ref().map(|source| {
+                let entity = source.name.clone();
+                MetricsArtifactSource {
+                    collection: (source.kind == "record")
+                        .then(|| pluralize_snake(&snake_case_identifier(&entity))),
+                    entity,
+                }
+            }),
+            measure: metric
+                .measure
+                .as_ref()
+                .map(|measure| MetricsArtifactMeasure {
+                    aggregate: sorx_metric_aggregate(&measure.aggregate).to_string(),
+                    field: measure.field.clone(),
+                }),
+            dimensions: metric
+                .dimensions
+                .iter()
+                .map(|dimension| MetricsArtifactDimension {
+                    name: dimension.clone(),
+                    field: Some(dimension.clone()),
+                    sensitive: false,
+                })
+                .collect(),
+            filters: metric.filters.clone(),
+            time: metric.time.as_ref().map(|time| MetricsArtifactTime {
+                field: time.field.clone(),
+                grains: vec![time.grain.clone()],
+            }),
+            formula: metric
+                .formula
+                .as_ref()
+                .map(|formula| MetricsArtifactFormula {
+                    expression: formula.clone(),
+                    dependencies: metric.depends_on.clone(),
+                }),
+        })
+        .collect()
+}
+
+fn sorx_metric_aggregate(aggregate: &str) -> &str {
+    match aggregate {
+        "average" => "avg",
+        "count_distinct" => "distinct_count",
+        other => other,
+    }
 }
 
 pub fn generate_designer_node_types_from_ir(
@@ -1515,7 +1635,7 @@ fn build_sorla_gtpack_from_artifacts(
         },
         created_at_utc: STABLE_PACK_TIMESTAMP.to_string(),
         extension,
-        assets: asset_paths.clone(),
+        assets: sorx_visible_manifest_assets(&asset_paths),
     };
     let pack_cbor = canonical_cbor(&manifest);
     entries.insert("pack.cbor".to_string(), pack_cbor.clone());
@@ -1846,6 +1966,15 @@ fn insert_pack_asset(
 ) {
     asset_paths.push(path.clone());
     entries.insert(path, bytes);
+}
+
+#[cfg(feature = "pack-zip")]
+fn sorx_visible_manifest_assets(asset_paths: &[String]) -> Vec<String> {
+    asset_paths
+        .iter()
+        .filter(|path| path.starts_with("assets/sorla/") || path.starts_with("assets/sorx/"))
+        .cloned()
+        .collect()
 }
 
 #[cfg(feature = "pack-zip")]
@@ -3195,7 +3324,7 @@ fn validate_embedded_metrics<R: Read + Seek>(
     {
         return Err("metrics.json package metadata does not match model.cbor".to_string());
     }
-    if document.metrics != ir.metrics {
+    if document.metrics != metrics_artifact_metrics(ir) {
         return Err("metrics.json metrics do not match model.cbor".to_string());
     }
     Ok(())
@@ -3513,8 +3642,10 @@ fn validate_embedded_greentic_stack_pack<R: Read + Seek>(
         ("secret_requirements", GREENTIC_SECRET_REQUIREMENTS_PATH),
     ] {
         let path = greentic_extension_path(&pack_manifest, key, expected)?;
-        if !pack_manifest.assets.iter().any(|asset| asset == &path) {
-            return Err(format!("pack.cbor assets do not include `{path}`"));
+        if !names.contains(&path) {
+            return Err(format!(
+                "pack.cbor Greentic extension references missing asset `{path}`"
+            ));
         }
     }
 
@@ -4260,6 +4391,7 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
             ));
         }
     }
+    validate_agent_gateway_runtime_contract(&gateway, &ir)?;
 
     if names.contains(&format!("assets/sorla/{MCP_TOOLS_FILENAME}")) {
         let mcp: serde_json::Value = serde_json::from_str(&zip_text(
@@ -4371,6 +4503,51 @@ pub fn doctor_sorla_gtpack(path: &Path) -> Result<SorlaGtpackDoctorReport, Strin
         status: "ok".to_string(),
         checked_assets,
     })
+}
+
+#[cfg(feature = "pack-zip")]
+fn validate_agent_gateway_runtime_contract(
+    gateway: &AgentGatewayHandoffManifest,
+    ir: &CanonicalIr,
+) -> Result<(), String> {
+    let ir_endpoints = ir
+        .agent_endpoints
+        .iter()
+        .map(|endpoint| (endpoint.id.as_str(), endpoint))
+        .collect::<BTreeMap<_, _>>();
+
+    for route in &gateway.endpoints {
+        let endpoint = ir_endpoints.get(route.id.as_str()).ok_or_else(|| {
+            format!(
+                "agent-gateway.json references unknown endpoint `{}`",
+                route.id
+            )
+        })?;
+        let command = sorx_runtime_command_spec(endpoint, ir);
+        let expected_method = sorx_runtime_method(endpoint, command.as_ref());
+        let required_inputs = endpoint
+            .inputs
+            .iter()
+            .filter(|input| input.required)
+            .map(|input| input.name.as_str())
+            .collect::<Vec<_>>();
+
+        if route.method == "GET" && !required_inputs.is_empty() {
+            return Err(format!(
+                "agent-gateway.json endpoint `{}` declares GET with required body-style inputs: {}; regenerate with a body-preserving method",
+                route.id,
+                required_inputs.join(", ")
+            ));
+        }
+        if route.method != expected_method {
+            return Err(format!(
+                "agent-gateway.json endpoint `{}` declares method `{}`, expected `{expected_method}` for its generated backing contract",
+                route.id, route.method
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(feature = "pack-zip")]
@@ -4691,7 +4868,8 @@ fn sorx_runtime_method(
     command: Option<&serde_json::Value>,
 ) -> &'static str {
     match sorx_runtime_operation(endpoint, command) {
-        "query" => "GET",
+        "query" if endpoint.inputs.is_empty() => "GET",
+        "query" => "POST",
         "update" => "PATCH",
         "delete" => "DELETE",
         _ => "POST",
@@ -4719,6 +4897,10 @@ fn sorx_runtime_command_spec(
     endpoint: &AgentEndpointIr,
     ir: &CanonicalIr,
 ) -> Option<serde_json::Value> {
+    if let Some(execution) = &endpoint.execution {
+        return Some(execution.clone());
+    }
+
     if let Some(command) = sorx_runtime_bulk_import_command(endpoint) {
         return Some(command);
     }
@@ -4728,6 +4910,22 @@ fn sorx_runtime_command_spec(
     }
 
     if let Some(command) = sorx_runtime_approval_status_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_show_waiting_list_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_join_waiting_list_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_leave_waiting_list_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_retrieve_field_command(endpoint, ir) {
         return Some(command);
     }
 
@@ -5010,6 +5208,411 @@ fn sorx_runtime_bulk_import_command(endpoint: &AgentEndpointIr) -> Option<serde_
             "imported_count": "$steps.imported.count",
             "records": "$steps.imported.records"
         }
+    }))
+}
+
+fn sorx_runtime_join_waiting_list_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    if !(endpoint.id == "join_waiting_list" || endpoint.id.starts_with("join_waiting_list_")) {
+        return None;
+    }
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let record_fields = record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+
+    let generated_code_field = sorx_runtime_generated_code_field(&record_fields)?;
+
+    let input_fields = endpoint
+        .inputs
+        .iter()
+        .map(|input| input.name.as_str())
+        .collect::<BTreeSet<_>>();
+    if !input_fields.contains("lab_id") {
+        return None;
+    }
+
+    let mut create_input = serde_json::Map::new();
+    for field in &record.fields {
+        let field_name = field.name.as_str();
+        let value = match field_name {
+            "id" => Some(serde_json::json!("$generated.uuid")),
+            "entry_id" => Some(serde_json::json!("$generated.entry_id")),
+            "lab_id" if input_fields.contains("lab_id") => Some(serde_json::json!("$input.lab_id")),
+            "user_id" if input_fields.contains("user_id") => {
+                Some(serde_json::json!("$input.user_id"))
+            }
+            "user_id" => Some(serde_json::json!("$generated.uuid")),
+            field if field == generated_code_field => {
+                Some(serde_json::json!(format!("$generated.{field}")))
+            }
+            "referrer_entry_id" if input_fields.contains("invited_by_code") => {
+                Some(serde_json::json!("$steps.referrer.data.entry_id"))
+            }
+            "referred_count" | "referral_count" => Some(serde_json::json!(0)),
+            "joined_at" | "created_at" => Some(serde_json::json!("$now")),
+            _ if input_fields.contains(field_name) => {
+                Some(serde_json::json!(format!("$input.{field_name}")))
+            }
+            _ => None,
+        };
+        if let Some(value) = value {
+            create_input.insert(field.name.clone(), value);
+        }
+    }
+
+    let mut return_value = serde_json::Map::new();
+    for output in &endpoint.outputs {
+        let value = match output.name.as_str() {
+            "entry_id" if record_fields.contains("entry_id") => {
+                Some(serde_json::json!("$steps.entry.record.data.entry_id"))
+            }
+            "id" if record_fields.contains("id") => Some(serde_json::json!("$steps.entry.id")),
+            field if field == generated_code_field => Some(serde_json::json!(format!(
+                "$steps.entry.record.data.{field}"
+            ))),
+            "position" | "number_in_waiting_list" | "waiting_list_size" => {
+                Some(serde_json::json!("$steps.waiting_list.count"))
+            }
+            _ if record_fields.contains(output.name.as_str()) => Some(serde_json::json!(format!(
+                "$steps.entry.record.data.{}",
+                output.name
+            ))),
+            _ => None,
+        };
+        if let Some(value) = value {
+            return_value.insert(output.name.clone(), value);
+        }
+    }
+
+    let uniqueness = sorx_runtime_uniqueness_contract(&entity, ir);
+    let idempotency_fields = if input_fields.contains("user_id") {
+        vec!["lab_id", "user_id"]
+    } else if input_fields.contains("email") {
+        vec!["lab_id", "email"]
+    } else {
+        vec!["lab_id"]
+    };
+    let idempotency = sorx_runtime_unique_index_for_fields(&entity, &idempotency_fields, ir);
+
+    Some(serde_json::json!({
+        "kind": "record_mutation",
+        "action": endpoint.id,
+        "idempotency": "return_existing",
+        "target": collection,
+        "constraints": {
+            "idempotency": idempotency.map(|index| serde_json::json!({
+                "mode": "return_existing",
+                "index": index.id,
+                "fields": index.fields
+            })),
+            "unique": uniqueness
+        },
+        "steps": [
+            {
+                "op": "find_one",
+                "as": "referrer",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    "lab_id": "$input.lab_id",
+                    generated_code_field.clone(): "$input.invited_by_code"
+                },
+                "required": true,
+                "when": {
+                    "present": "$input.invited_by_code"
+                }
+            },
+            {
+                "op": "create",
+                "as": "entry",
+                "entity": entity,
+                "collection": collection,
+                "input": create_input
+            },
+            {
+                "op": "increment_where",
+                "as": "referrer_increment",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    "lab_id": "$input.lab_id",
+                    generated_code_field.clone(): "$input.invited_by_code"
+                },
+                "increments": {
+                    "referred_count": 1
+                },
+                "when": {
+                    "all": [
+                        { "present": "$input.invited_by_code" },
+                        { "equals": ["$steps.entry.created", true] }
+                    ]
+                }
+            },
+            {
+                "op": "query",
+                "as": "waiting_list",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    "lab_id": "$input.lab_id"
+                },
+                "order_by": [
+                    { "field": "referred_count", "direction": "desc" },
+                    { "field": "joined_at", "direction": "asc" }
+                ]
+            }
+        ],
+        "return": return_value
+    }))
+}
+
+fn sorx_runtime_show_waiting_list_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    if endpoint.id != "show_waiting_list" {
+        return None;
+    }
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let record_fields = record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+    if !(record_fields.contains("lab_id")
+        && record_fields.contains("referred_count")
+        && record_fields.contains("joined_at"))
+    {
+        return None;
+    }
+    if !endpoint.inputs.iter().any(|input| input.name == "lab_id") {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_query",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "query",
+                "as": "waiting_list",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    "lab_id": "$input.lab_id"
+                },
+                "order_by": [
+                    { "field": "referred_count", "direction": "desc" },
+                    { "field": "joined_at", "direction": "asc" }
+                ]
+            }
+        ],
+        "return": {
+            "entries": "$steps.waiting_list.records",
+            "count": "$steps.waiting_list.count"
+        }
+    }))
+}
+
+fn sorx_runtime_leave_waiting_list_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    if endpoint.id != "leave_waiting_list" {
+        return None;
+    }
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let record_fields = record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+    if !(record_fields.contains("lab_id")
+        && record_fields.contains("entry_id")
+        && record_fields.contains("referrer_entry_id")
+        && record_fields.contains("referred_count"))
+    {
+        return None;
+    }
+
+    let filters = endpoint
+        .inputs
+        .iter()
+        .filter(|input| record_fields.contains(input.name.as_str()))
+        .map(|input| {
+            (
+                input.name.clone(),
+                serde_json::json!(format!("$input.{}", input.name)),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+
+    if filters.is_empty() {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_mutation",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "find_one",
+                "as": "leaving_entry",
+                "entity": entity,
+                "collection": collection,
+                "where": filters.clone(),
+                "required": true
+            },
+            {
+                "op": "delete_where",
+                "as": "leave",
+                "entity": entity,
+                "collection": collection,
+                "where": filters
+            },
+            {
+                "op": "increment_where",
+                "as": "referrer_decrement",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    "lab_id": "$input.lab_id",
+                    "entry_id": "$steps.leaving_entry.data.referrer_entry_id"
+                },
+                "increments": {
+                    "referred_count": -1
+                },
+                "when": {
+                    "all": [
+                        { "present": "$steps.leaving_entry.data.referrer_entry_id" },
+                        { "equals": ["$steps.leave.deleted_count", 1] }
+                    ]
+                }
+            }
+        ],
+        "return": {
+            "deleted_count": "$steps.leave.deleted_count"
+        }
+    }))
+}
+
+fn sorx_runtime_generated_code_field(record_fields: &BTreeSet<&str>) -> Option<String> {
+    ["invitation_code", "referral_code", "invite_code"]
+        .iter()
+        .find(|field| record_fields.contains(**field))
+        .map(|field| (*field).to_string())
+}
+
+fn sorx_runtime_uniqueness_contract(entity: &str, ir: &CanonicalIr) -> Vec<serde_json::Value> {
+    ir.operational_indexes
+        .as_ref()
+        .map(|indexes| {
+            indexes
+                .indexes
+                .iter()
+                .filter(|index| index.unique && index.record == entity)
+                .map(|index| {
+                    serde_json::json!({
+                        "index": index.id,
+                        "record": index.record,
+                        "kind": index.kind,
+                        "fields": index.fields
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn sorx_runtime_unique_index_for_fields<'a>(
+    entity: &str,
+    fields: &[&str],
+    ir: &'a CanonicalIr,
+) -> Option<&'a greentic_sorla_ir::OperationalIndexIr> {
+    ir.operational_indexes
+        .as_ref()?
+        .indexes
+        .iter()
+        .find(|index| {
+            index.unique
+                && index.record == entity
+                && index.fields.len() == fields.len()
+                && fields
+                    .iter()
+                    .all(|field| index.fields.iter().any(|candidate| candidate == field))
+        })
+}
+
+fn sorx_runtime_retrieve_field_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    if !endpoint.id.starts_with("retrieve_") {
+        return None;
+    }
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let record_fields = record
+        .fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let output_fields = endpoint
+        .outputs
+        .iter()
+        .filter(|output| record_fields.contains(output.name.as_str()))
+        .collect::<Vec<_>>();
+
+    if output_fields.is_empty() {
+        return None;
+    }
+
+    let filters = sorx_runtime_identity_filters(endpoint, record, &[]);
+    if filters.is_empty() {
+        return None;
+    }
+
+    let mut return_value = serde_json::Map::new();
+    for output in output_fields {
+        return_value.insert(
+            output.name.clone(),
+            serde_json::json!(format!("$steps.entry.data.{}", output.name)),
+        );
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_lookup",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "find_one",
+                "as": "entry",
+                "entity": entity,
+                "collection": collection,
+                "where": filters,
+                "required": true
+            }
+        ],
+        "return": return_value
     }))
 }
 
@@ -5380,6 +5983,10 @@ fn openapi_overlay_yaml(ir: &CanonicalIr) -> String {
     let operations = visible_openapi_endpoints(ir)
         .into_iter()
         .map(|endpoint| {
+            let command = sorx_runtime_command_spec(endpoint, ir);
+            let operation = sorx_runtime_operation(endpoint, command.as_ref());
+            let method = sorx_runtime_method(endpoint, command.as_ref());
+            let path = sorx_runtime_path(endpoint, ir);
             serde_json::json!({
                 "operationId": format!("agent_{}", endpoint.id),
                 "x-greentic-agent": {
@@ -5389,7 +5996,13 @@ fn openapi_overlay_yaml(ir: &CanonicalIr) -> String {
                     "approval": agent_endpoint_approval_label(&endpoint.approval),
                     "side_effects": endpoint.side_effects,
                     "inputs": endpoint.inputs.iter().map(openapi_input_value).collect::<Vec<_>>(),
-                    "outputs": endpoint.outputs.iter().map(output_value).collect::<Vec<_>>()
+                    "outputs": endpoint.outputs.iter().map(output_value).collect::<Vec<_>>(),
+                    "runtime": {
+                        "operation": operation,
+                        "method": method,
+                        "path": path,
+                        "input_transport": agent_endpoint_input_transport(method)
+                    }
                 }
             })
         })
@@ -5406,6 +6019,8 @@ fn arazzo_yaml(ir: &CanonicalIr) -> String {
     let workflows = visible_arazzo_endpoints(ir)
         .into_iter()
         .map(|endpoint| {
+            let command = sorx_runtime_command_spec(endpoint, ir);
+            let method = sorx_runtime_method(endpoint, command.as_ref());
             serde_json::json!({
                 "workflowId": endpoint.id,
                 "summary": endpoint.title,
@@ -5414,7 +6029,14 @@ fn arazzo_yaml(ir: &CanonicalIr) -> String {
                 "steps": [
                     {
                         "stepId": format!("request_{}", endpoint.id),
-                        "description": format!("Request downstream Greentic execution for {}.", endpoint.id)
+                        "description": format!("Request downstream Greentic execution for {}.", endpoint.id),
+                        "operationId": format!("agent_{}", endpoint.id),
+                        "x-greentic-agent": {
+                            "endpoint_id": endpoint.id,
+                            "method": method,
+                            "path": sorx_runtime_path(endpoint, ir),
+                            "input_transport": agent_endpoint_input_transport(method)
+                        }
                     }
                 ]
             })
@@ -5436,6 +6058,8 @@ fn mcp_tools_json(ir: &CanonicalIr) -> String {
     let tools = visible_mcp_endpoints(ir)
         .into_iter()
         .map(|endpoint| {
+            let command = sorx_runtime_command_spec(endpoint, ir);
+            let method = sorx_runtime_method(endpoint, command.as_ref());
             serde_json::json!({
                 "name": endpoint.id,
                 "endpoint_id": endpoint.id,
@@ -5448,7 +6072,10 @@ fn mcp_tools_json(ir: &CanonicalIr) -> String {
                 "annotations": {
                     "risk": agent_endpoint_risk_label(&endpoint.risk),
                     "approval": agent_endpoint_approval_label(&endpoint.approval),
-                    "side_effects": endpoint.side_effects
+                    "side_effects": endpoint.side_effects,
+                    "method": method,
+                    "path": sorx_runtime_path(endpoint, ir),
+                    "input_transport": agent_endpoint_input_transport(method)
                 }
             })
         })
@@ -5572,6 +6199,80 @@ fn output_value(output: &AgentEndpointOutputIr) -> serde_json::Value {
         "name": output.name,
         "type": output.type_name
     })
+}
+
+fn agent_endpoint_input_transport(method: &str) -> &'static str {
+    if method == "GET" { "none" } else { "body" }
+}
+
+pub fn agent_endpoint_contract_warnings(ir: &CanonicalIr) -> Vec<AgentEndpointContractWarning> {
+    let mut warnings = Vec::new();
+    for endpoint in &ir.agent_endpoints {
+        let command = sorx_runtime_command_spec(endpoint, ir);
+        let operation = sorx_runtime_operation(endpoint, command.as_ref());
+
+        if !endpoint.outputs.is_empty()
+            && !declared_outputs_are_explicitly_returned(endpoint, command.as_ref())
+        {
+            let outputs = endpoint
+                .outputs
+                .iter()
+                .map(|output| output.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            warnings.push(AgentEndpointContractWarning {
+                endpoint_id: endpoint.id.clone(),
+                code: "sorla.agent_endpoint.output_contract".to_string(),
+                message: format!(
+                    "agent endpoint `{}` declares output fields `{outputs}`, but the generated `{operation}` backing has no explicit return mapping for them",
+                    endpoint.id
+                ),
+            });
+        }
+
+        if command.is_none() && generic_backing_underspecifies_intent(endpoint) {
+            warnings.push(AgentEndpointContractWarning {
+                endpoint_id: endpoint.id.clone(),
+                code: "sorla.agent_endpoint.generic_backing".to_string(),
+                message: format!(
+                    "agent endpoint `{}` describes domain behavior that generic `{operation}` backing cannot guarantee; add explicit executable backing or simplify the claim",
+                    endpoint.id
+                ),
+            });
+        }
+    }
+    warnings
+}
+
+fn declared_outputs_are_explicitly_returned(
+    endpoint: &AgentEndpointIr,
+    command: Option<&serde_json::Value>,
+) -> bool {
+    let Some(command) = command else {
+        return false;
+    };
+    let Some(return_map) = command.get("return").and_then(serde_json::Value::as_object) else {
+        return endpoint.outputs.is_empty();
+    };
+    endpoint
+        .outputs
+        .iter()
+        .all(|output| return_map.contains_key(&output.name))
+}
+
+fn generic_backing_underspecifies_intent(endpoint: &AgentEndpointIr) -> bool {
+    let text = format!(
+        "{} {} {}",
+        endpoint.title,
+        endpoint.intent,
+        endpoint.description.as_deref().unwrap_or("")
+    )
+    .to_ascii_lowercase();
+    [
+        "ordered", "sorted", "position", "rank", "ranking", "referral", "unique", "current",
+    ]
+    .iter()
+    .any(|term| text.contains(term))
 }
 
 fn object_schema_value(inputs: &[AgentEndpointInputIr]) -> serde_json::Value {
@@ -6182,17 +6883,17 @@ metrics:
                 .contains(&SORX_COMPATIBILITY_PATH.to_string())
         );
         assert!(
-            pack_manifest
+            !pack_manifest
                 .assets
                 .contains(&GREENTIC_STACK_PACK_PATH.to_string())
         );
         assert!(
-            pack_manifest
+            !pack_manifest
                 .assets
                 .contains(&GREENTIC_CALL_REQUEST_SCHEMA_PATH.to_string())
         );
         assert!(
-            pack_manifest
+            !pack_manifest
                 .assets
                 .contains(&GREENTIC_ADMIN_SURFACES_PATH.to_string())
         );
@@ -7262,6 +7963,249 @@ agent_endpoints:
     }
 
     #[test]
+    fn agent_gateway_manifest_emits_decrement_for_leave_waiting_list_with_referrer() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: waiting_list_entry
+    fields:
+      - name: entry_id
+        type: string
+      - name: lab_id
+        type: string
+      - name: email
+        type: string
+      - name: referrer_entry_id
+        type: string
+      - name: referred_count
+        type: integer
+agent_endpoints:
+  - id: leave_waiting_list
+    title: Leave waiting list
+    intent: Remove a user from a lab waiting list.
+    inputs:
+      - name: lab_id
+        type: string
+        required: true
+      - name: email
+        type: string
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+
+        assert_eq!(command["steps"][0]["op"], "find_one");
+        assert_eq!(command["steps"][0]["as"], "leaving_entry");
+        assert_eq!(command["steps"][0]["where"]["lab_id"], "$input.lab_id");
+        assert_eq!(command["steps"][0]["where"]["email"], "$input.email");
+        assert_eq!(command["steps"][0]["required"], true);
+        assert_eq!(command["steps"][1]["op"], "delete_where");
+        assert_eq!(command["steps"][1]["as"], "leave");
+        assert_eq!(command["steps"][2]["op"], "increment_where");
+        assert_eq!(command["steps"][2]["as"], "referrer_decrement");
+        assert_eq!(command["steps"][2]["where"]["lab_id"], "$input.lab_id");
+        assert_eq!(
+            command["steps"][2]["where"]["entry_id"],
+            "$steps.leaving_entry.data.referrer_entry_id"
+        );
+        assert_eq!(command["steps"][2]["increments"]["referred_count"], -1);
+        assert_eq!(
+            command["steps"][2]["when"]["all"][0]["present"],
+            "$steps.leaving_entry.data.referrer_entry_id"
+        );
+        assert_eq!(
+            command["steps"][2]["when"]["all"][1]["equals"][0],
+            "$steps.leave.deleted_count"
+        );
+        assert_eq!(command["steps"][2]["when"]["all"][1]["equals"][1], 1);
+        assert_eq!(
+            command["return"]["deleted_count"],
+            "$steps.leave.deleted_count"
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_uses_post_for_query_endpoints_with_required_input() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: waiting_list_entry
+    fields:
+      - name: lab_id
+        type: string
+      - name: user_id
+        type: string
+      - name: joined_at
+        type: timestamp
+agent_endpoints:
+  - id: show_waiting_list
+    title: Show waiting list
+    intent: Retrieve the ordered waiting list for a given lab.
+    inputs:
+      - name: lab_id
+        type: string
+        required: true
+    outputs:
+      - name: entries
+        type: array
+    agent_visibility:
+      openapi: true
+      arazzo: true
+      mcp: true
+      llms_txt: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "query");
+        assert_eq!(endpoint.method, "POST");
+        assert_eq!(
+            endpoint.path,
+            "/v1/agent/waiting_list_entries/query/show_waiting_list"
+        );
+        assert_eq!(endpoint.input_schema["required"][0], "lab_id");
+
+        let exports = export_agent_artifacts(&ir);
+        let openapi: serde_yaml::Value = serde_yaml::from_str(
+            exports
+                .openapi_overlay_yaml
+                .as_deref()
+                .expect("OpenAPI overlay should be generated"),
+        )
+        .expect("OpenAPI overlay should be valid YAML");
+        assert_eq!(
+            openapi["operations"][0]["x-greentic-agent"]["runtime"]["method"],
+            "POST"
+        );
+        assert_eq!(
+            openapi["operations"][0]["x-greentic-agent"]["runtime"]["input_transport"],
+            "body"
+        );
+
+        let arazzo: serde_yaml::Value = serde_yaml::from_str(
+            exports
+                .arazzo_yaml
+                .as_deref()
+                .expect("Arazzo export should be generated"),
+        )
+        .expect("Arazzo export should be valid YAML");
+        assert_eq!(
+            arazzo["workflows"][0]["steps"][0]["x-greentic-agent"]["method"],
+            "POST"
+        );
+
+        let mcp: serde_json::Value = serde_json::from_str(
+            exports
+                .mcp_tools_json
+                .as_deref()
+                .expect("MCP export should be generated"),
+        )
+        .expect("MCP export should be valid JSON");
+        assert_eq!(mcp["tools"][0]["annotations"]["method"], "POST");
+        assert_eq!(mcp["tools"][0]["annotations"]["input_transport"], "body");
+    }
+
+    #[test]
+    fn agent_gateway_contract_validation_rejects_get_with_required_inputs() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: waiting_list_entry
+    fields:
+      - name: lab_id
+        type: string
+agent_endpoints:
+  - id: show_waiting_list
+    title: Show waiting list
+    intent: Retrieve the waiting list for a lab.
+    inputs:
+      - name: lab_id
+        type: string
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+        let ir = lower_package(&parsed.package);
+        let mut manifest = agent_gateway_handoff_manifest(&ir);
+        manifest.endpoints[0].method = "GET".to_string();
+
+        let err = validate_agent_gateway_runtime_contract(&manifest, &ir)
+            .expect_err("GET with required inputs should be rejected");
+        assert!(err.contains("declares GET with required body-style inputs: lab_id"));
+    }
+
+    #[test]
+    fn agent_endpoint_contract_warnings_flag_generic_output_and_domain_claims() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: waiting_list_entry
+    fields:
+      - name: entry_id
+        type: string
+      - name: lab_id
+        type: string
+      - name: user_id
+        type: string
+agent_endpoints:
+  - id: join_waiting_list
+    title: Join waiting list
+    intent: Add a user and return their current position.
+    inputs:
+      - name: lab_id
+        type: string
+        required: true
+      - name: user_id
+        type: string
+        required: true
+    outputs:
+      - name: entry_id
+        type: string
+      - name: position
+        type: integer
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let warnings = agent_endpoint_contract_warnings(&ir);
+
+        assert!(warnings.iter().any(|warning| {
+            warning.endpoint_id == "join_waiting_list"
+                && warning.code == "sorla.agent_endpoint.output_contract"
+                && warning.message.contains("entry_id, position")
+        }));
+        assert!(warnings.iter().any(|warning| {
+            warning.endpoint_id == "join_waiting_list"
+                && warning.code == "sorla.agent_endpoint.generic_backing"
+        }));
+    }
+
+    #[test]
     fn agent_gateway_manifest_emits_command_for_generate_field_endpoints() {
         let parsed = parse_package(
             r#"
@@ -7322,6 +8266,301 @@ agent_endpoints:
         assert_eq!(
             command["return"]["referral_code"],
             "$steps.update.records.0.data.referral_code"
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_command_for_join_waiting_list() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: waiting_list_entry
+    fields:
+      - name: entry_id
+        type: string
+      - name: lab_id
+        type: string
+      - name: user_id
+        type: string
+      - name: email
+        type: string
+      - name: name
+        type: string
+      - name: invitation_code
+        type: string
+      - name: invited_by_code
+        type: string
+      - name: referrer_entry_id
+        type: string
+      - name: referred_count
+        type: integer
+      - name: joined_at
+        type: timestamp
+operational_indexes:
+  schema: greentic.sorla.operational-indexes.v1
+  indexes:
+    - id: waiting_list_entry_lab_email_unique
+      record: waiting_list_entry
+      kind: composite
+      unique: true
+      fields:
+        - lab_id
+        - email
+    - id: waiting_list_entry_lab_invitation_code_unique
+      record: waiting_list_entry
+      kind: composite
+      unique: true
+      fields:
+        - lab_id
+        - invitation_code
+agent_endpoints:
+  - id: join_waiting_list
+    title: Join waiting list
+    intent: Add a user to a lab waiting list and assign an invitation code.
+    inputs:
+      - name: lab_id
+        type: string
+        required: true
+      - name: email
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: true
+      - name: invited_by_code
+        type: string
+        required: false
+    outputs:
+      - name: entry_id
+        type: string
+      - name: invitation_code
+        type: string
+      - name: position
+        type: integer
+      - name: number_in_waiting_list
+        type: integer
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "command");
+        assert_eq!(endpoint.method, "POST");
+        assert_eq!(
+            endpoint.path,
+            "/v1/agent/waiting_list_entries/join_waiting_list"
+        );
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "find_one");
+        assert_eq!(command["steps"][0]["as"], "referrer");
+        assert_eq!(command["steps"][0]["where"]["lab_id"], "$input.lab_id");
+        assert_eq!(
+            command["steps"][0]["where"]["invitation_code"],
+            "$input.invited_by_code"
+        );
+        assert_eq!(command["steps"][0]["required"], true);
+        assert_eq!(
+            command["steps"][0]["when"]["present"],
+            "$input.invited_by_code"
+        );
+        assert_eq!(command["steps"][1]["op"], "create");
+        assert_eq!(command["steps"][1]["as"], "entry");
+        assert_eq!(
+            command["steps"][1]["input"]["entry_id"],
+            "$generated.entry_id"
+        );
+        assert_eq!(command["steps"][1]["input"]["lab_id"], "$input.lab_id");
+        assert_eq!(command["steps"][1]["input"]["user_id"], "$generated.uuid");
+        assert_eq!(command["steps"][1]["input"]["email"], "$input.email");
+        assert_eq!(command["steps"][1]["input"]["name"], "$input.name");
+        assert_eq!(
+            command["steps"][1]["input"]["invitation_code"],
+            "$generated.invitation_code"
+        );
+        assert_eq!(
+            command["steps"][1]["input"]["invited_by_code"],
+            "$input.invited_by_code"
+        );
+        assert_eq!(
+            command["steps"][1]["input"]["referrer_entry_id"],
+            "$steps.referrer.data.entry_id"
+        );
+        assert_eq!(command["steps"][1]["input"]["referred_count"], 0);
+        assert_eq!(command["steps"][1]["input"]["joined_at"], "$now");
+        assert_eq!(command["steps"][2]["op"], "increment_where");
+        assert_eq!(command["steps"][2]["as"], "referrer_increment");
+        assert_eq!(command["steps"][2]["where"]["lab_id"], "$input.lab_id");
+        assert_eq!(
+            command["steps"][2]["where"]["invitation_code"],
+            "$input.invited_by_code"
+        );
+        assert_eq!(command["steps"][2]["increments"]["referred_count"], 1);
+        assert_eq!(
+            command["steps"][2]["when"]["all"][0]["present"],
+            "$input.invited_by_code"
+        );
+        assert_eq!(
+            command["steps"][2]["when"]["all"][1]["equals"][0],
+            "$steps.entry.created"
+        );
+        assert_eq!(command["steps"][2]["when"]["all"][1]["equals"][1], true);
+        assert_eq!(command["steps"][3]["op"], "query");
+        assert_eq!(command["steps"][3]["as"], "waiting_list");
+        assert_eq!(command["steps"][3]["where"]["lab_id"], "$input.lab_id");
+        assert_eq!(
+            command["steps"][3]["order_by"][0]["field"],
+            "referred_count"
+        );
+        assert_eq!(command["steps"][3]["order_by"][0]["direction"], "desc");
+        assert_eq!(command["steps"][3]["order_by"][1]["field"], "joined_at");
+        assert_eq!(command["steps"][3]["order_by"][1]["direction"], "asc");
+        assert_eq!(
+            command["return"]["entry_id"],
+            "$steps.entry.record.data.entry_id"
+        );
+        assert_eq!(
+            command["return"]["invitation_code"],
+            "$steps.entry.record.data.invitation_code"
+        );
+        assert_eq!(command["return"]["position"], "$steps.waiting_list.count");
+        assert_eq!(
+            command["return"]["number_in_waiting_list"],
+            "$steps.waiting_list.count"
+        );
+        assert_eq!(command["idempotency"], "return_existing");
+        assert_eq!(
+            command["constraints"]["idempotency"]["index"],
+            "waiting_list_entry_lab_email_unique"
+        );
+        assert_eq!(
+            command["constraints"]["unique"][0]["index"],
+            "waiting_list_entry_lab_email_unique"
+        );
+        assert_eq!(
+            command["constraints"]["unique"][1]["index"],
+            "waiting_list_entry_lab_invitation_code_unique"
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_ordered_command_for_show_waiting_list() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: waiting_list_entry
+    fields:
+      - name: lab_id
+        type: string
+      - name: referred_count
+        type: integer
+      - name: joined_at
+        type: timestamp
+agent_endpoints:
+  - id: show_waiting_list
+    title: Show waiting list
+    intent: Retrieve the ordered waiting list for a lab.
+    inputs:
+      - name: lab_id
+        type: string
+        required: true
+    outputs:
+      - name: entries
+        type: array
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "command");
+        assert_eq!(endpoint.method, "POST");
+        assert_eq!(
+            endpoint.path,
+            "/v1/agent/waiting_list_entries/show_waiting_list"
+        );
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+        assert_eq!(command["kind"], "record_query");
+        assert_eq!(command["steps"][0]["op"], "query");
+        assert_eq!(command["steps"][0]["where"]["lab_id"], "$input.lab_id");
+        assert_eq!(
+            command["steps"][0]["order_by"][0]["field"],
+            "referred_count"
+        );
+        assert_eq!(command["steps"][0]["order_by"][0]["direction"], "desc");
+        assert_eq!(command["steps"][0]["order_by"][1]["field"], "joined_at");
+        assert_eq!(command["steps"][0]["order_by"][1]["direction"], "asc");
+        assert_eq!(command["return"]["entries"], "$steps.waiting_list.records");
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_command_for_retrieve_field_endpoints() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: waitlist
+  version: 0.1.0
+records:
+  - name: waiting_list_entry
+    fields:
+      - name: entry_id
+        type: string
+      - name: referral_code
+        type: string
+      - name: user_id
+        type: string
+agent_endpoints:
+  - id: retrieve_referral_code
+    title: Retrieve referral code
+    intent: Retrieve the existing referral code for an entry.
+    inputs:
+      - name: entry_id
+        type: string
+        required: true
+    outputs:
+      - name: referral_code
+        type: string
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = &manifest.endpoints[0];
+
+        assert_eq!(endpoint.operation, "command");
+        assert_eq!(endpoint.method, "POST");
+        assert_eq!(
+            endpoint.path,
+            "/v1/agent/waiting_list_entries/retrieve_referral_code"
+        );
+        let command = endpoint
+            .command
+            .as_ref()
+            .expect("command should be emitted");
+        assert_eq!(command["kind"], "record_lookup");
+        assert_eq!(command["steps"][0]["op"], "find_one");
+        assert_eq!(command["steps"][0]["as"], "entry");
+        assert_eq!(command["steps"][0]["where"]["entry_id"], "$input.entry_id");
+        assert_eq!(
+            command["return"]["referral_code"],
+            "$steps.entry.data.referral_code"
         );
     }
 
