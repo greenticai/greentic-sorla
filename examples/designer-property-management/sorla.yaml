@@ -1,20 +1,31 @@
 package:
   name: designer-property-management
   version: 0.1.0
+  i18n_key: examples.designer_property_management.package
 records:
   - name: property
+    i18n_key: examples.designer_property_management.records.property
     source: native
     fields:
       - name: property_id
-        type: string
+        i18n_key: examples.designer_property_management.records.property.fields.property_id
+        type: uuid
         required: true
+        rules:
+          unique: true
       - name: address
+        i18n_key: examples.designer_property_management.records.property.fields.address
         type: string
         required: true
+        rules:
+          min_length: 5
+          max_length: 240
 events:
   - name: property_changed
+    i18n_key: examples.designer_property_management.events.property_changed
     record: property
 projections:
   - name: property_list
+    i18n_key: examples.designer_property_management.projections.property_list
     record: property
     source_event: property_changed

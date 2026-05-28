@@ -47,6 +47,7 @@ use crate::prompt::PromptAuthoringEngine;
 const GENERATED_BEGIN: &str = "# --- BEGIN GREENTIC-SORLA GENERATED ---";
 const GENERATED_END: &str = "# --- END GREENTIC-SORLA GENERATED ---";
 const LOCK_FILENAME: &str = "answers.lock.json";
+const GENERATED_PACKAGE_FILENAME: &str = "sorla.generated.yaml";
 const LEGACY_PACKAGE_MANIFEST_FILENAME: &str = "package-manifest.json";
 const LAUNCHER_HANDOFF_FILENAME: &str = "launcher-handoff.json";
 
@@ -148,6 +149,7 @@ pub enum SorlaSourceKind {
 pub struct SorlaDesignModel {
     pub source: SorlaSourceRef,
     pub package: Option<SorlaPackageView>,
+    pub roles: Vec<SorlaRoleView>,
     pub records: Vec<SorlaRecordView>,
     pub relationships: Vec<SorlaRelationshipView>,
     pub events: Vec<SorlaEventView>,
@@ -164,11 +166,22 @@ pub struct SorlaDesignModel {
 pub struct SorlaPackageView {
     pub name: String,
     pub version: String,
+    pub i18n_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaRoleView {
+    pub id: String,
+    pub i18n_key: Option<String>,
+    pub label: Option<String>,
+    pub description: Option<String>,
+    pub grants: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaRecordView {
     pub name: String,
+    pub i18n_key: Option<String>,
     pub label: String,
     pub description: Option<String>,
     pub source: String,
@@ -176,8 +189,35 @@ pub struct SorlaRecordView {
     pub sensitive: bool,
     pub pii: bool,
     pub external_ref: Option<SorlaExternalRefView>,
+    #[serde(default, skip_serializing_if = "SorlaRecordAccessView::is_empty")]
+    pub access: SorlaRecordAccessView,
     pub fields: Vec<SorlaFieldView>,
     pub references: Vec<SorlaFieldReferenceView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SorlaRecordAccessView {
+    pub read: Option<SorlaAccessRuleView>,
+    pub create: Option<SorlaAccessRuleView>,
+    pub update: Option<SorlaAccessRuleView>,
+    pub delete: Option<SorlaAccessRuleView>,
+}
+
+impl SorlaRecordAccessView {
+    fn is_empty(&self) -> bool {
+        self.read.is_none()
+            && self.create.is_none()
+            && self.update.is_none()
+            && self.delete.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SorlaAccessRuleView {
+    pub roles: Vec<String>,
+    pub policies: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,15 +230,51 @@ pub struct SorlaExternalRefView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaFieldView {
     pub name: String,
+    pub i18n_key: Option<String>,
     pub label: String,
     #[serde(rename = "type")]
     pub type_name: String,
     pub required: bool,
     pub sensitive: bool,
     pub enum_values: Vec<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "SorlaFieldValidationRulesView::is_empty"
+    )]
+    pub rules: SorlaFieldValidationRulesView,
     pub authority: Option<String>,
     pub references: Option<SorlaFieldReferenceView>,
     pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SorlaFieldValidationRulesView {
+    pub min: Option<serde_json::Value>,
+    pub max: Option<serde_json::Value>,
+    pub min_length: Option<u32>,
+    pub max_length: Option<u32>,
+    pub pattern: Option<String>,
+    pub precision: Option<u32>,
+    pub scale: Option<u32>,
+    pub before: Option<String>,
+    pub after: Option<String>,
+    pub unique: bool,
+}
+
+impl SorlaFieldValidationRulesView {
+    fn is_empty(&self) -> bool {
+        self.min.is_none()
+            && self.max.is_none()
+            && self.min_length.is_none()
+            && self.max_length.is_none()
+            && self.pattern.is_none()
+            && self.precision.is_none()
+            && self.scale.is_none()
+            && self.before.is_none()
+            && self.after.is_none()
+            && !self.unique
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,6 +310,7 @@ pub struct SorlaRelationshipBackingView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaEventView {
     pub name: String,
+    pub i18n_key: Option<String>,
     pub record: String,
     pub kind: String,
     pub emits: Vec<SorlaEventFieldView>,
@@ -249,6 +326,7 @@ pub struct SorlaEventFieldView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaProjectionView {
     pub name: String,
+    pub i18n_key: Option<String>,
     pub record: String,
     pub source_event: String,
     pub mode: String,
@@ -257,6 +335,7 @@ pub struct SorlaProjectionView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaMetricView {
     pub name: String,
+    pub i18n_key: Option<String>,
     pub label: String,
     pub description: Option<String>,
     pub source: Option<String>,
@@ -274,6 +353,7 @@ pub struct SorlaNamedView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaAgentEndpointView {
     pub id: String,
+    pub i18n_key: Option<String>,
     pub title: String,
     pub intent: String,
     pub description: Option<String>,
@@ -282,12 +362,39 @@ pub struct SorlaAgentEndpointView {
     pub side_effects: Vec<String>,
     pub risk: String,
     pub approval: String,
+    #[serde(
+        default,
+        skip_serializing_if = "SorlaEndpointAuthorizationView::is_empty"
+    )]
+    pub authorization: SorlaEndpointAuthorizationView,
     pub provider_requirements: Vec<SorlaProviderRequirementView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SorlaEndpointAuthorizationView {
+    pub roles: Option<SorlaEndpointRoleRequirementView>,
+    pub policies: Vec<String>,
+    pub conditions: Vec<serde_json::Value>,
+}
+
+impl SorlaEndpointAuthorizationView {
+    fn is_empty(&self) -> bool {
+        self.roles.is_none() && self.policies.is_empty() && self.conditions.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SorlaEndpointRoleRequirementView {
+    pub any_of: Vec<String>,
+    pub all_of: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaAgentEndpointInputView {
     pub name: String,
+    pub i18n_key: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     pub required: bool,
@@ -299,6 +406,7 @@ pub struct SorlaAgentEndpointInputView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaAgentEndpointOutputView {
     pub name: String,
+    pub i18n_key: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     pub description: Option<String>,
@@ -509,6 +617,8 @@ pub enum SorlaPatchOperation {
         #[serde(default)]
         enum_values: Option<Vec<String>>,
         #[serde(default)]
+        rules: Option<SorlaFieldValidationRulesView>,
+        #[serde(default)]
         references: Option<Option<SorlaFieldReferenceView>>,
     },
     RemoveField {
@@ -521,6 +631,8 @@ pub enum SorlaPatchOperation {
 pub struct SorlaPatchRecord {
     pub name: String,
     #[serde(default)]
+    pub i18n_key: Option<String>,
+    #[serde(default)]
     pub source: Option<String>,
     #[serde(default)]
     pub fields: Vec<SorlaPatchField>,
@@ -529,6 +641,8 @@ pub struct SorlaPatchRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SorlaPatchField {
     pub name: String,
+    #[serde(default)]
+    pub i18n_key: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     #[serde(default)]
@@ -537,6 +651,11 @@ pub struct SorlaPatchField {
     pub sensitive: bool,
     #[serde(default)]
     pub enum_values: Vec<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "SorlaFieldValidationRulesView::is_empty"
+    )]
+    pub rules: SorlaFieldValidationRulesView,
     #[serde(default)]
     pub references: Option<SorlaFieldReferenceView>,
 }
@@ -1019,6 +1138,8 @@ struct AnswersDocument {
     #[serde(default)]
     operational_indexes: Option<serde_json::Value>,
     #[serde(default)]
+    roles: Vec<RoleAnswer>,
+    #[serde(default)]
     metrics: Option<MetricAnswers>,
     #[serde(default)]
     provider_requirements: Vec<ProviderRequirementAnswer>,
@@ -1040,6 +1161,8 @@ struct PackageAnswers {
     name: Option<String>,
     #[serde(default)]
     version: Option<String>,
+    #[serde(default)]
+    i18n_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1066,11 +1189,48 @@ struct RecordAnswers {
 struct RecordItemAnswer {
     name: String,
     #[serde(default)]
+    i18n_key: Option<String>,
+    #[serde(default)]
     source: Option<String>,
     #[serde(default)]
     external_ref: Option<ExternalRefAnswer>,
     #[serde(default)]
+    access: RecordAccessAnswer,
+    #[serde(default)]
     fields: Vec<FieldAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct RoleAnswer {
+    id: String,
+    #[serde(default)]
+    i18n_key: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    grants: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct RecordAccessAnswer {
+    #[serde(default)]
+    read: Option<AccessRuleAnswer>,
+    #[serde(default)]
+    create: Option<AccessRuleAnswer>,
+    #[serde(default)]
+    update: Option<AccessRuleAnswer>,
+    #[serde(default)]
+    delete: Option<AccessRuleAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct AccessRuleAnswer {
+    #[serde(default)]
+    roles: Vec<String>,
+    #[serde(default)]
+    policies: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1084,6 +1244,8 @@ struct ExternalRefAnswer {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct FieldAnswer {
     name: String,
+    #[serde(default)]
+    i18n_key: Option<String>,
     #[serde(rename = "type", alias = "type_name")]
     type_name: String,
     #[serde(default)]
@@ -1094,6 +1256,8 @@ struct FieldAnswer {
     sensitive: Option<bool>,
     #[serde(default)]
     enum_values: Vec<String>,
+    #[serde(default)]
+    rules: SorlaFieldValidationRulesView,
     #[serde(default)]
     references: Option<FieldReferenceAnswer>,
     #[serde(default)]
@@ -1125,6 +1289,8 @@ struct OntologyConceptAnswer {
     id: String,
     kind: String,
     #[serde(default)]
+    i18n_key: Option<String>,
+    #[serde(default)]
     description: Option<String>,
     #[serde(default)]
     extends: Vec<String>,
@@ -1141,6 +1307,8 @@ struct OntologyConceptAnswer {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct OntologyRelationshipAnswer {
     id: String,
+    #[serde(default)]
+    i18n_key: Option<String>,
     #[serde(default)]
     label: Option<String>,
     from: String,
@@ -1302,6 +1470,8 @@ struct EventAnswers {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct EventItemAnswer {
     name: String,
+    #[serde(default)]
+    i18n_key: Option<String>,
     record: String,
     #[serde(default)]
     kind: Option<String>,
@@ -1327,6 +1497,8 @@ struct ProjectionAnswers {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct ProjectionItemAnswer {
     name: String,
+    #[serde(default)]
+    i18n_key: Option<String>,
     record: String,
     #[serde(default)]
     source_event: String,
@@ -1345,6 +1517,8 @@ struct MetricAnswers {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct MetricItemAnswer {
     name: String,
+    #[serde(default)]
+    i18n_key: Option<String>,
     #[serde(default)]
     label: Option<String>,
     #[serde(default)]
@@ -1485,6 +1659,8 @@ struct AgentEndpointAnswers {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct AgentEndpointItemAnswer {
     id: String,
+    #[serde(default)]
+    i18n_key: Option<String>,
     title: String,
     intent: String,
     #[serde(default)]
@@ -1506,11 +1682,31 @@ struct AgentEndpointItemAnswer {
     #[serde(default)]
     backing: AgentEndpointBackingAnswer,
     #[serde(default)]
+    authorization: EndpointAuthorizationAnswer,
+    #[serde(default)]
     agent_visibility: Option<AgentVisibilityAnswer>,
     #[serde(default)]
     examples: Vec<AgentEndpointExampleAnswer>,
     #[serde(default)]
     execution: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct EndpointAuthorizationAnswer {
+    #[serde(default)]
+    roles: Option<EndpointRoleRequirementAnswer>,
+    #[serde(default)]
+    policies: Vec<String>,
+    #[serde(default)]
+    conditions: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct EndpointRoleRequirementAnswer {
+    #[serde(default)]
+    any_of: Vec<String>,
+    #[serde(default)]
+    all_of: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1573,11 +1769,14 @@ struct ResolvedAnswers {
     locale: String,
     package_name: String,
     package_version: String,
+    package_i18n_key: Option<String>,
     storage_category: String,
     external_ref_category: Option<String>,
     provider_hints: Vec<String>,
     default_source: String,
     external_ref_system: Option<String>,
+    #[serde(default)]
+    roles: Vec<RoleAnswer>,
     #[serde(default)]
     record_items: Vec<RecordItemAnswer>,
     #[serde(default)]
@@ -2025,6 +2224,7 @@ fn empty_design_model(
     SorlaDesignModel {
         source,
         package: None,
+        roles: Vec::new(),
         records: Vec::new(),
         relationships: Vec::new(),
         events: Vec::new(),
@@ -2049,6 +2249,13 @@ fn design_model_from_package(
         .map(record_view)
         .collect::<Vec<SorlaRecordView>>();
     records.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut roles = package
+        .roles
+        .iter()
+        .map(role_view)
+        .collect::<Vec<SorlaRoleView>>();
+    roles.sort_by(|left, right| left.id.cmp(&right.id));
 
     let mut relationships = explicit_relationship_views(package);
     relationships.extend(field_relationship_views(package));
@@ -2108,7 +2315,9 @@ fn design_model_from_package(
         package: Some(SorlaPackageView {
             name: package.package.name.clone(),
             version: package.package.version.clone(),
+            i18n_key: package.package.i18n_key.clone(),
         }),
+        roles,
         records,
         relationships,
         events,
@@ -2119,6 +2328,18 @@ fn design_model_from_package(
         agent_endpoints,
         provider_requirements,
         diagnostics,
+    }
+}
+
+fn role_view(role: &sorla_ast::RoleDecl) -> SorlaRoleView {
+    let mut grants = role.grants.clone();
+    grants.sort();
+    SorlaRoleView {
+        id: role.id.clone(),
+        i18n_key: role.i18n_key.clone(),
+        label: role.label.clone(),
+        description: role.description.clone(),
+        grants,
     }
 }
 
@@ -2136,6 +2357,7 @@ fn record_view(record: &sorla_ast::Record) -> SorlaRecordView {
     let sensitive = fields.iter().any(|field| field.sensitive);
     SorlaRecordView {
         name: record.name.clone(),
+        i18n_key: record.i18n_key.clone(),
         label: human_label(&record.name),
         description: None,
         source: record
@@ -2154,19 +2376,39 @@ fn record_view(record: &sorla_ast::Record) -> SorlaRecordView {
                 key: external_ref.key.clone(),
                 authoritative: external_ref.authoritative,
             }),
+        access: record_access_view(&record.access),
         fields,
         references,
     }
 }
 
+fn record_access_view(access: &sorla_ast::RecordAccess) -> SorlaRecordAccessView {
+    SorlaRecordAccessView {
+        read: access.read.as_ref().map(access_rule_view),
+        create: access.create.as_ref().map(access_rule_view),
+        update: access.update.as_ref().map(access_rule_view),
+        delete: access.delete.as_ref().map(access_rule_view),
+    }
+}
+
+fn access_rule_view(rule: &sorla_ast::AccessRule) -> SorlaAccessRuleView {
+    let mut roles = rule.roles.clone();
+    roles.sort();
+    let mut policies = rule.policies.clone();
+    policies.sort();
+    SorlaAccessRuleView { roles, policies }
+}
+
 fn field_view(field: &sorla_ast::Field) -> SorlaFieldView {
     SorlaFieldView {
         name: field.name.clone(),
+        i18n_key: field.i18n_key.clone(),
         label: human_label(&field.name),
         type_name: field.type_name.clone(),
         required: field.required,
         sensitive: field.sensitive,
         enum_values: field.enum_values.clone(),
+        rules: field_rules_view(&field.rules),
         authority: field.authority.as_ref().map(serde_enum_string),
         references: field
             .references
@@ -2176,6 +2418,36 @@ fn field_view(field: &sorla_ast::Field) -> SorlaFieldView {
                 field: reference.field.clone(),
             }),
         description: None,
+    }
+}
+
+fn field_rules_view(rules: &sorla_ast::FieldValidationRules) -> SorlaFieldValidationRulesView {
+    SorlaFieldValidationRulesView {
+        min: rules.min.clone(),
+        max: rules.max.clone(),
+        min_length: rules.min_length,
+        max_length: rules.max_length,
+        pattern: rules.pattern.clone(),
+        precision: rules.precision,
+        scale: rules.scale,
+        before: rules.before.clone(),
+        after: rules.after.clone(),
+        unique: rules.unique,
+    }
+}
+
+fn field_rules_ast(rules: &SorlaFieldValidationRulesView) -> sorla_ast::FieldValidationRules {
+    sorla_ast::FieldValidationRules {
+        min: rules.min.clone(),
+        max: rules.max.clone(),
+        min_length: rules.min_length,
+        max_length: rules.max_length,
+        pattern: rules.pattern.clone(),
+        precision: rules.precision,
+        scale: rules.scale,
+        before: rules.before.clone(),
+        after: rules.after.clone(),
+        unique: rules.unique,
     }
 }
 
@@ -2260,6 +2532,7 @@ fn event_view(event: &sorla_ast::EventDecl) -> SorlaEventView {
     emits.sort_by(|left, right| left.name.cmp(&right.name));
     SorlaEventView {
         name: event.name.clone(),
+        i18n_key: event.i18n_key.clone(),
         record: event.record.clone(),
         kind: serde_enum_string(&event.kind),
         emits,
@@ -2269,6 +2542,7 @@ fn event_view(event: &sorla_ast::EventDecl) -> SorlaEventView {
 fn projection_view(projection: &sorla_ast::ProjectionDecl) -> SorlaProjectionView {
     SorlaProjectionView {
         name: projection.name.clone(),
+        i18n_key: projection.i18n_key.clone(),
         record: projection.record.clone(),
         source_event: projection.source_event.clone(),
         mode: serde_enum_string(&projection.mode),
@@ -2278,6 +2552,7 @@ fn projection_view(projection: &sorla_ast::ProjectionDecl) -> SorlaProjectionVie
 fn metric_view(metric: &sorla_ast::MetricDecl) -> SorlaMetricView {
     SorlaMetricView {
         name: metric.name.clone(),
+        i18n_key: metric.i18n_key.clone(),
         label: metric
             .label
             .clone()
@@ -2320,6 +2595,7 @@ fn agent_endpoint_view(endpoint: &sorla_ast::AgentEndpointDecl) -> SorlaAgentEnd
         .iter()
         .map(|input| SorlaAgentEndpointInputView {
             name: input.name.clone(),
+            i18n_key: input.i18n_key.clone(),
             type_name: input.type_name.clone(),
             required: input.required,
             description: input.description.clone(),
@@ -2334,6 +2610,7 @@ fn agent_endpoint_view(endpoint: &sorla_ast::AgentEndpointDecl) -> SorlaAgentEnd
         .iter()
         .map(|output| SorlaAgentEndpointOutputView {
             name: output.name.clone(),
+            i18n_key: output.i18n_key.clone(),
             type_name: output.type_name.clone(),
             description: output.description.clone(),
         })
@@ -2352,6 +2629,7 @@ fn agent_endpoint_view(endpoint: &sorla_ast::AgentEndpointDecl) -> SorlaAgentEnd
 
     SorlaAgentEndpointView {
         id: endpoint.id.clone(),
+        i18n_key: endpoint.i18n_key.clone(),
         title: endpoint.title.clone(),
         intent: endpoint.intent.clone(),
         description: endpoint.description.clone(),
@@ -2360,7 +2638,27 @@ fn agent_endpoint_view(endpoint: &sorla_ast::AgentEndpointDecl) -> SorlaAgentEnd
         side_effects,
         risk: serde_enum_string(&endpoint.risk),
         approval: serde_enum_string(&endpoint.approval),
+        authorization: endpoint_authorization_view(&endpoint.authorization),
         provider_requirements,
+    }
+}
+
+fn endpoint_authorization_view(
+    authorization: &sorla_ast::EndpointAuthorization,
+) -> SorlaEndpointAuthorizationView {
+    let roles = authorization.roles.as_ref().map(|roles| {
+        let mut any_of = roles.any_of.clone();
+        any_of.sort();
+        let mut all_of = roles.all_of.clone();
+        all_of.sort();
+        SorlaEndpointRoleRequirementView { any_of, all_of }
+    });
+    let mut policies = authorization.policies.clone();
+    policies.sort();
+    SorlaEndpointAuthorizationView {
+        roles,
+        policies,
+        conditions: authorization.conditions.clone(),
     }
 }
 
@@ -3182,6 +3480,7 @@ fn apply_patch_operation(
             required,
             sensitive,
             enum_values,
+            rules,
             references,
         } => {
             let target_record = find_record_mut(package, record)?;
@@ -3202,6 +3501,9 @@ fn apply_patch_operation(
             }
             if let Some(enum_values) = enum_values {
                 field.enum_values = enum_values.clone();
+            }
+            if let Some(rules) = rules {
+                field.rules = field_rules_ast(rules);
             }
             if let Some(references) = references {
                 field.references = references
@@ -3266,8 +3568,10 @@ fn patch_record_to_ast(record: &SorlaPatchRecord) -> Result<sorla_ast::Record, S
     };
     Ok(sorla_ast::Record {
         name: record.name.clone(),
+        i18n_key: record.i18n_key.clone(),
         source: Some(source),
         external_ref: None,
+        access: sorla_ast::RecordAccess::default(),
         fields: record.fields.iter().map(patch_field_to_ast).collect(),
     })
 }
@@ -3275,10 +3579,12 @@ fn patch_record_to_ast(record: &SorlaPatchRecord) -> Result<sorla_ast::Record, S
 fn patch_field_to_ast(field: &SorlaPatchField) -> sorla_ast::Field {
     sorla_ast::Field {
         name: field.name.clone(),
+        i18n_key: field.i18n_key.clone(),
         type_name: field.type_name.clone(),
         required: field.required,
         sensitive: field.sensitive,
         enum_values: field.enum_values.clone(),
+        rules: field_rules_ast(&field.rules),
         authority: None,
         references: field
             .references
@@ -4280,10 +4586,12 @@ fn run_design_add_field(args: DesignAddFieldArgs) -> Result<(), String> {
             record: args.record,
             field: SorlaPatchField {
                 name: args.name,
+                i18n_key: None,
                 type_name: args.type_name,
                 required: args.required,
                 sensitive: args.sensitive,
                 enum_values: Vec::new(),
+                rules: SorlaFieldValidationRulesView::default(),
                 references: None,
             },
         }],
@@ -5250,6 +5558,15 @@ fn apply_answers_document(
     let preserved_user_content = write_generated_block(&package_path, &generated_yaml)?;
 
     let mut written_files = vec![relative_to_output(&output_dir, &package_path)];
+    let generated_package_path = generated_dir.join(GENERATED_PACKAGE_FILENAME);
+    fs::write(&generated_package_path, generated_yaml.as_bytes()).map_err(|err| {
+        format!(
+            "failed to write generated file {}: {err}",
+            generated_package_path.display()
+        )
+    })?;
+    written_files.push(relative_to_output(&output_dir, &generated_package_path));
+
     write_lock_file(&lock_path, &resolved)?;
     written_files.push(relative_to_output(&output_dir, &lock_path));
 
@@ -5308,20 +5625,12 @@ fn apply_answers_document(
         } else {
             pack_out
         };
-        let pack_input_path = generated_dir.join(".pack-input.sorla.yaml");
-        fs::write(&pack_input_path, &generated_yaml).map_err(|err| {
-            format!(
-                "failed to write temporary pack input {}: {err}",
-                pack_input_path.display()
-            )
-        })?;
         let build_result = build_sorla_gtpack(&SorlaGtpackOptions {
-            input_path: pack_input_path.clone(),
+            input_path: generated_package_path.clone(),
             name: resolved.package_name.clone(),
             version: resolved.package_version.clone(),
             out_path: pack_path.clone(),
         });
-        let _ = fs::remove_file(&pack_input_path);
         build_result?;
         written_files.push(relative_to_output(&output_dir, &pack_path));
         Some(relative_to_output(&output_dir, &pack_path))
@@ -5570,6 +5879,19 @@ fn validate_choice(value: Option<&str>, allowed: &[&str], field: &str) -> Result
 }
 
 fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
+    let mut role_ids = BTreeSet::new();
+    for (role_index, role) in answers.roles.iter().enumerate() {
+        validate_url_safe_id(&role.id, &format!("roles[{role_index}].id"))?;
+        if !role_ids.insert(role.id.clone()) {
+            return Err(format!(
+                "roles[{role_index}].id duplicates role `{}`",
+                role.id
+            ));
+        }
+    }
+
+    let policy_names = validate_named_answers(&answers.policies, "policies")?;
+
     let mut record_fields = BTreeMap::<String, BTreeSet<String>>::new();
     if let Some(records) = &answers.records {
         let mut record_names = BTreeSet::new();
@@ -5586,6 +5908,12 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
                     record.name
                 ));
             }
+            validate_record_access_answer(
+                &record.access,
+                &role_ids,
+                &policy_names,
+                &format!("records.items[{record_index}].access"),
+            )?;
 
             let mut field_names = BTreeSet::new();
             for (field_index, field) in record.fields.iter().enumerate() {
@@ -5605,6 +5933,11 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
                 validate_enum_values(
                     &field.enum_values,
                     &format!("records.items[{record_index}].fields[{field_index}].enum_values"),
+                )?;
+                validate_field_rules_answer(
+                    &field.type_name,
+                    &field.rules,
+                    &format!("records.items[{record_index}].fields[{field_index}].rules"),
                 )?;
                 if !field_names.insert(field.name.clone()) {
                     return Err(format!(
@@ -5649,7 +5982,6 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
     )?;
 
     let action_names = validate_named_answers(&answers.actions, "actions")?;
-    let policy_names = validate_named_answers(&answers.policies, "policies")?;
     let approval_names = validate_named_answers(&answers.approvals, "approvals")?;
 
     let mut event_names = BTreeSet::new();
@@ -5836,9 +6168,80 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
                 &approval_names,
                 &format!("agent_endpoints.items[{endpoint_index}].backing.approvals"),
             )?;
+            validate_endpoint_authorization_answer(
+                &endpoint.authorization,
+                &role_ids,
+                &policy_names,
+                &format!("agent_endpoints.items[{endpoint_index}].authorization"),
+            )?;
         }
     }
 
+    Ok(())
+}
+
+fn validate_record_access_answer(
+    access: &RecordAccessAnswer,
+    role_ids: &BTreeSet<String>,
+    policy_names: &BTreeSet<String>,
+    path: &str,
+) -> Result<(), String> {
+    validate_access_rule_answer(
+        access.read.as_ref(),
+        role_ids,
+        policy_names,
+        &format!("{path}.read"),
+    )?;
+    validate_access_rule_answer(
+        access.create.as_ref(),
+        role_ids,
+        policy_names,
+        &format!("{path}.create"),
+    )?;
+    validate_access_rule_answer(
+        access.update.as_ref(),
+        role_ids,
+        policy_names,
+        &format!("{path}.update"),
+    )?;
+    validate_access_rule_answer(
+        access.delete.as_ref(),
+        role_ids,
+        policy_names,
+        &format!("{path}.delete"),
+    )?;
+    Ok(())
+}
+
+fn validate_access_rule_answer(
+    rule: Option<&AccessRuleAnswer>,
+    role_ids: &BTreeSet<String>,
+    policy_names: &BTreeSet<String>,
+    path: &str,
+) -> Result<(), String> {
+    let Some(rule) = rule else {
+        return Ok(());
+    };
+    validate_declared_references(&rule.roles, role_ids, &format!("{path}.roles"))?;
+    validate_declared_references(&rule.policies, policy_names, &format!("{path}.policies"))?;
+    Ok(())
+}
+
+fn validate_endpoint_authorization_answer(
+    authorization: &EndpointAuthorizationAnswer,
+    role_ids: &BTreeSet<String>,
+    policy_names: &BTreeSet<String>,
+    path: &str,
+) -> Result<(), String> {
+    if let Some(roles) = &authorization.roles {
+        validate_declared_references(&roles.any_of, role_ids, &format!("{path}.roles.any_of"))?;
+        validate_declared_references(&roles.all_of, role_ids, &format!("{path}.roles.all_of"))?;
+    }
+    validate_declared_references(
+        &authorization.policies,
+        policy_names,
+        &format!("{path}.policies"),
+    )?;
     Ok(())
 }
 
@@ -6523,12 +6926,68 @@ fn validate_endpoint_fields(fields: &[FieldAnswer], path: &str) -> Result<(), St
         require_non_empty(&field.name, &format!("{path}[{index}].name"))?;
         require_non_empty(&field.type_name, &format!("{path}[{index}].type"))?;
         validate_enum_values(&field.enum_values, &format!("{path}[{index}].enum_values"))?;
+        validate_field_rules_answer(
+            &field.type_name,
+            &field.rules,
+            &format!("{path}[{index}].rules"),
+        )?;
         if !names.insert(field.name.clone()) {
             return Err(format!(
                 "{path}[{index}].name duplicates field `{}`",
                 field.name
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_field_rules_answer(
+    type_name: &str,
+    rules: &SorlaFieldValidationRulesView,
+    path: &str,
+) -> Result<(), String> {
+    if rules.is_empty() {
+        return Ok(());
+    }
+    if let (Some(min), Some(max)) = (&rules.min, &rules.max)
+        && let (Some(min), Some(max)) = (min.as_f64(), max.as_f64())
+        && min > max
+    {
+        return Err(format!("{path}: min must be less than or equal to max"));
+    }
+    if let (Some(min_length), Some(max_length)) = (rules.min_length, rules.max_length)
+        && min_length > max_length
+    {
+        return Err(format!(
+            "{path}: min_length must be less than or equal to max_length"
+        ));
+    }
+    if let (Some(precision), Some(scale)) = (rules.precision, rules.scale)
+        && scale > precision
+    {
+        return Err(format!(
+            "{path}: scale must be less than or equal to precision"
+        ));
+    }
+
+    if (rules.min_length.is_some() || rules.max_length.is_some() || rules.pattern.is_some())
+        && !matches!(type_name, "string" | "uuid" | "email" | "url" | "enum")
+    {
+        return Err(format!(
+            "{path}: min_length, max_length, and pattern rules require a string-like field type"
+        ));
+    }
+    if (rules.precision.is_some() || rules.scale.is_some()) && type_name != "decimal" {
+        return Err(format!(
+            "{path}: precision and scale rules require a decimal field type"
+        ));
+    }
+    if (rules.before.is_some() || rules.after.is_some())
+        && !matches!(type_name, "date" | "time" | "datetime" | "timestamp")
+    {
+        return Err(format!(
+            "{path}: before and after rules require date, time, datetime, or timestamp field type"
+        ));
     }
     Ok(())
 }
@@ -6676,11 +7135,13 @@ fn synthetic_authority_field(
     }
     FieldAnswer {
         name,
+        i18n_key: None,
         type_name: "string".to_string(),
         required: Some(false),
         optional: Some(true),
         sensitive: Some(false),
         enum_values: Vec::new(),
+        rules: SorlaFieldValidationRulesView::default(),
         references: None,
         authority: Some(authority.to_string()),
         description: Some(format!(
@@ -6714,6 +7175,7 @@ fn normalize_events_and_projections(
         let event_name = unique_event_name(&events, &format!("{}_changed", projection.record));
         events.push(EventItemAnswer {
             name: event_name.clone(),
+            i18n_key: None,
             record: projection.record.clone(),
             kind: Some("fact".to_string()),
             emits: Vec::new(),
@@ -6833,6 +7295,7 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
         locale: selected_locale(answers.locale.as_deref(), None),
         package_name: package.name.clone().unwrap(),
         package_version: package.version.clone().unwrap(),
+        package_i18n_key: package.i18n_key.clone(),
         storage_category: answers
             .providers
             .as_ref()
@@ -6856,6 +7319,7 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
             .unwrap_or_default(),
         default_source,
         external_ref_system,
+        roles: answers.roles.clone(),
         record_items: resolved_record_items,
         ontology: answers.ontology.clone(),
         semantic_aliases: answers.semantic_aliases.clone(),
@@ -7042,6 +7506,11 @@ fn resolve_update_answers(
             .as_ref()
             .and_then(|package| package.version.clone())
             .unwrap_or(previous.package_version),
+        package_i18n_key: answers
+            .package
+            .as_ref()
+            .and_then(|package| package.i18n_key.clone())
+            .or(previous.package_i18n_key),
         storage_category: answers
             .providers
             .as_ref()
@@ -7066,6 +7535,11 @@ fn resolve_update_answers(
             .unwrap_or(previous.provider_hints),
         default_source,
         external_ref_system,
+        roles: if answers.roles.is_empty() {
+            previous.roles
+        } else {
+            answers.roles.clone()
+        },
         record_items: resolved_record_items,
         ontology: answers.ontology.clone().or(previous.ontology),
         semantic_aliases: answers
@@ -7231,6 +7705,7 @@ fn action_endpoints_from_answers(
                 .collect();
             AgentEndpointItemAnswer {
                 id: action.name.clone(),
+                i18n_key: None,
                 title: title.clone(),
                 intent: action
                     .description
@@ -7251,6 +7726,7 @@ fn action_endpoints_from_answers(
                     policies: Vec::new(),
                     approvals: Vec::new(),
                 },
+                authorization: EndpointAuthorizationAnswer::default(),
                 agent_visibility: Some(AgentVisibilityAnswer {
                     openapi: Some(true),
                     arazzo: Some(true),
@@ -7815,6 +8291,7 @@ fn has_rich_domain_answers(resolved: &ResolvedAnswers) -> bool {
         || !resolved.approvals.is_empty()
         || !resolved.migration_items.is_empty()
         || !resolved.agent_endpoint_items.is_empty()
+        || !resolved.roles.is_empty()
         || resolved.ontology.is_some()
         || resolved.retrieval_bindings.is_some()
 }
@@ -7828,7 +8305,16 @@ fn render_rich_package_yaml(resolved: &ResolvedAnswers) -> String {
             yaml_scalar_string(&resolved.package_version)
         ),
     ];
+    lines.push(format!(
+        "  i18n_key: {}",
+        yaml_scalar_string(
+            &resolved.package_i18n_key.clone().unwrap_or_else(|| {
+                default_example_i18n_key(&resolved.package_name, &["package"])
+            })
+        )
+    ));
 
+    render_roles(resolved, &mut lines);
     render_records(resolved, &mut lines);
     render_ontology(resolved, &mut lines);
     render_semantic_aliases(resolved, &mut lines);
@@ -7856,6 +8342,33 @@ fn render_operational_indexes(resolved: &ResolvedAnswers, lines: &mut Vec<String
     render_json_value(operational_indexes, 2, lines);
 }
 
+fn render_roles(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if resolved.roles.is_empty() {
+        return;
+    }
+
+    lines.push("roles:".to_string());
+    for role in &resolved.roles {
+        lines.push(format!("  - id: {}", yaml_scalar_string(&role.id)));
+        lines.push(format!(
+            "    i18n_key: {}",
+            yaml_scalar_string(&role.i18n_key.clone().unwrap_or_else(|| {
+                default_example_i18n_key(&resolved.package_name, &["roles", &role.id])
+            }))
+        ));
+        if let Some(label) = &role.label {
+            lines.push(format!("    label: {}", yaml_scalar_string(label)));
+        }
+        if let Some(description) = &role.description {
+            lines.push(format!(
+                "    description: {}",
+                yaml_scalar_string(description)
+            ));
+        }
+        render_string_list("    grants", &role.grants, lines);
+    }
+}
+
 fn render_ontology(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
     let Some(ontology) = &resolved.ontology else {
         return;
@@ -7877,6 +8390,15 @@ fn render_ontology(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
         lines.push("  concepts:".to_string());
         for concept in &ontology.concepts {
             lines.push(format!("    - id: {}", yaml_scalar_string(&concept.id)));
+            lines.push(format!(
+                "      i18n_key: {}",
+                yaml_scalar_string(&concept.i18n_key.clone().unwrap_or_else(|| {
+                    default_example_i18n_key(
+                        &resolved.package_name,
+                        &["ontology", "concepts", &concept.id],
+                    )
+                }))
+            ));
             lines.push(format!("      kind: {}", yaml_scalar_string(&concept.kind)));
             if let Some(description) = &concept.description {
                 lines.push(format!(
@@ -7910,6 +8432,15 @@ fn render_ontology(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
             lines.push(format!(
                 "    - id: {}",
                 yaml_scalar_string(&relationship.id)
+            ));
+            lines.push(format!(
+                "      i18n_key: {}",
+                yaml_scalar_string(&relationship.i18n_key.clone().unwrap_or_else(|| {
+                    default_example_i18n_key(
+                        &resolved.package_name,
+                        &["ontology", "relationships", &relationship.id],
+                    )
+                }))
             ));
             if let Some(label) = &relationship.label {
                 lines.push(format!("      label: {}", yaml_scalar_string(label)));
@@ -8218,6 +8749,12 @@ fn render_records(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
     lines.push("records:".to_string());
     for record in &resolved.record_items {
         lines.push(format!("  - name: {}", yaml_scalar_string(&record.name)));
+        lines.push(format!(
+            "    i18n_key: {}",
+            yaml_scalar_string(&record.i18n_key.clone().unwrap_or_else(|| {
+                default_example_i18n_key(&resolved.package_name, &["records", &record.name])
+            }))
+        ));
         let source = record
             .source
             .as_deref()
@@ -8252,8 +8789,46 @@ fn render_records(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
             lines.push("      key: record_id".to_string());
             lines.push("      authoritative: true".to_string());
         }
-        render_schema_fields("    fields", &record.fields, lines, false);
+        render_record_access(&record.access, lines);
+        render_schema_fields(
+            "    fields",
+            &record.fields,
+            lines,
+            false,
+            Some(&resolved.package_name),
+            "records",
+            &record.name,
+        );
     }
+}
+
+fn render_record_access(access: &RecordAccessAnswer, lines: &mut Vec<String>) {
+    if record_access_answer_is_empty(access) {
+        return;
+    }
+
+    lines.push("    access:".to_string());
+    render_access_rule("      read", access.read.as_ref(), lines);
+    render_access_rule("      create", access.create.as_ref(), lines);
+    render_access_rule("      update", access.update.as_ref(), lines);
+    render_access_rule("      delete", access.delete.as_ref(), lines);
+}
+
+fn record_access_answer_is_empty(access: &RecordAccessAnswer) -> bool {
+    access.read.is_none()
+        && access.create.is_none()
+        && access.update.is_none()
+        && access.delete.is_none()
+}
+
+fn render_access_rule(section: &str, rule: Option<&AccessRuleAnswer>, lines: &mut Vec<String>) {
+    let Some(rule) = rule else {
+        return;
+    };
+    lines.push(format!("{section}:"));
+    let nested = " ".repeat(section.len() - section.trim_start().len() + 2);
+    render_string_list(&format!("{nested}roles"), &rule.roles, lines);
+    render_string_list(&format!("{nested}policies"), &rule.policies, lines);
 }
 
 fn render_actions(actions: &[NamedAnswer], lines: &mut Vec<String>) {
@@ -8281,6 +8856,12 @@ fn render_events(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
     lines.push("events:".to_string());
     for event in &resolved.event_items {
         lines.push(format!("  - name: {}", yaml_scalar_string(&event.name)));
+        lines.push(format!(
+            "    i18n_key: {}",
+            yaml_scalar_string(&event.i18n_key.clone().unwrap_or_else(|| {
+                default_example_i18n_key(&resolved.package_name, &["events", &event.name])
+            }))
+        ));
         lines.push(format!("    record: {}", yaml_scalar_string(&event.record)));
         lines.push(format!(
             "    kind: {}",
@@ -8314,6 +8895,12 @@ fn render_projections(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
             yaml_scalar_string(&projection.name)
         ));
         lines.push(format!(
+            "    i18n_key: {}",
+            yaml_scalar_string(&projection.i18n_key.clone().unwrap_or_else(|| {
+                default_example_i18n_key(&resolved.package_name, &["projections", &projection.name])
+            }))
+        ));
+        lines.push(format!(
             "    record: {}",
             yaml_scalar_string(&projection.record)
         ));
@@ -8342,6 +8929,12 @@ fn render_metrics(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
     metrics.sort_by(|left, right| left.name.cmp(&right.name));
     for metric in metrics {
         lines.push(format!("  - name: {}", yaml_scalar_string(&metric.name)));
+        lines.push(format!(
+            "    i18n_key: {}",
+            yaml_scalar_string(&metric.i18n_key.clone().unwrap_or_else(|| {
+                default_example_i18n_key(&resolved.package_name, &["metrics", &metric.name])
+            }))
+        ));
         if let Some(label) = &metric.label {
             lines.push(format!("    label: {}", yaml_scalar_string(label)));
         }
@@ -8533,6 +9126,12 @@ fn render_agent_endpoints(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
     for endpoint in &resolved.agent_endpoint_items {
         lines.push(format!("  - id: {}", yaml_scalar_string(&endpoint.id)));
         lines.push(format!(
+            "    i18n_key: {}",
+            yaml_scalar_string(&endpoint.i18n_key.clone().unwrap_or_else(|| {
+                default_example_i18n_key(&resolved.package_name, &["agent_endpoints", &endpoint.id])
+            }))
+        ));
+        lines.push(format!(
             "    title: {}",
             yaml_scalar_string(&endpoint.title)
         ));
@@ -8546,8 +9145,24 @@ fn render_agent_endpoints(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
                 yaml_scalar_string(description)
             ));
         }
-        render_schema_fields("    inputs", &endpoint.inputs, lines, true);
-        render_schema_fields("    outputs", &endpoint.outputs, lines, false);
+        render_schema_fields(
+            "    inputs",
+            &endpoint.inputs,
+            lines,
+            true,
+            Some(&resolved.package_name),
+            "agent_endpoints",
+            &endpoint.id,
+        );
+        render_schema_fields(
+            "    outputs",
+            &endpoint.outputs,
+            lines,
+            false,
+            Some(&resolved.package_name),
+            "agent_endpoints",
+            &endpoint.id,
+        );
         render_string_list("    side_effects", &endpoint.side_effects, lines);
         if let Some(emits) = &endpoint.emits {
             lines.push("    emits:".to_string());
@@ -8595,6 +9210,7 @@ fn render_agent_endpoints(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
             }
         }
         render_endpoint_backing(&endpoint.backing, lines);
+        render_endpoint_authorization(&endpoint.authorization, lines);
         if let Some(visibility) = &endpoint.agent_visibility {
             lines.push("    agent_visibility:".to_string());
             lines.push(format!(
@@ -8635,11 +9251,44 @@ fn render_agent_endpoints(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
     }
 }
 
+fn render_endpoint_authorization(
+    authorization: &EndpointAuthorizationAnswer,
+    lines: &mut Vec<String>,
+) {
+    if endpoint_authorization_answer_is_empty(authorization) {
+        return;
+    }
+
+    lines.push("    authorization:".to_string());
+    if let Some(roles) = &authorization.roles {
+        lines.push("      roles:".to_string());
+        render_string_list("        any_of", &roles.any_of, lines);
+        render_string_list("        all_of", &roles.all_of, lines);
+    }
+    render_string_list("      policies", &authorization.policies, lines);
+    if !authorization.conditions.is_empty() {
+        lines.push("      conditions:".to_string());
+        for condition in &authorization.conditions {
+            lines.push("        -".to_string());
+            render_json_value(condition, 10, lines);
+        }
+    }
+}
+
+fn endpoint_authorization_answer_is_empty(authorization: &EndpointAuthorizationAnswer) -> bool {
+    authorization.roles.is_none()
+        && authorization.policies.is_empty()
+        && authorization.conditions.is_empty()
+}
+
 fn render_schema_fields(
     section: &str,
     fields: &[FieldAnswer],
     lines: &mut Vec<String>,
     include_endpoint_properties: bool,
+    i18n_package_name: Option<&str>,
+    i18n_parent_kind: &str,
+    i18n_parent_name: &str,
 ) {
     if fields.is_empty() {
         lines.push(format!("{section}: []"));
@@ -8649,6 +9298,25 @@ fn render_schema_fields(
     lines.push(format!("{section}:"));
     for field in fields {
         lines.push(format!("      - name: {}", yaml_scalar_string(&field.name)));
+        let generated_i18n_key = || {
+            i18n_package_name.map(|package_name| {
+                default_example_i18n_key(
+                    package_name,
+                    &[
+                        i18n_parent_kind,
+                        i18n_parent_name,
+                        section.trim(),
+                        field.name.as_str(),
+                    ],
+                )
+            })
+        };
+        if let Some(i18n_key) = field.i18n_key.clone().or_else(generated_i18n_key) {
+            lines.push(format!(
+                "        i18n_key: {}",
+                yaml_scalar_string(&i18n_key)
+            ));
+        }
         lines.push(format!(
             "        type: {}",
             yaml_scalar_string(&field.type_name)
@@ -8668,6 +9336,9 @@ fn render_schema_fields(
         if !field.enum_values.is_empty() {
             render_string_list("        enum_values", &field.enum_values, lines);
         }
+        if section.trim() == "fields" && !field.rules.is_empty() {
+            render_field_rules(&field.rules, lines);
+        }
         if let Some(reference) = &field.references {
             lines.push("        references:".to_string());
             lines.push(format!(
@@ -8685,6 +9356,43 @@ fn render_schema_fields(
                 yaml_scalar_string(description)
             ));
         }
+    }
+}
+
+fn render_field_rules(rules: &SorlaFieldValidationRulesView, lines: &mut Vec<String>) {
+    lines.push("        rules:".to_string());
+    if let Some(min) = &rules.min {
+        lines.push(format!("          min: {}", yaml_scalar_value(min)));
+    }
+    if let Some(max) = &rules.max {
+        lines.push(format!("          max: {}", yaml_scalar_value(max)));
+    }
+    if let Some(min_length) = rules.min_length {
+        lines.push(format!("          min_length: {min_length}"));
+    }
+    if let Some(max_length) = rules.max_length {
+        lines.push(format!("          max_length: {max_length}"));
+    }
+    if let Some(pattern) = &rules.pattern {
+        lines.push(format!(
+            "          pattern: {}",
+            yaml_scalar_string(pattern)
+        ));
+    }
+    if let Some(precision) = rules.precision {
+        lines.push(format!("          precision: {precision}"));
+    }
+    if let Some(scale) = rules.scale {
+        lines.push(format!("          scale: {scale}"));
+    }
+    if let Some(before) = &rules.before {
+        lines.push(format!("          before: {}", yaml_scalar_string(before)));
+    }
+    if let Some(after) = &rules.after {
+        lines.push(format!("          after: {}", yaml_scalar_string(after)));
+    }
+    if rules.unique {
+        lines.push("          unique: true".to_string());
     }
 }
 
@@ -8800,6 +9508,32 @@ fn yaml_scalar_string(value: &str) -> String {
         value.to_string()
     } else {
         serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+    }
+}
+
+fn default_example_i18n_key(package_name: &str, parts: &[&str]) -> String {
+    let mut segments = vec!["examples".to_string(), i18n_key_segment(package_name)];
+    segments.extend(parts.iter().map(|part| i18n_key_segment(part)));
+    segments.join(".")
+}
+
+fn i18n_key_segment(value: &str) -> String {
+    let mut segment = String::new();
+    let mut last_was_separator = false;
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            segment.push(ch.to_ascii_lowercase());
+            last_was_separator = false;
+        } else if !last_was_separator {
+            segment.push('_');
+            last_was_separator = true;
+        }
+    }
+    let trimmed = segment.trim_matches('_').to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
     }
 }
 
@@ -9416,6 +10150,7 @@ fn answers_document_from_qa_answers(answers: serde_json::Value) -> Result<Answer
         Some(PackageAnswers {
             name: Some(get_required_string(object, "package_name")?),
             version: Some(get_required_string(object, "package_version")?),
+            i18n_key: None,
         })
     } else {
         None
@@ -9450,6 +10185,7 @@ fn answers_document_from_qa_answers(answers: serde_json::Value) -> Result<Answer
             external_ref_system,
             items: Vec::new(),
         }),
+        roles: Vec::new(),
         ontology: None,
         semantic_aliases: None,
         entity_linking: None,
@@ -10857,10 +11593,12 @@ projections:
                         record: "property".to_string(),
                         field: SorlaPatchField {
                             name: "postcode".to_string(),
+                            i18n_key: None,
                             type_name: "string".to_string(),
                             required: false,
                             sensitive: false,
                             enum_values: Vec::new(),
+                            rules: SorlaFieldValidationRulesView::default(),
                             references: None,
                         },
                     },
@@ -10871,6 +11609,7 @@ projections:
                         required: Some(true),
                         sensitive: Some(true),
                         enum_values: None,
+                        rules: None,
                         references: None,
                     },
                     SorlaPatchOperation::RemoveField {
@@ -10921,6 +11660,7 @@ records:
                 operations: vec![SorlaPatchOperation::AddRecord {
                     record: SorlaPatchRecord {
                         name: "tenant".to_string(),
+                        i18n_key: None,
                         source: None,
                         fields: Vec::new(),
                     },
@@ -10983,10 +11723,12 @@ records:
                     record: "property".to_string(),
                     field: SorlaPatchField {
                         name: "Postal Code".to_string(),
+                        i18n_key: None,
                         type_name: "string".to_string(),
                         required: false,
                         sensitive: false,
                         enum_values: Vec::new(),
+                        rules: SorlaFieldValidationRulesView::default(),
                         references: None,
                     },
                 }],

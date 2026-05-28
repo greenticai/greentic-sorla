@@ -1,6 +1,7 @@
 package:
   name: designer-property-management
   version: 0.1.0
+  i18n_key: examples.designer_property_management.package
 ontology: null
 semantic_aliases: null
 entity_linking: null
@@ -8,25 +9,37 @@ retrieval_bindings: null
 operational_indexes: null
 records:
 - name: property
+  i18n_key: examples.designer_property_management.records.property
   source: native
   external_ref: null
   fields:
   - name: address
+    i18n_key: examples.designer_property_management.records.property.fields.address
     type: string
     required: true
+    rules:
+      min_length: 5
+      max_length: 240
     authority: null
     references: null
   - name: postcode
+    i18n_key: examples.designer_property_management.records.property.fields.postcode
     type: string
+    rules:
+      max_length: 16
     authority: null
     references: null
   - name: property_id
-    type: string
+    i18n_key: examples.designer_property_management.records.property.fields.property_id
+    type: uuid
     required: true
+    rules:
+      unique: true
     authority: null
     references: null
 events:
 - name: property_changed
+  i18n_key: examples.designer_property_management.events.property_changed
   record: property
   kind: domain
   emits: []
@@ -37,6 +50,7 @@ views: []
 flows: []
 projections:
 - name: property_list
+  i18n_key: examples.designer_property_management.projections.property_list
   record: property
   source_event: property_changed
   mode: current-state

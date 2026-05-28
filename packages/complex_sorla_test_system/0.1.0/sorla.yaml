@@ -2,341 +2,481 @@
 package:
   name: complex_sorla_test_system
   version: 0.1.0
+roles:
+- id: admin
+  label: Admin
+  description: Full access to complex test records and high-risk operations.
+  grants:
+  - records.*
+  - agent_endpoints.*
+- id: operator
+  label: Operator
+  description: Create, update, and link normal test entities.
+  grants:
+  - records.entity_a.*
+  - records.entity_b.*
+  - records.join_bc.*
+- id: importer
+  label: Importer
+  description: Run bulk import workflows.
+  grants:
+  - agent_endpoints.bulk_import_entities
 records:
-  - name: entity_a
-    source: native
-    fields:
-      - name: entity_a_id
-        type: string
-        sensitive: false
-      - name: a_string_attr
-        type: string
-        sensitive: false
-      - name: a_number
-        type: integer
-        sensitive: false
-      - name: a_boolean_flag
-        type: boolean
-        sensitive: false
-      - name: a_date
-        type: date
-        sensitive: false
-  - name: entity_b
-    source: native
-    fields:
-      - name: entity_b_id
-        type: string
-        sensitive: false
-      - name: b_reference_to_a
-        type: string
-        sensitive: false
-        references:
-          record: entity_a
-          field: entity_a_id
-      - name: b_multi_value
-        type: string
-        sensitive: false
-      - name: b_status
-        type: string
-        sensitive: false
-        enum_values:
-          - Active
-          - Suspended
-          - Archived
-          - Deleted
-  - name: entity_c
-    source: native
-    fields:
-      - name: entity_c_id
-        type: string
-        sensitive: false
-      - name: c_enum
-        type: string
-        sensitive: false
-        enum_values:
-          - Option1
-          - Option2
-          - Option3
-      - name: c_json_data
-        type: string
-        sensitive: false
-  - name: join_bc
-    source: native
-    fields:
-      - name: entity_b_id
-        type: string
-        sensitive: false
-        references:
-          record: entity_b
-          field: entity_b_id
-      - name: entity_c_id
-        type: string
-        sensitive: false
-        references:
-          record: entity_c
-          field: entity_c_id
-  - name: audit_trail
-    source: native
-    fields:
-      - name: audit_id
-        type: string
-        sensitive: false
-      - name: record_type
-        type: string
-        sensitive: false
-      - name: record_id
-        type: string
-        sensitive: false
-      - name: action_type
-        type: string
-        sensitive: false
-      - name: performed_by
-        type: string
-        sensitive: false
-      - name: performed_at
-        type: timestamp
-        sensitive: false
+- name: entity_a
+  source: native
+  fields:
+  - name: entity_a_id
+    type: uuid
+    sensitive: false
+    rules:
+      unique: true
+  - name: a_string_attr
+    type: string
+    sensitive: false
+    rules:
+      max_length: 200
+  - name: a_number
+    type: integer
+    sensitive: false
+    rules:
+      min: 0
+  - name: a_boolean_flag
+    type: boolean
+    sensitive: false
+  - name: a_date
+    type: date
+    sensitive: false
+  access:
+    read:
+      roles:
+      - admin
+      - operator
+    create:
+      roles:
+      - admin
+      - operator
+    update:
+      roles:
+      - admin
+      - operator
+    delete:
+      roles:
+      - admin
+- name: entity_b
+  source: native
+  fields:
+  - name: entity_b_id
+    type: uuid
+    sensitive: false
+    rules:
+      unique: true
+  - name: b_reference_to_a
+    type: uuid
+    sensitive: false
+    references:
+      record: entity_a
+      field: entity_a_id
+  - name: b_multi_value
+    type: string
+    sensitive: false
+  - name: b_status
+    type: string
+    sensitive: false
+    enum_values:
+    - Active
+    - Suspended
+    - Archived
+    - Deleted
+  access:
+    read:
+      roles:
+      - admin
+      - operator
+    create:
+      roles:
+      - admin
+      - operator
+    update:
+      roles:
+      - admin
+      - operator
+    delete:
+      roles:
+      - admin
+- name: entity_c
+  source: native
+  fields:
+  - name: entity_c_id
+    type: uuid
+    sensitive: false
+    rules:
+      unique: true
+  - name: c_enum
+    type: string
+    sensitive: false
+    enum_values:
+    - Option1
+    - Option2
+    - Option3
+  - name: c_json_data
+    type: string
+    sensitive: false
+  access:
+    read:
+      roles:
+      - admin
+      - operator
+    create:
+      roles:
+      - admin
+      - operator
+    update:
+      roles:
+      - admin
+      - operator
+    delete:
+      roles:
+      - admin
+- name: join_bc
+  source: native
+  fields:
+  - name: entity_b_id
+    type: uuid
+    sensitive: false
+    references:
+      record: entity_b
+      field: entity_b_id
+  - name: entity_c_id
+    type: uuid
+    sensitive: false
+    references:
+      record: entity_c
+      field: entity_c_id
+  access:
+    read:
+      roles:
+      - admin
+      - operator
+    create:
+      roles:
+      - admin
+      - operator
+    update:
+      roles:
+      - admin
+      - operator
+    delete:
+      roles:
+      - admin
+- name: audit_trail
+  source: native
+  fields:
+  - name: audit_id
+    type: uuid
+    sensitive: false
+    rules:
+      unique: true
+  - name: record_type
+    type: string
+    sensitive: false
+  - name: record_id
+    type: string
+    sensitive: false
+  - name: action_type
+    type: string
+    sensitive: false
+  - name: performed_by
+    type: string
+    sensitive: false
+  - name: performed_at
+    type: datetime
+    sensitive: false
+  access:
+    read:
+      roles:
+      - admin
+      - operator
+    create:
+      roles:
+      - admin
+      - operator
+    update:
+      roles:
+      - admin
+      - operator
+    delete:
+      roles:
+      - admin
 actions:
-  - name: create_entity_a
-  - name: update_entity_a
-  - name: delete_entity_a
-  - name: create_entity_b
-  - name: link_b_to_c
-  - name: bulk_import_entities
+- name: create_entity_a
+- name: update_entity_a
+- name: delete_entity_a
+- name: create_entity_b
+- name: link_b_to_c
+- name: bulk_import_entities
 events: []
 projections: []
 provider_requirements:
-  - category: storage
-    capabilities:
-      - event-log
-      - projections
+- category: storage
+  capabilities:
+  - event-log
+  - projections
 policies:
-  - name: entity_a_modification_policy
+- name: entity_a_modification_policy
 approvals:
-  - name: high_risk_action_approval
+- name: high_risk_action_approval
 migrations:
-  - name: complex_sorla_test_system-compatibility
-    compatibility: additive
-    projection_updates: []
+- name: complex_sorla_test_system-compatibility
+  compatibility: additive
+  projection_updates: []
 agent_endpoints:
-  - id: create_entity_a
-    title: "create entity a"
-    intent: "Create a new entity_a record."
-    description: "Create a new entity_a record."
-    inputs:
-      - name: entity_a_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary key."
-      - name: a_string_attr
-        type: string
-        required: true
-        sensitive: false
-        description: "String attribute."
-      - name: a_number
-        type: integer
-        required: true
-        sensitive: false
-        description: "Numeric attribute."
-      - name: a_boolean_flag
-        type: boolean
-        required: true
-        sensitive: false
-        description: "Boolean attribute."
-      - name: a_date
-        type: date
-        required: true
-        sensitive: false
-        description: "Date field."
-    outputs: []
-    side_effects:
-      - action.create_entity_a
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - create_entity_a
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: update_entity_a
-    title: "update entity a"
-    intent: "Update fields on entity_a."
-    description: "Update fields on entity_a."
-    inputs:
-      - name: id
-        type: string
-        required: true
-      - name: entity_a_id
-        type: string
-        required: false
-        sensitive: false
-        description: "Primary key."
-      - name: a_string_attr
-        type: string
-        required: false
-        sensitive: false
-        description: "String attribute."
-      - name: a_number
-        type: integer
-        required: false
-        sensitive: false
-        description: "Numeric attribute."
-      - name: a_boolean_flag
-        type: boolean
-        required: false
-        sensitive: false
-        description: "Boolean attribute."
-      - name: a_date
-        type: date
-        required: false
-        sensitive: false
-        description: "Date field."
-    outputs: []
-    side_effects:
-      - action.update_entity_a
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - update_entity_a
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: delete_entity_a
-    title: "delete entity a"
-    intent: "Delete an entity_a record."
-    description: "Delete an entity_a record."
-    inputs:
-      - name: id
-        type: string
-        required: true
-    outputs: []
-    side_effects:
-      - action.delete_entity_a
-    risk: high
-    approval: policy-driven
-    backing:
-      actions:
-        - delete_entity_a
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: create_entity_b
-    title: "create entity b"
-    intent: "Create a new entity_b record."
-    description: "Create a new entity_b record."
-    inputs:
-      - name: entity_b_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary key."
-      - name: b_reference_to_a
-        type: string
-        required: true
-        sensitive: false
-        description: "Foreign key to entity_a.entity_a_id."
-      - name: b_multi_value
-        type: string
-        required: true
-        sensitive: false
-        description: "Multi-value attribute (comma separated for test purposes)."
-      - name: b_status
-        type: string
-        required: true
-        sensitive: false
-        enum_values:
-          - Active
-          - Suspended
-          - Archived
-          - Deleted
-        description: "Status field."
-    outputs: []
-    side_effects:
-      - action.create_entity_b
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - create_entity_b
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: link_b_to_c
-    title: "link b to c"
-    intent: "Establish a link (row in join_bc) between entity_b and entity_c."
-    description: "Establish a link (row in join_bc) between entity_b and entity_c."
-    inputs:
-      - name: entity_b_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Foreign key to entity_b."
-      - name: entity_c_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Foreign key to entity_c."
-    outputs: []
-    side_effects:
-      - action.link_b_to_c
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - link_b_to_c
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: bulk_import_entities
-    title: "bulk import entities"
-    intent: "Bulk import a set of entities for stress testing."
-    description: "Bulk import a set of entities for stress testing."
-    inputs:
-      - name: items
-        type: array
-        required: true
-    outputs: []
-    side_effects:
-      - action.bulk_import_entities
-    risk: high
-    approval: policy-driven
-    backing:
-      actions:
-        - bulk_import_entities
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
+- id: create_entity_a
+  title: create entity a
+  intent: Create a new entity_a record.
+  description: Create a new entity_a record.
+  inputs:
+  - name: entity_a_id
+    type: uuid
+    required: true
+    sensitive: false
+    description: Primary key.
+  - name: a_string_attr
+    type: string
+    required: true
+    sensitive: false
+    description: String attribute.
+  - name: a_number
+    type: integer
+    required: true
+    sensitive: false
+    description: Numeric attribute.
+  - name: a_boolean_flag
+    type: boolean
+    required: true
+    sensitive: false
+    description: Boolean attribute.
+  - name: a_date
+    type: date
+    required: true
+    sensitive: false
+    description: Date field.
+  outputs: []
+  side_effects:
+  - action.create_entity_a
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - create_entity_a
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - operator
+- id: update_entity_a
+  title: update entity a
+  intent: Update fields on entity_a.
+  description: Update fields on entity_a.
+  inputs:
+  - name: id
+    type: string
+    required: true
+  - name: entity_a_id
+    type: string
+    required: false
+    sensitive: false
+    description: Primary key.
+  - name: a_string_attr
+    type: string
+    required: false
+    sensitive: false
+    description: String attribute.
+  - name: a_number
+    type: integer
+    required: false
+    sensitive: false
+    description: Numeric attribute.
+  - name: a_boolean_flag
+    type: boolean
+    required: false
+    sensitive: false
+    description: Boolean attribute.
+  - name: a_date
+    type: date
+    required: false
+    sensitive: false
+    description: Date field.
+  outputs: []
+  side_effects:
+  - action.update_entity_a
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - update_entity_a
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - operator
+- id: delete_entity_a
+  title: delete entity a
+  intent: Delete an entity_a record.
+  description: Delete an entity_a record.
+  inputs:
+  - name: id
+    type: string
+    required: true
+  outputs: []
+  side_effects:
+  - action.delete_entity_a
+  risk: high
+  approval: policy-driven
+  backing:
+    actions:
+    - delete_entity_a
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+- id: create_entity_b
+  title: create entity b
+  intent: Create a new entity_b record.
+  description: Create a new entity_b record.
+  inputs:
+  - name: entity_b_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary key.
+  - name: b_reference_to_a
+    type: string
+    required: true
+    sensitive: false
+    description: Foreign key to entity_a.entity_a_id.
+  - name: b_multi_value
+    type: string
+    required: true
+    sensitive: false
+    description: Multi-value attribute (comma separated for test purposes).
+  - name: b_status
+    type: string
+    required: true
+    sensitive: false
+    enum_values:
+    - Active
+    - Suspended
+    - Archived
+    - Deleted
+    description: Status field.
+  outputs: []
+  side_effects:
+  - action.create_entity_b
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - create_entity_b
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - operator
+- id: link_b_to_c
+  title: link b to c
+  intent: Establish a link (row in join_bc) between entity_b and entity_c.
+  description: Establish a link (row in join_bc) between entity_b and entity_c.
+  inputs:
+  - name: entity_b_id
+    type: string
+    required: true
+    sensitive: false
+    description: Foreign key to entity_b.
+  - name: entity_c_id
+    type: string
+    required: true
+    sensitive: false
+    description: Foreign key to entity_c.
+  outputs: []
+  side_effects:
+  - action.link_b_to_c
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - link_b_to_c
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - operator
+- id: bulk_import_entities
+  title: bulk import entities
+  intent: Bulk import a set of entities for stress testing.
+  description: Bulk import a set of entities for stress testing.
+  inputs:
+  - name: items
+    type: array
+    required: true
+  outputs: []
+  side_effects:
+  - action.bulk_import_entities
+  risk: high
+  approval: policy-driven
+  backing:
+    actions:
+    - bulk_import_entities
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - importer
 # --- END GREENTIC-SORLA GENERATED ---

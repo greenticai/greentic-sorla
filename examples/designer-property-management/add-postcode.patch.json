@@ -3,7 +3,7 @@
   "source": {
     "kind": "sorla-yaml",
     "path": "examples/designer-property-management/sorla.yaml",
-    "base_hash": "sha256:01db3cf18734bc53690b8a7dedafaf132197d95201783f6cdda8a63b5ab6b3b6"
+    "base_hash": "sha256:7aec07da48e3d8f4b4c1f3d60623afb543a912dfc9e8508d781392b8e5a0ea2e"
   },
   "author": {
     "id": "fixture",
@@ -17,8 +17,12 @@
       "record": "property",
       "field": {
         "name": "postcode",
+        "i18n_key": "examples.designer_property_management.records.property.fields.postcode",
         "type": "string",
-        "required": false
+        "required": false,
+        "rules": {
+          "max_length": 16
+        }
       }
     }
   ]

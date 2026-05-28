@@ -2,158 +2,384 @@
 package:
   name: metrics-commerce
   version: 0.1.0
+  i18n_key: examples.metrics_commerce.package
+roles:
+  - id: admin
+    i18n_key: examples.metrics_commerce.roles.admin
+    label: Admin
+    description: "Full administrative access to commerce metric records."
+    grants:
+      - "records.*"
+      - "agent_endpoints.*"
+  - id: analytics
+    i18n_key: examples.metrics_commerce.roles.analytics
+    label: Analytics
+    description: "Read metric source records and dashboards."
+    grants:
+      - "records.*.read"
+      - metrics.read
+  - id: marketing_ops
+    i18n_key: examples.metrics_commerce.roles.marketing_ops
+    label: "Marketing operations"
+    description: "Record campaign, visitor, and click activity."
+    grants:
+      - "records.campaign.*"
+      - records.visitor.create
+      - records.click.create
+  - id: finance
+    i18n_key: examples.metrics_commerce.roles.finance
+    label: Finance
+    description: "Record payments and costs for revenue reporting."
+    grants:
+      - "records.payment.*"
+      - "records.cost_entry.*"
+      - records.order.read
 records:
   - name: campaign
+    i18n_key: examples.metrics_commerce.records.campaign
     source: native
+    access:
+      read:
+        roles:
+          - admin
+          - analytics
+          - marketing_ops
+        policies: []
+      create:
+        roles:
+          - admin
+          - marketing_ops
+        policies: []
+      update:
+        roles:
+          - admin
+          - marketing_ops
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
     fields:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.records.campaign.fields.id
+        type: uuid
         required: true
         sensitive: false
+        rules:
+          unique: true
       - name: name
+        i18n_key: examples.metrics_commerce.records.campaign.fields.name
         type: string
         required: true
         sensitive: false
       - name: region
+        i18n_key: examples.metrics_commerce.records.campaign.fields.region
         type: string
         required: true
         sensitive: false
   - name: visitor
+    i18n_key: examples.metrics_commerce.records.visitor
     source: native
+    access:
+      read:
+        roles:
+          - admin
+          - analytics
+          - marketing_ops
+        policies: []
+      create:
+        roles:
+          - admin
+          - marketing_ops
+        policies: []
+      update:
+        roles:
+          - admin
+          - marketing_ops
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
     fields:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.records.visitor.fields.id
+        type: uuid
         required: true
         sensitive: false
+        rules:
+          unique: true
       - name: visited_at
-        type: timestamp
+        i18n_key: examples.metrics_commerce.records.visitor.fields.visited_at
+        type: datetime
         required: true
         sensitive: false
       - name: campaign
+        i18n_key: examples.metrics_commerce.records.visitor.fields.campaign
         type: string
         required: true
         sensitive: false
       - name: region
+        i18n_key: examples.metrics_commerce.records.visitor.fields.region
         type: string
         required: true
         sensitive: false
   - name: click
+    i18n_key: examples.metrics_commerce.records.click
     source: native
+    access:
+      read:
+        roles:
+          - admin
+          - analytics
+          - marketing_ops
+        policies: []
+      create:
+        roles:
+          - admin
+          - marketing_ops
+        policies: []
+      update:
+        roles:
+          - admin
+          - marketing_ops
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
     fields:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.records.click.fields.id
+        type: uuid
         required: true
         sensitive: false
+        rules:
+          unique: true
       - name: clicked_at
-        type: timestamp
+        i18n_key: examples.metrics_commerce.records.click.fields.clicked_at
+        type: datetime
         required: true
         sensitive: false
       - name: campaign
+        i18n_key: examples.metrics_commerce.records.click.fields.campaign
         type: string
         required: true
         sensitive: false
       - name: product
+        i18n_key: examples.metrics_commerce.records.click.fields.product
         type: string
         required: true
         sensitive: false
       - name: region
+        i18n_key: examples.metrics_commerce.records.click.fields.region
         type: string
         required: true
         sensitive: false
   - name: order
+    i18n_key: examples.metrics_commerce.records.order
     source: native
+    access:
+      read:
+        roles:
+          - admin
+          - analytics
+          - finance
+        policies: []
+      create:
+        roles:
+          - admin
+          - finance
+        policies: []
+      update:
+        roles:
+          - admin
+          - finance
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
     fields:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.records.order.fields.id
+        type: uuid
         required: true
         sensitive: false
+        rules:
+          unique: true
       - name: amount
+        i18n_key: examples.metrics_commerce.records.order.fields.amount
         type: decimal
         required: true
         sensitive: false
+        rules:
+          min: 0
+          precision: 12
+          scale: 2
       - name: status
+        i18n_key: examples.metrics_commerce.records.order.fields.status
         type: string
         required: true
         sensitive: false
       - name: ordered_at
-        type: timestamp
+        i18n_key: examples.metrics_commerce.records.order.fields.ordered_at
+        type: datetime
         required: true
         sensitive: false
       - name: campaign
+        i18n_key: examples.metrics_commerce.records.order.fields.campaign
         type: string
         required: true
         sensitive: false
       - name: product
+        i18n_key: examples.metrics_commerce.records.order.fields.product
         type: string
         required: true
         sensitive: false
       - name: customer
-        type: string
+        i18n_key: examples.metrics_commerce.records.order.fields.customer
+        type: email
         required: true
         sensitive: true
+        rules:
+          max_length: 320
       - name: region
+        i18n_key: examples.metrics_commerce.records.order.fields.region
         type: string
         required: true
         sensitive: false
   - name: payment
+    i18n_key: examples.metrics_commerce.records.payment
     source: native
+    access:
+      read:
+        roles:
+          - admin
+          - analytics
+          - finance
+        policies: []
+      create:
+        roles:
+          - admin
+          - finance
+        policies: []
+      update:
+        roles:
+          - admin
+          - finance
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
     fields:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.records.payment.fields.id
+        type: uuid
         required: true
         sensitive: false
+        rules:
+          unique: true
       - name: amount
+        i18n_key: examples.metrics_commerce.records.payment.fields.amount
         type: decimal
         required: true
         sensitive: false
+        rules:
+          min: 0
+          precision: 12
+          scale: 2
       - name: status
+        i18n_key: examples.metrics_commerce.records.payment.fields.status
         type: string
         required: true
         sensitive: false
       - name: paid_at
-        type: timestamp
+        i18n_key: examples.metrics_commerce.records.payment.fields.paid_at
+        type: datetime
         required: true
         sensitive: false
       - name: campaign
+        i18n_key: examples.metrics_commerce.records.payment.fields.campaign
         type: string
         required: true
         sensitive: false
       - name: product
+        i18n_key: examples.metrics_commerce.records.payment.fields.product
         type: string
         required: true
         sensitive: false
       - name: customer
-        type: string
+        i18n_key: examples.metrics_commerce.records.payment.fields.customer
+        type: email
         required: true
         sensitive: true
+        rules:
+          max_length: 320
       - name: region
+        i18n_key: examples.metrics_commerce.records.payment.fields.region
         type: string
         required: true
         sensitive: false
   - name: cost_entry
+    i18n_key: examples.metrics_commerce.records.cost_entry
     source: native
+    access:
+      read:
+        roles:
+          - admin
+          - analytics
+          - finance
+        policies: []
+      create:
+        roles:
+          - admin
+          - finance
+        policies: []
+      update:
+        roles:
+          - admin
+          - finance
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
     fields:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.records.cost_entry.fields.id
+        type: uuid
         required: true
         sensitive: false
+        rules:
+          unique: true
       - name: amount
+        i18n_key: examples.metrics_commerce.records.cost_entry.fields.amount
         type: decimal
         required: true
         sensitive: false
+        rules:
+          min: 0
+          precision: 12
+          scale: 2
       - name: incurred_at
-        type: timestamp
+        i18n_key: examples.metrics_commerce.records.cost_entry.fields.incurred_at
+        type: datetime
         required: true
         sensitive: false
       - name: campaign
+        i18n_key: examples.metrics_commerce.records.cost_entry.fields.campaign
         type: string
         required: true
         sensitive: false
       - name: product
+        i18n_key: examples.metrics_commerce.records.cost_entry.fields.product
         type: string
         required: true
         sensitive: false
       - name: region
+        i18n_key: examples.metrics_commerce.records.cost_entry.fields.region
         type: string
         required: true
         sensitive: false
@@ -163,32 +389,39 @@ actions:
   - name: record_cost
 events:
   - name: visitor_recorded
+    i18n_key: examples.metrics_commerce.events.visitor_recorded
     record: visitor
     kind: domain
     emits: []
   - name: click_tracked
+    i18n_key: examples.metrics_commerce.events.click_tracked
     record: click
     kind: domain
     emits: []
   - name: order_completed
+    i18n_key: examples.metrics_commerce.events.order_completed
     record: order
     kind: domain
     emits: []
   - name: payment_settled
+    i18n_key: examples.metrics_commerce.events.payment_settled
     record: payment
     kind: domain
     emits: []
   - name: cost_recorded
+    i18n_key: examples.metrics_commerce.events.cost_recorded
     record: cost_entry
     kind: domain
     emits: []
 projections:
   - name: commerce_metrics_dashboard
+    i18n_key: examples.metrics_commerce.projections.commerce_metrics_dashboard
     record: payment
     source_event: payment_settled
     mode: current-state
 metrics:
   - name: campaign_roas
+    i18n_key: examples.metrics_commerce.metrics.campaign_roas
     label: "Campaign ROAS"
     unit: ratio
     dimensions:
@@ -198,6 +431,7 @@ metrics:
       - monthly_revenue
       - monthly_cost
   - name: completed_orders
+    i18n_key: examples.metrics_commerce.metrics.completed_orders
     label: "Completed Orders"
     source:
       kind: record
@@ -218,6 +452,7 @@ metrics:
       - region
     depends_on: []
   - name: conversion_rate
+    i18n_key: examples.metrics_commerce.metrics.conversion_rate
     label: "Conversion Rate"
     unit: percent
     dimensions:
@@ -232,6 +467,7 @@ metrics:
       value: 0.05
       unit: ratio
   - name: daily_clicks
+    i18n_key: examples.metrics_commerce.metrics.daily_clicks
     label: "Daily Clicks"
     description: "Total clicks by day."
     source:
@@ -248,6 +484,7 @@ metrics:
       - region
     depends_on: []
   - name: gross_margin
+    i18n_key: examples.metrics_commerce.metrics.gross_margin
     label: "Gross Margin"
     unit: GBP
     dimensions:
@@ -259,6 +496,7 @@ metrics:
       - monthly_revenue
       - monthly_cost
   - name: monthly_cost
+    i18n_key: examples.metrics_commerce.metrics.monthly_cost
     label: "Monthly Cost"
     source:
       kind: record
@@ -280,6 +518,7 @@ metrics:
       - region
     depends_on: []
   - name: monthly_revenue
+    i18n_key: examples.metrics_commerce.metrics.monthly_revenue
     label: "Monthly Revenue"
     source:
       kind: record
@@ -306,6 +545,7 @@ metrics:
       value: 100000
       unit: GBP
   - name: visitor_sessions
+    i18n_key: examples.metrics_commerce.metrics.visitor_sessions
     label: "Visitor Sessions"
     source:
       kind: record
@@ -332,26 +572,32 @@ migrations:
     projection_updates: []
 agent_endpoints:
   - id: record_click
+    i18n_key: examples.metrics_commerce.agent_endpoints.record_click
     title: "record click"
     intent: "Run the record click business action."
     inputs:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_click.inputs.id
+        type: uuid
         required: true
         sensitive: false
       - name: clicked_at
-        type: timestamp
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_click.inputs.clicked_at
+        type: datetime
         required: true
         sensitive: false
       - name: campaign
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_click.inputs.campaign
         type: string
         required: true
         sensitive: false
       - name: product
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_click.inputs.product
         type: string
         required: true
         sensitive: false
       - name: region
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_click.inputs.region
         type: string
         required: true
         sensitive: false
@@ -366,44 +612,60 @@ agent_endpoints:
       events: []
       policies: []
       approvals: []
+    authorization:
+      roles:
+        any_of:
+          - admin
+          - marketing_ops
+        all_of: []
+      policies: []
     agent_visibility:
       openapi: true
       arazzo: true
       mcp: true
       llms_txt: true
   - id: record_payment
+    i18n_key: examples.metrics_commerce.agent_endpoints.record_payment
     title: "record payment"
     intent: "Run the record payment business action."
     inputs:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_payment.inputs.id
+        type: uuid
         required: true
         sensitive: false
       - name: amount
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_payment.inputs.amount
         type: decimal
         required: true
         sensitive: false
       - name: status
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_payment.inputs.status
         type: string
         required: true
         sensitive: false
       - name: paid_at
-        type: timestamp
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_payment.inputs.paid_at
+        type: datetime
         required: true
         sensitive: false
       - name: campaign
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_payment.inputs.campaign
         type: string
         required: true
         sensitive: false
       - name: product
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_payment.inputs.product
         type: string
         required: true
         sensitive: false
       - name: customer
-        type: string
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_payment.inputs.customer
+        type: email
         required: true
         sensitive: true
       - name: region
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_payment.inputs.region
         type: string
         required: true
         sensitive: false
@@ -418,36 +680,50 @@ agent_endpoints:
       events: []
       policies: []
       approvals: []
+    authorization:
+      roles:
+        any_of:
+          - admin
+          - finance
+        all_of: []
+      policies: []
     agent_visibility:
       openapi: true
       arazzo: true
       mcp: true
       llms_txt: true
   - id: record_cost
+    i18n_key: examples.metrics_commerce.agent_endpoints.record_cost
     title: "record cost"
     intent: "Run the record cost business action."
     inputs:
       - name: id
-        type: string
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_cost.inputs.id
+        type: uuid
         required: true
         sensitive: false
       - name: amount
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_cost.inputs.amount
         type: decimal
         required: true
         sensitive: false
       - name: incurred_at
-        type: timestamp
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_cost.inputs.incurred_at
+        type: datetime
         required: true
         sensitive: false
       - name: campaign
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_cost.inputs.campaign
         type: string
         required: true
         sensitive: false
       - name: product
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_cost.inputs.product
         type: string
         required: true
         sensitive: false
       - name: region
+        i18n_key: examples.metrics_commerce.agent_endpoints.record_cost.inputs.region
         type: string
         required: true
         sensitive: false
@@ -462,6 +738,13 @@ agent_endpoints:
       events: []
       policies: []
       approvals: []
+    authorization:
+      roles:
+        any_of:
+          - admin
+          - finance
+        all_of: []
+      policies: []
     agent_visibility:
       openapi: true
       arazzo: true

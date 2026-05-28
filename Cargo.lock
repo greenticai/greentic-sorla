@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "criterion",
  "greentic-sorla-lib",
@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-designer-extension"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "greentic-sorla-lib",
  "serde",
@@ -876,7 +876,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-ir"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "ciborium",
  "greentic-sorla-lang",
@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lang"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "serde",
  "serde_json",
@@ -896,7 +896,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lib"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "ciborium",
  "clap",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-pack"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "ciborium",
  "greentic-sorla-ir",
@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-wizard"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "greentic-sorla",
  "greentic-sorla-lang",
@@ -2637,7 +2637,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "0.1.15"
+version = "0.1.16"
 
 [[package]]
 name = "yoke"

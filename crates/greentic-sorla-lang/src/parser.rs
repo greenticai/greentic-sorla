@@ -1,7 +1,8 @@
 use crate::ast::{
     AgentEndpointApprovalMode, AgentEndpointDecl, AgentEndpointRisk, FieldAuthority,
-    MigrationOperationDecl, OntologyBacking, OntologyProviderRequirement, Package, ParseWarning,
-    ParsedPackage, ProviderRequirement, Record, RecordSource, ViewMode,
+    FieldValidationRules, MigrationOperationDecl, OntologyBacking, OntologyProviderRequirement,
+    Package, ParseWarning, ParsedPackage, ProviderRequirement, Record, RecordAccess, RecordSource,
+    ViewMode,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,8 +34,9 @@ fn apply_v0_1_compatibility(package: &mut Package) -> Vec<ParseWarning> {
 }
 
 fn validate_package(package: &Package) -> Result<Vec<ParseWarning>, String> {
+    validate_roles(package)?;
     for record in &package.records {
-        validate_record(record)?;
+        validate_record(record, package)?;
     }
 
     validate_record_references(package)?;
@@ -52,13 +54,34 @@ fn validate_package(package: &Package) -> Result<Vec<ParseWarning>, String> {
     Ok(warnings)
 }
 
-fn validate_record(record: &Record) -> Result<(), String> {
+fn validate_roles(package: &Package) -> Result<(), String> {
+    let mut ids = BTreeSet::new();
+    for (index, role) in package.roles.iter().enumerate() {
+        let path = format!("roles[{index}]");
+        require_non_empty(&role.id, &format!("{path}.id"), "role id")?;
+        if !ids.insert(role.id.clone()) {
+            return Err(format!("{path}.id: duplicate role id `{}`", role.id));
+        }
+        for (grant_index, grant) in role.grants.iter().enumerate() {
+            require_non_empty(
+                grant,
+                &format!("{path}.grants[{grant_index}]"),
+                "role grant",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_record(record: &Record, package: &Package) -> Result<(), String> {
     match record
         .source
         .as_ref()
         .expect("source is normalized before validation")
     {
-        RecordSource::Native => Ok(()),
+        RecordSource::Native => {
+            validate_record_access(&record.access, package, &format!("records.{}", record.name))
+        }
         RecordSource::External => {
             if record.external_ref.is_none() {
                 return Err(format!(
@@ -66,7 +89,7 @@ fn validate_record(record: &Record) -> Result<(), String> {
                     record.name
                 ));
             }
-            Ok(())
+            validate_record_access(&record.access, package, &format!("records.{}", record.name))
         }
         RecordSource::Hybrid => {
             let external_ref = record.external_ref.as_ref().ok_or_else(|| {
@@ -108,9 +131,41 @@ fn validate_record(record: &Record) -> Result<(), String> {
                 ));
             }
 
-            Ok(())
+            validate_record_access(&record.access, package, &format!("records.{}", record.name))
         }
     }
+}
+
+fn validate_record_access(
+    access: &RecordAccess,
+    package: &Package,
+    path: &str,
+) -> Result<(), String> {
+    let role_ids = declared_names(package.roles.iter().map(|role| role.id.as_str()));
+    let policy_names = declared_names(package.policies.iter().map(|policy| policy.name.as_str()));
+    for (action, rule) in [
+        ("read", access.read.as_ref()),
+        ("create", access.create.as_ref()),
+        ("update", access.update.as_ref()),
+        ("delete", access.delete.as_ref()),
+    ] {
+        let Some(rule) = rule else {
+            continue;
+        };
+        validate_named_refs(
+            &rule.roles,
+            &role_ids,
+            &format!("{path}.access.{action}.roles"),
+            "role",
+        )?;
+        validate_named_refs(
+            &rule.policies,
+            &policy_names,
+            &format!("{path}.access.{action}.policies"),
+            "policy",
+        )?;
+    }
+    Ok(())
 }
 
 fn validate_record_references(package: &Package) -> Result<(), String> {
@@ -132,6 +187,15 @@ fn validate_record_references(package: &Package) -> Result<(), String> {
                 &field.type_name,
                 &format!("records[{record_index}].fields[{field_index}].type"),
                 "field type",
+            )?;
+            validate_field_type(
+                &field.type_name,
+                &format!("records[{record_index}].fields[{field_index}].type"),
+            )?;
+            validate_field_rules(
+                &field.type_name,
+                &field.rules,
+                &format!("records[{record_index}].fields[{field_index}].rules"),
             )?;
 
             if let Some(reference) = &field.references {
@@ -181,6 +245,101 @@ fn validate_record_references(package: &Package) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn validate_field_type(type_name: &str, path: &str) -> Result<(), String> {
+    if is_supported_field_type(type_name) {
+        return Ok(());
+    }
+    Err(format!(
+        "{path}: unsupported record field type `{type_name}`; expected string, decimal, integer, boolean, uuid, email, url, date, time, or datetime"
+    ))
+}
+
+fn is_supported_field_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "string"
+            | "decimal"
+            | "integer"
+            | "boolean"
+            | "uuid"
+            | "email"
+            | "url"
+            | "date"
+            | "time"
+            | "datetime"
+            | "enum"
+            | "array"
+            | "timestamp"
+            | "bool"
+            | "int"
+            | "number"
+            | "float"
+            | "double"
+            | "u32"
+    )
+}
+
+fn validate_field_rules(
+    type_name: &str,
+    rules: &FieldValidationRules,
+    path: &str,
+) -> Result<(), String> {
+    if rules.is_empty() {
+        return Ok(());
+    }
+    if let (Some(min), Some(max)) = (&rules.min, &rules.max)
+        && let (Some(min), Some(max)) = (min.as_f64(), max.as_f64())
+        && min > max
+    {
+        return Err(format!("{path}: min must be less than or equal to max"));
+    }
+    if let (Some(min_length), Some(max_length)) = (rules.min_length, rules.max_length)
+        && min_length > max_length
+    {
+        return Err(format!(
+            "{path}: min_length must be less than or equal to max_length"
+        ));
+    }
+    if let (Some(precision), Some(scale)) = (rules.precision, rules.scale)
+        && scale > precision
+    {
+        return Err(format!(
+            "{path}: scale must be less than or equal to precision"
+        ));
+    }
+
+    if (rules.min_length.is_some() || rules.max_length.is_some() || rules.pattern.is_some())
+        && !is_text_like_field_type(type_name)
+    {
+        return Err(format!(
+            "{path}: min_length, max_length, and pattern rules require a string-like field type"
+        ));
+    }
+    if (rules.precision.is_some() || rules.scale.is_some()) && !is_decimal_field_type(type_name) {
+        return Err(format!(
+            "{path}: precision and scale rules require a decimal field type"
+        ));
+    }
+    if (rules.before.is_some() || rules.after.is_some()) && !is_temporal_field_type(type_name) {
+        return Err(format!(
+            "{path}: before and after rules require date, time, datetime, or timestamp field type"
+        ));
+    }
+    Ok(())
+}
+
+fn is_text_like_field_type(type_name: &str) -> bool {
+    matches!(type_name, "string" | "uuid" | "email" | "url" | "enum")
+}
+
+fn is_decimal_field_type(type_name: &str) -> bool {
+    matches!(type_name, "decimal")
+}
+
+fn is_temporal_field_type(type_name: &str) -> bool {
+    matches!(type_name, "date" | "time" | "datetime" | "timestamp")
 }
 
 fn validate_event_references(package: &Package) -> Result<(), String> {
@@ -518,6 +677,7 @@ fn validate_agent_endpoints(package: &Package) -> Result<Vec<ParseWarning>, Stri
     let flow_names = declared_names(package.flows.iter().map(|item| item.name.as_str()));
     let policy_names = declared_names(package.policies.iter().map(|item| item.name.as_str()));
     let approval_names = declared_names(package.approvals.iter().map(|item| item.name.as_str()));
+    let role_ids = declared_names(package.roles.iter().map(|role| role.id.as_str()));
 
     for (index, endpoint) in package.agent_endpoints.iter().enumerate() {
         let endpoint_path = format!("agent_endpoints[{index}]");
@@ -535,6 +695,7 @@ fn validate_agent_endpoints(package: &Package) -> Result<Vec<ParseWarning>, Stri
             &policy_names,
             &approval_names,
         )?;
+        validate_endpoint_authorization(endpoint, &endpoint_path, &role_ids, &policy_names)?;
         validate_provider_requirements(
             &endpoint.provider_requirements,
             &format!("{endpoint_path}.provider_requirements"),
@@ -544,6 +705,39 @@ fn validate_agent_endpoints(package: &Package) -> Result<Vec<ParseWarning>, Stri
     }
 
     Ok(warnings)
+}
+
+fn validate_endpoint_authorization(
+    endpoint: &AgentEndpointDecl,
+    endpoint_path: &str,
+    role_ids: &BTreeSet<String>,
+    policy_names: &BTreeSet<String>,
+) -> Result<(), String> {
+    if let Some(roles) = &endpoint.authorization.roles {
+        validate_named_refs(
+            &roles.any_of,
+            role_ids,
+            &format!("{endpoint_path}.authorization.roles.any_of"),
+            "role",
+        )?;
+        validate_named_refs(
+            &roles.all_of,
+            role_ids,
+            &format!("{endpoint_path}.authorization.roles.all_of"),
+            "role",
+        )?;
+        if roles.any_of.is_empty() && roles.all_of.is_empty() {
+            return Err(format!(
+                "{endpoint_path}.authorization.roles: declare at least one `any_of` or `all_of` role"
+            ));
+        }
+    }
+    validate_named_refs(
+        &endpoint.authorization.policies,
+        policy_names,
+        &format!("{endpoint_path}.authorization.policies"),
+        "policy",
+    )
 }
 
 fn validate_operation_plan(
@@ -1733,4 +1927,90 @@ fn is_recommended_endpoint_id(id: &str) -> bool {
 
 fn declared_names<'a>(names: impl Iterator<Item = &'a str>) -> BTreeSet<String> {
     names.map(str::to_string).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_package;
+
+    #[test]
+    fn parses_scalar_record_field_types_and_rules() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: scalar-rules
+  version: 0.1.0
+records:
+  - name: Contact
+    source: native
+    fields:
+      - name: id
+        type: uuid
+        required: true
+        rules:
+          unique: true
+      - name: email
+        type: email
+        required: true
+        rules:
+          max_length: 320
+          pattern: "^[^@]+@[^@]+$"
+      - name: website
+        type: url
+      - name: starts_on
+        type: date
+        rules:
+          after: "2026-01-01"
+      - name: opens_at
+        type: time
+      - name: seen_at
+        type: datetime
+        rules:
+          before: "2027-01-01T00:00:00Z"
+      - name: score
+        type: integer
+        rules:
+          min: 1
+          max: 10
+      - name: amount
+        type: decimal
+        rules:
+          precision: 12
+          scale: 2
+      - name: active
+        type: boolean
+"#,
+        )
+        .expect("scalar rules package should parse");
+
+        let fields = &parsed.package.records[0].fields;
+        assert_eq!(fields.len(), 9);
+        assert_eq!(fields[0].type_name, "uuid");
+        assert!(fields[0].rules.unique);
+        assert_eq!(fields[1].rules.max_length, Some(320));
+        assert_eq!(fields[7].rules.precision, Some(12));
+        assert_eq!(fields[7].rules.scale, Some(2));
+    }
+
+    #[test]
+    fn rejects_incompatible_record_field_rules() {
+        let err = parse_package(
+            r#"
+package:
+  name: bad-rules
+  version: 0.1.0
+records:
+  - name: Payment
+    source: native
+    fields:
+      - name: amount
+        type: decimal
+        rules:
+          max_length: 10
+"#,
+        )
+        .expect_err("string rule on decimal should fail");
+
+        assert!(err.contains("string-like field type"));
+    }
 }

@@ -219,6 +219,151 @@ See `docs/sorx-deployment-handoff.md` for the expected downstream lifecycle from
 GHCR publish event through preview deployment, certification report, public
 exposure gate, and alias promotion.
 
+## Record Scalar Types and Rules
+
+Sorx should consume regenerated gtpacks after any `sorla.yaml` record definition
+change. The updated canonical model now carries richer record field metadata in
+the package IR, including `records[].fields[].type` and
+`records[].fields[].rules`. It also carries stable `i18n_key` metadata so Sorx
+and downstream UI surfaces can resolve labels from sidecar locale catalogs
+instead of from translated schema copies. There is no separate Sorx flag for
+this: rebuild the gtpack from the latest English-base `sorla.yaml`, publish or
+deploy that pack, and make sure Sorx reloads the new package artifact instead
+of a cached model hash.
+
+Summary of record-definition changes Sorx should expect:
+
+- scalar field types now include `uuid`, `email`, `url`, `date`, `time`, and
+  `datetime` in addition to the existing base scalar types
+- field validation rules are emitted under `records[].fields[].rules`
+- schema objects may include `i18n_key`
+- localization is represented by sidecar catalogs such as `i18n/en.json` and
+  `i18n/es.json`; do not expect one `sorla.yaml` per language
+
+Record fields now support these first-class scalar types:
+
+- `string`
+- `decimal`
+- `integer`
+- `boolean`
+- `uuid`
+- `email`
+- `url`
+- `date`
+- `time`
+- `datetime`
+
+Compatibility aliases such as `timestamp`, `bool`, `int`, `number`, `float`,
+`double`, `u32`, `enum`, and `array` may still appear in older packs, but new
+generated definitions should prefer `datetime` for timestamp values and the
+semantic scalar types above where they apply.
+
+Record fields may also include a `rules` object with these validation keys:
+
+- `min` and `max` for numeric lower and upper bounds.
+- `min_length`, `max_length`, and `pattern` for text-like fields.
+- `precision` and `scale` for decimal fields.
+- `before` and `after` for `date`, `time`, `datetime`, and legacy `timestamp`
+  fields.
+- `unique` for scalar uniqueness expectations.
+
+Rules are record-field metadata only. Endpoint `inputs` and `outputs` do not
+carry `rules` yet, so Sorx should derive endpoint validation from the record
+model, operational indexes, and execution plan rather than expecting rule
+objects under `agent_endpoints.items[].inputs` or `outputs`.
+
+Because these values are part of the canonical model, changing field types or
+rules changes the generated IR and package hash. Sorx deployments should treat a
+new gtpack as the source of truth for validation, generated routes, inspect
+output, and downstream contract checks.
+
+## Record Hierarchy
+
+Sorx should use `assets/sorla/agent-gateway.json` `record_hierarchy` to decide
+which record entities are top-level navigation entities and which are dependent
+entities that require parent context. The hierarchy is derived from record
+reference fields and enriched with ontology relationship ids when present.
+
+Each item has:
+
+- `record`: the canonical record name.
+- `main`: true when the record has no parent record references and may be shown
+  as a top-level entity.
+- `parents`: parent record requirements. Each parent includes the parent
+  `record`, the child-side reference `field`, and optional ontology
+  `relationship`.
+
+Sorx should use this when generating menus and forms:
+
+- Show `main: true` records as primary menu entries.
+- Do not show dependent records as unconstrained top-level create actions.
+- Surface dependent create actions from a parent context and prefill or require
+  the parent reference field. For example, a `Building` with parent `Landlord`
+  belongs under a landlord, and a `Unit` with parent `Building` belongs under a
+  building.
+- If a record has multiple parents, only create it when the required parent
+  references are known or explicitly selected.
+
+Generic admin endpoints that use `execution.record_selector` are record-wide
+operations. Their generated agent-gateway entity is `Record` and their
+collection is `records`; Sorx should place them in admin tooling instead of
+merging them into a specific entity create form.
+
+Endpoint forms should be generated from a single endpoint's `input_schema`.
+Do not merge input fields from multiple endpoints just because they share an
+entity or collection. Create, update, remove, and admin tools remain separate
+actions with separate schemas.
+
+## Metrics Localization
+
+Sorx should localize metric navigation and detail views from
+`assets/sorla/metrics.json` plus the embedded locale catalogs. Each metric item
+may include `i18n_key`; resolve the visible label from
+`<i18n_key>.label` in the active locale and use the metric `label` only as the
+English fallback. Do not show raw metric ids such as `active_tenancies` as
+primary display text when a localized label exists.
+
+Metric detail views should also prefer the localized label in headings and
+captions. The raw `name` remains the stable query identifier and may be shown as
+developer metadata, but it should not replace the translated label in the
+normal user flow.
+
+## Role and Authorization Enforcement
+
+Sorx should enforce roles from the latest gtpack, not from endpoint naming
+conventions or legacy `execution.authorization` payloads. The canonical model in
+`assets/sorla/model.cbor` now includes:
+
+- `roles[]`: declared role ids, labels, descriptions, i18n keys, and optional
+  grant strings for operator/UI policy mapping.
+- `records[].access`: CRUD access rules per record. Each rule may list `roles`
+  and `policies`.
+- `agent_endpoints[].authorization`: invocation requirements. `roles.any_of`
+  requires at least one listed role, `roles.all_of` requires every listed role,
+  `policies` delegates to the policy engine, and `conditions` are structured
+  policy inputs.
+- `assets/sorla/agent-gateway.json` repeats endpoint `authorization` so route
+  generation can enforce endpoint access without decoding all endpoint IR first.
+
+Recommended Sorx enforcement:
+
+- Resolve the authenticated principal's roles to SoRLa role ids before route or
+  record execution.
+- Deny by default when an endpoint has `authorization` and the principal fails
+  `any_of`, `all_of`, or policy checks.
+- Deny record CRUD when `records[].access.<operation>` exists and the principal
+  fails the listed roles or policies.
+- Treat `approval` as a workflow gate after authorization succeeds, not as a
+  replacement for authorization.
+- Do not give `admin` implicit bypass unless the package explicitly lists
+  `admin` in the relevant access or authorization rule.
+- Ignore or reject new packages that still rely on
+  `execution.authorization.required_roles`; regenerate them with first-class
+  `authorization`.
+
+Because no production Sorx package consumes SoRLa yet, Sorx can implement this
+as the baseline behavior without a compatibility fallback.
+
 ## Compatibility Strategy
 
 The first schema is `greentic.sorx.validation.v1`.

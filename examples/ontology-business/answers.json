@@ -20,76 +20,470 @@
       {
         "name": "Customer",
         "fields": [
-          { "name": "id", "type": "string", "required": true },
-          { "name": "display_name", "type": "string", "required": true },
-          { "name": "email", "type": "string", "sensitive": true }
-        ]
+          {
+            "name": "id",
+            "type": "uuid",
+            "required": true,
+            "rules": {
+              "unique": true
+            }
+          },
+          {
+            "name": "display_name",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "email",
+            "type": "email",
+            "rules": {
+              "max_length": 320
+            },
+            "sensitive": true
+          }
+        ],
+        "access": {
+          "read": {
+            "roles": [
+              "admin",
+              "customer_ops",
+              "evidence_manager"
+            ]
+          },
+          "create": {
+            "roles": [
+              "admin",
+              "customer_ops"
+            ]
+          },
+          "update": {
+            "roles": [
+              "admin",
+              "customer_ops"
+            ]
+          },
+          "delete": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
       },
       {
         "name": "Supplier",
         "fields": [
-          { "name": "id", "type": "string", "required": true },
-          { "name": "display_name", "type": "string", "required": true }
-        ]
+          {
+            "name": "id",
+            "type": "uuid",
+            "required": true,
+            "rules": {
+              "unique": true
+            }
+          },
+          {
+            "name": "display_name",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "access": {
+          "read": {
+            "roles": [
+              "admin",
+              "risk_reviewer"
+            ]
+          },
+          "create": {
+            "roles": [
+              "admin"
+            ]
+          },
+          "update": {
+            "roles": [
+              "admin"
+            ]
+          },
+          "delete": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
       },
       {
         "name": "Contract",
         "fields": [
-          { "name": "id", "type": "string", "required": true },
-          { "name": "customer_id", "type": "string", "references": { "record": "Customer", "field": "id" } },
-          { "name": "status", "type": "string", "enum_values": ["draft", "active", "closed"] }
-        ]
+          {
+            "name": "id",
+            "type": "uuid",
+            "required": true,
+            "rules": {
+              "unique": true
+            }
+          },
+          {
+            "name": "customer_id",
+            "type": "string",
+            "references": {
+              "record": "Customer",
+              "field": "id"
+            }
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "enum_values": [
+              "draft",
+              "active",
+              "closed"
+            ]
+          }
+        ],
+        "access": {
+          "read": {
+            "roles": [
+              "admin",
+              "customer_ops",
+              "evidence_manager",
+              "risk_reviewer"
+            ]
+          },
+          "create": {
+            "roles": [
+              "admin",
+              "customer_ops"
+            ]
+          },
+          "update": {
+            "roles": [
+              "admin",
+              "customer_ops"
+            ]
+          },
+          "delete": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
       },
       {
         "name": "Asset",
         "fields": [
-          { "name": "id", "type": "string", "required": true },
-          { "name": "contract_id", "type": "string", "references": { "record": "Contract", "field": "id" } },
-          { "name": "label", "type": "string" }
-        ]
+          {
+            "name": "id",
+            "type": "uuid",
+            "required": true,
+            "rules": {
+              "unique": true
+            }
+          },
+          {
+            "name": "contract_id",
+            "type": "string",
+            "references": {
+              "record": "Contract",
+              "field": "id"
+            }
+          },
+          {
+            "name": "label",
+            "type": "string"
+          }
+        ],
+        "access": {
+          "read": {
+            "roles": [
+              "admin",
+              "customer_ops",
+              "evidence_manager"
+            ]
+          },
+          "create": {
+            "roles": [
+              "admin",
+              "customer_ops"
+            ]
+          },
+          "update": {
+            "roles": [
+              "admin",
+              "customer_ops"
+            ]
+          },
+          "delete": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
       },
       {
         "name": "Obligation",
         "fields": [
-          { "name": "id", "type": "string", "required": true },
-          { "name": "supplier_id", "type": "string", "references": { "record": "Supplier", "field": "id" } },
-          { "name": "risk_level", "type": "string", "enum_values": ["low", "medium", "high"] }
-        ]
+          {
+            "name": "id",
+            "type": "uuid",
+            "required": true,
+            "rules": {
+              "unique": true
+            }
+          },
+          {
+            "name": "supplier_id",
+            "type": "string",
+            "references": {
+              "record": "Supplier",
+              "field": "id"
+            }
+          },
+          {
+            "name": "risk_level",
+            "type": "string",
+            "enum_values": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        ],
+        "access": {
+          "read": {
+            "roles": [
+              "admin",
+              "risk_reviewer"
+            ]
+          },
+          "create": {
+            "roles": [
+              "admin"
+            ]
+          },
+          "update": {
+            "roles": [
+              "admin",
+              "risk_reviewer"
+            ]
+          },
+          "delete": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
       },
       {
         "name": "EvidenceDocument",
         "fields": [
-          { "name": "id", "type": "string", "required": true },
-          { "name": "contract_id", "type": "string", "references": { "record": "Contract", "field": "id" } },
-          { "name": "document_ref", "type": "string", "required": true }
-        ]
+          {
+            "name": "id",
+            "type": "uuid",
+            "required": true,
+            "rules": {
+              "unique": true
+            }
+          },
+          {
+            "name": "contract_id",
+            "type": "string",
+            "references": {
+              "record": "Contract",
+              "field": "id"
+            }
+          },
+          {
+            "name": "document_ref",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "access": {
+          "read": {
+            "roles": [
+              "admin",
+              "evidence_manager",
+              "risk_reviewer"
+            ]
+          },
+          "create": {
+            "roles": [
+              "admin",
+              "evidence_manager"
+            ]
+          },
+          "update": {
+            "roles": [
+              "admin",
+              "evidence_manager"
+            ]
+          },
+          "delete": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
       },
       {
         "name": "CustomerContract",
         "fields": [
-          { "name": "customer_id", "type": "string", "references": { "record": "Customer", "field": "id" } },
-          { "name": "contract_id", "type": "string", "references": { "record": "Contract", "field": "id" } }
-        ]
+          {
+            "name": "customer_id",
+            "type": "string",
+            "references": {
+              "record": "Customer",
+              "field": "id"
+            }
+          },
+          {
+            "name": "contract_id",
+            "type": "string",
+            "references": {
+              "record": "Contract",
+              "field": "id"
+            }
+          }
+        ],
+        "access": {
+          "read": {
+            "roles": [
+              "admin",
+              "customer_ops",
+              "evidence_manager"
+            ]
+          },
+          "create": {
+            "roles": [
+              "admin",
+              "customer_ops"
+            ]
+          },
+          "update": {
+            "roles": [
+              "admin",
+              "customer_ops"
+            ]
+          },
+          "delete": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
       },
       {
         "name": "SupplierObligation",
         "fields": [
-          { "name": "supplier_id", "type": "string", "references": { "record": "Supplier", "field": "id" } },
-          { "name": "obligation_id", "type": "string", "references": { "record": "Obligation", "field": "id" } }
-        ]
+          {
+            "name": "supplier_id",
+            "type": "string",
+            "references": {
+              "record": "Supplier",
+              "field": "id"
+            }
+          },
+          {
+            "name": "obligation_id",
+            "type": "string",
+            "references": {
+              "record": "Obligation",
+              "field": "id"
+            }
+          }
+        ],
+        "access": {
+          "read": {
+            "roles": [
+              "admin",
+              "risk_reviewer"
+            ]
+          },
+          "create": {
+            "roles": [
+              "admin"
+            ]
+          },
+          "update": {
+            "roles": [
+              "admin",
+              "risk_reviewer"
+            ]
+          },
+          "delete": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
       }
     ]
   },
   "ontology": {
     "schema": "greentic.sorla.ontology.v1",
     "concepts": [
-      { "id": "Party", "kind": "abstract", "description": "A business actor." },
-      { "id": "Customer", "kind": "entity", "extends": ["Party"], "backed_by": { "record": "Customer" }, "sensitivity": { "classification": "confidential", "pii": true } },
-      { "id": "Supplier", "kind": "entity", "extends": ["Party"], "backed_by": { "record": "Supplier" } },
-      { "id": "Contract", "kind": "entity", "backed_by": { "record": "Contract" } },
-      { "id": "Asset", "kind": "entity", "backed_by": { "record": "Asset" } },
-      { "id": "Obligation", "kind": "entity", "backed_by": { "record": "Obligation" }, "policy_hooks": [{ "policy": "obligation_risk_policy", "reason": "risk assessment requires policy review" }] },
-      { "id": "EvidenceDocument", "kind": "entity", "backed_by": { "record": "EvidenceDocument" } }
+      {
+        "id": "Party",
+        "kind": "abstract",
+        "description": "A business actor."
+      },
+      {
+        "id": "Customer",
+        "kind": "entity",
+        "extends": [
+          "Party"
+        ],
+        "backed_by": {
+          "record": "Customer"
+        },
+        "sensitivity": {
+          "classification": "confidential",
+          "pii": true
+        }
+      },
+      {
+        "id": "Supplier",
+        "kind": "entity",
+        "extends": [
+          "Party"
+        ],
+        "backed_by": {
+          "record": "Supplier"
+        }
+      },
+      {
+        "id": "Contract",
+        "kind": "entity",
+        "backed_by": {
+          "record": "Contract"
+        }
+      },
+      {
+        "id": "Asset",
+        "kind": "entity",
+        "backed_by": {
+          "record": "Asset"
+        }
+      },
+      {
+        "id": "Obligation",
+        "kind": "entity",
+        "backed_by": {
+          "record": "Obligation"
+        },
+        "policy_hooks": [
+          {
+            "policy": "obligation_risk_policy",
+            "reason": "risk assessment requires policy review"
+          }
+        ]
+      },
+      {
+        "id": "EvidenceDocument",
+        "kind": "entity",
+        "backed_by": {
+          "record": "EvidenceDocument"
+        }
+      }
     ],
     "relationships": [
       {
@@ -97,51 +491,93 @@
         "label": "has contract",
         "from": "Customer",
         "to": "Contract",
-        "cardinality": { "from": "one", "to": "many" },
-        "backed_by": { "record": "CustomerContract", "from_field": "customer_id", "to_field": "contract_id" }
+        "cardinality": {
+          "from": "one",
+          "to": "many"
+        },
+        "backed_by": {
+          "record": "CustomerContract",
+          "from_field": "customer_id",
+          "to_field": "contract_id"
+        }
       },
       {
         "id": "fulfills_obligation",
         "label": "fulfills obligation",
         "from": "Supplier",
         "to": "Obligation",
-        "cardinality": { "from": "one", "to": "many" },
-        "backed_by": { "record": "SupplierObligation", "from_field": "supplier_id", "to_field": "obligation_id" }
+        "cardinality": {
+          "from": "one",
+          "to": "many"
+        },
+        "backed_by": {
+          "record": "SupplierObligation",
+          "from_field": "supplier_id",
+          "to_field": "obligation_id"
+        }
       },
       {
         "id": "governs",
         "label": "governs",
         "from": "Contract",
         "to": "Asset",
-        "cardinality": { "from": "one", "to": "many" },
-        "backed_by": { "record": "Asset", "from_field": "contract_id", "to_field": "id" }
+        "cardinality": {
+          "from": "one",
+          "to": "many"
+        },
+        "backed_by": {
+          "record": "Asset",
+          "from_field": "contract_id",
+          "to_field": "id"
+        }
       },
       {
         "id": "supports",
         "label": "supports",
         "from": "EvidenceDocument",
         "to": "Contract",
-        "cardinality": { "from": "many", "to": "one" },
-        "backed_by": { "record": "EvidenceDocument", "from_field": "id", "to_field": "contract_id" }
+        "cardinality": {
+          "from": "many",
+          "to": "one"
+        },
+        "backed_by": {
+          "record": "EvidenceDocument",
+          "from_field": "id",
+          "to_field": "contract_id"
+        }
       }
     ],
     "constraints": [
       {
         "id": "obligation_risk_policy",
-        "applies_to": { "concept": "Obligation" },
+        "applies_to": {
+          "concept": "Obligation"
+        },
         "requires_policy": "obligation_risk_policy"
       }
     ]
   },
   "semantic_aliases": {
     "concepts": {
-      "Customer": ["client", "account"],
-      "Supplier": ["vendor"],
-      "EvidenceDocument": ["evidence", "supporting document"]
+      "Customer": [
+        "client",
+        "account"
+      ],
+      "Supplier": [
+        "vendor"
+      ],
+      "EvidenceDocument": [
+        "evidence",
+        "supporting document"
+      ]
     },
     "relationships": {
-      "has_contract": ["covered by"],
-      "supports": ["substantiates"]
+      "has_contract": [
+        "covered by"
+      ],
+      "supports": [
+        "substantiates"
+      ]
     }
   },
   "entity_linking": {
@@ -149,14 +585,22 @@
       {
         "id": "customer_email_match",
         "applies_to": "Customer",
-        "match": { "source_field": "email", "target_field": "email" },
+        "match": {
+          "source_field": "email",
+          "target_field": "email"
+        },
         "confidence": 0.95,
-        "sensitivity": { "pii": true }
+        "sensitivity": {
+          "pii": true
+        }
       },
       {
         "id": "evidence_document_ref_match",
         "applies_to": "EvidenceDocument",
-        "match": { "source_field": "document_ref", "target_field": "document_ref" },
+        "match": {
+          "source_field": "document_ref",
+          "target_field": "document_ref"
+        },
         "confidence": 0.9
       }
     ]
@@ -167,20 +611,33 @@
       {
         "id": "evidence_index",
         "category": "evidence-store",
-        "required_capabilities": ["evidence.query", "entity.link"]
+        "required_capabilities": [
+          "evidence.query",
+          "entity.link"
+        ]
       }
     ],
     "scopes": [
       {
         "id": "customer_contract_evidence",
-        "applies_to": { "concept": "Customer" },
+        "applies_to": {
+          "concept": "Customer"
+        },
         "provider": "evidence_index",
         "filters": {
           "entity_scope": {
             "include_self": true,
             "include_related": [
-              { "relationship": "has_contract", "direction": "outgoing", "max_depth": 1 },
-              { "relationship": "supports", "direction": "incoming", "max_depth": 2 }
+              {
+                "relationship": "has_contract",
+                "direction": "outgoing",
+                "max_depth": 1
+              },
+              {
+                "relationship": "supports",
+                "direction": "incoming",
+                "max_depth": 2
+              }
             ]
           }
         },
@@ -188,17 +645,27 @@
       },
       {
         "id": "contract_support_documents",
-        "applies_to": { "relationship": "supports" },
+        "applies_to": {
+          "relationship": "supports"
+        },
         "provider": "evidence_index",
         "permission": "inherit"
       }
     ]
   },
   "actions": [
-    { "name": "CreateCustomer" },
-    { "name": "AttachEvidenceToContract" },
-    { "name": "ListContractsForCustomer" },
-    { "name": "AssessObligationRisk" }
+    {
+      "name": "CreateCustomer"
+    },
+    {
+      "name": "AttachEvidenceToContract"
+    },
+    {
+      "name": "ListContractsForCustomer"
+    },
+    {
+      "name": "AssessObligationRisk"
+    }
   ],
   "events": {
     "enabled": true,
@@ -208,7 +675,10 @@
         "record": "Customer",
         "kind": "domain",
         "emits": [
-          { "name": "customer_id", "type": "string" }
+          {
+            "name": "customer_id",
+            "type": "string"
+          }
         ]
       },
       {
@@ -216,8 +686,14 @@
         "record": "EvidenceDocument",
         "kind": "domain",
         "emits": [
-          { "name": "document_id", "type": "string" },
-          { "name": "contract_id", "type": "string" }
+          {
+            "name": "document_id",
+            "type": "string"
+          },
+          {
+            "name": "contract_id",
+            "type": "string"
+          }
         ]
       },
       {
@@ -225,8 +701,14 @@
         "record": "Obligation",
         "kind": "domain",
         "emits": [
-          { "name": "obligation_id", "type": "string" },
-          { "name": "risk_level", "type": "string" }
+          {
+            "name": "obligation_id",
+            "type": "string"
+          },
+          {
+            "name": "risk_level",
+            "type": "string"
+          }
         ]
       }
     ]
@@ -234,20 +716,48 @@
   "projections": {
     "mode": "current-state",
     "items": [
-      { "name": "customer_contract_index", "record": "Customer", "source_event": "CustomerCreated", "mode": "current-state" },
-      { "name": "contract_evidence_index", "record": "EvidenceDocument", "source_event": "EvidenceAttached", "mode": "current-state" }
+      {
+        "name": "customer_contract_index",
+        "record": "Customer",
+        "source_event": "CustomerCreated",
+        "mode": "current-state"
+      },
+      {
+        "name": "contract_evidence_index",
+        "record": "EvidenceDocument",
+        "source_event": "EvidenceAttached",
+        "mode": "current-state"
+      }
     ]
   },
   "provider_requirements": [
-    { "category": "storage", "capabilities": ["event-log", "projections"] },
-    { "category": "evidence-store", "capabilities": ["evidence.query", "entity.link"] }
+    {
+      "category": "storage",
+      "capabilities": [
+        "event-log",
+        "projections"
+      ]
+    },
+    {
+      "category": "evidence-store",
+      "capabilities": [
+        "evidence.query",
+        "entity.link"
+      ]
+    }
   ],
   "policies": [
-    { "name": "obligation_risk_policy" },
-    { "name": "evidence_access_policy" }
+    {
+      "name": "obligation_risk_policy"
+    },
+    {
+      "name": "evidence_access_policy"
+    }
   ],
   "approvals": [
-    { "name": "risk_review" }
+    {
+      "name": "risk_review"
+    }
   ],
   "migrations": {
     "compatibility": "additive",
@@ -255,9 +765,15 @@
       {
         "name": "add_obligation_risk_projection",
         "compatibility": "additive",
-        "projection_updates": ["customer_contract_index"],
+        "projection_updates": [
+          "customer_contract_index"
+        ],
         "backfills": [
-          { "record": "Obligation", "field": "risk_level", "default": "medium" }
+          {
+            "record": "Obligation",
+            "field": "risk_level",
+            "default": "medium"
+          }
         ],
         "idempotence_key": "obligation-risk-projection-v1"
       }
@@ -265,7 +781,12 @@
   },
   "agent_endpoints": {
     "enabled": true,
-    "exports": ["openapi", "arazzo", "mcp", "llms_txt"],
+    "exports": [
+      "openapi",
+      "arazzo",
+      "mcp",
+      "llms_txt"
+    ],
     "provider_category": "agent-router",
     "items": [
       {
@@ -273,24 +794,56 @@
         "title": "Create customer",
         "intent": "Create a customer record.",
         "inputs": [
-          { "name": "display_name", "type": "string", "required": true },
-          { "name": "email", "type": "string", "sensitive": true }
+          {
+            "name": "display_name",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "email",
+            "type": "email",
+            "rules": {
+              "max_length": 320
+            },
+            "sensitive": true
+          }
         ],
         "outputs": [
-          { "name": "customer_id", "type": "string" }
+          {
+            "name": "customer_id",
+            "type": "string"
+          }
         ],
         "risk": "medium",
         "approval": "policy-driven",
-        "side_effects": ["customer.create"],
+        "side_effects": [
+          "customer.create"
+        ],
         "emits": {
           "event": "CustomerCreated",
           "stream": "customer.$input.display_name",
-          "payload": { "customer_id": "$input.display_name" }
+          "payload": {
+            "customer_id": "$input.display_name"
+          }
         },
         "backing": {
-          "actions": ["CreateCustomer"],
-          "events": ["CustomerCreated"],
-          "policies": ["evidence_access_policy"]
+          "actions": [
+            "CreateCustomer"
+          ],
+          "events": [
+            "CustomerCreated"
+          ],
+          "policies": [
+            "evidence_access_policy"
+          ]
+        },
+        "authorization": {
+          "roles": {
+            "any_of": [
+              "admin",
+              "customer_ops"
+            ]
+          }
         }
       },
       {
@@ -298,27 +851,62 @@
         "title": "Attach evidence to contract",
         "intent": "Attach evidence metadata to a contract.",
         "inputs": [
-          { "name": "contract_id", "type": "string", "required": true },
-          { "name": "document_ref", "type": "string", "required": true }
+          {
+            "name": "contract_id",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "document_ref",
+            "type": "string",
+            "required": true
+          }
         ],
         "outputs": [
-          { "name": "document_id", "type": "string" }
+          {
+            "name": "document_id",
+            "type": "string"
+          }
         ],
         "risk": "medium",
         "approval": "policy-driven",
-        "side_effects": ["evidence.attach"],
+        "side_effects": [
+          "evidence.attach"
+        ],
         "provider_requirements": [
-          { "category": "evidence-store", "capabilities": ["evidence.write"] }
+          {
+            "category": "evidence-store",
+            "capabilities": [
+              "evidence.write"
+            ]
+          }
         ],
         "emits": {
           "event": "EvidenceAttached",
           "stream": "contract.$input.contract_id",
-          "payload": { "contract_id": "$input.contract_id", "document_id": "$input.document_ref" }
+          "payload": {
+            "contract_id": "$input.contract_id",
+            "document_id": "$input.document_ref"
+          }
         },
         "backing": {
-          "actions": ["AttachEvidenceToContract"],
-          "events": ["EvidenceAttached"],
-          "policies": ["evidence_access_policy"]
+          "actions": [
+            "AttachEvidenceToContract"
+          ],
+          "events": [
+            "EvidenceAttached"
+          ],
+          "policies": [
+            "evidence_access_policy"
+          ]
+        },
+        "authorization": {
+          "roles": {
+            "any_of": [
+              "admin",
+              "evidence_manager"
+            ]
+          }
         }
       },
       {
@@ -326,15 +914,33 @@
         "title": "List contracts for customer",
         "intent": "List contracts associated with a customer.",
         "inputs": [
-          { "name": "customer_id", "type": "string", "required": true }
+          {
+            "name": "customer_id",
+            "type": "string",
+            "required": true
+          }
         ],
         "outputs": [
-          { "name": "contract_count", "type": "u32" }
+          {
+            "name": "contract_count",
+            "type": "u32"
+          }
         ],
         "risk": "low",
         "approval": "none",
         "backing": {
-          "actions": ["ListContractsForCustomer"]
+          "actions": [
+            "ListContractsForCustomer"
+          ]
+        },
+        "authorization": {
+          "roles": {
+            "any_of": [
+              "admin",
+              "customer_ops",
+              "evidence_manager"
+            ]
+          }
         }
       },
       {
@@ -342,32 +948,110 @@
         "title": "Assess obligation risk",
         "intent": "Assess obligation risk from business metadata and evidence.",
         "inputs": [
-          { "name": "obligation_id", "type": "string", "required": true }
+          {
+            "name": "obligation_id",
+            "type": "string",
+            "required": true
+          }
         ],
         "outputs": [
-          { "name": "risk_level", "type": "string" }
+          {
+            "name": "risk_level",
+            "type": "string"
+          }
         ],
         "risk": "high",
         "approval": "policy-driven",
-        "side_effects": ["obligation.risk.assess"],
+        "side_effects": [
+          "obligation.risk.assess"
+        ],
         "provider_requirements": [
-          { "category": "evidence-store", "capabilities": ["evidence.query"] }
+          {
+            "category": "evidence-store",
+            "capabilities": [
+              "evidence.query"
+            ]
+          }
         ],
         "emits": {
           "event": "ObligationRiskAssessed",
           "stream": "obligation.$input.obligation_id",
-          "payload": { "obligation_id": "$input.obligation_id", "risk_level": "medium" }
+          "payload": {
+            "obligation_id": "$input.obligation_id",
+            "risk_level": "medium"
+          }
         },
         "backing": {
-          "actions": ["AssessObligationRisk"],
-          "events": ["ObligationRiskAssessed"],
-          "policies": ["obligation_risk_policy"],
-          "approvals": ["risk_review"]
+          "actions": [
+            "AssessObligationRisk"
+          ],
+          "events": [
+            "ObligationRiskAssessed"
+          ],
+          "policies": [
+            "obligation_risk_policy"
+          ],
+          "approvals": [
+            "risk_review"
+          ]
+        },
+        "authorization": {
+          "roles": {
+            "any_of": [
+              "admin",
+              "risk_reviewer"
+            ]
+          }
         }
       }
     ]
   },
   "output": {
     "include_agent_tools": true
-  }
+  },
+  "roles": [
+    {
+      "id": "admin",
+      "i18n_key": "examples.ontology_business_sor.roles.admin",
+      "label": "Admin",
+      "description": "Full administrative access to ontology business records and endpoints.",
+      "grants": [
+        "records.*",
+        "agent_endpoints.*"
+      ]
+    },
+    {
+      "id": "customer_ops",
+      "i18n_key": "examples.ontology_business_sor.roles.customer_ops",
+      "label": "Customer operations",
+      "description": "Create customers and view customer contract relationships.",
+      "grants": [
+        "records.customer.read",
+        "records.customer.create",
+        "records.contract.read"
+      ]
+    },
+    {
+      "id": "evidence_manager",
+      "i18n_key": "examples.ontology_business_sor.roles.evidence_manager",
+      "label": "Evidence manager",
+      "description": "Attach and query evidence documents for contracts.",
+      "grants": [
+        "records.contract.read",
+        "records.evidence_document.read",
+        "records.evidence_document.create"
+      ]
+    },
+    {
+      "id": "risk_reviewer",
+      "i18n_key": "examples.ontology_business_sor.roles.risk_reviewer",
+      "label": "Risk reviewer",
+      "description": "Assess obligation risk and read supporting business context.",
+      "grants": [
+        "records.obligation.read",
+        "records.obligation.update",
+        "records.supplier.read"
+      ]
+    }
+  ]
 }

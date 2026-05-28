@@ -3,11 +3,12 @@
   "package": {
     "name": "metrics-commerce",
     "version": "0.1.0",
-    "ir_hash": "a716e6ee39fdf695544b83f5204e924a44ac89e1606a50d39a22d13561aade78"
+    "ir_hash": "27d4ee79eb7bb05e7d809d4baf5b29d517f164d525d4232ed0f7710961825b35"
   },
   "metrics": [
     {
       "name": "campaign_roas",
+      "i18n_key": "examples.metrics_commerce.metrics.campaign_roas",
       "label": "Campaign ROAS",
       "dimensions": [
         {
@@ -25,6 +26,7 @@
     },
     {
       "name": "completed_orders",
+      "i18n_key": "examples.metrics_commerce.metrics.completed_orders",
       "label": "Completed Orders",
       "source": {
         "entity": "order",
@@ -67,6 +69,7 @@
     },
     {
       "name": "conversion_rate",
+      "i18n_key": "examples.metrics_commerce.metrics.conversion_rate",
       "label": "Conversion Rate",
       "dimensions": [
         {
@@ -88,6 +91,7 @@
     },
     {
       "name": "daily_clicks",
+      "i18n_key": "examples.metrics_commerce.metrics.daily_clicks",
       "label": "Daily Clicks",
       "description": "Total clicks by day.",
       "source": {
@@ -120,6 +124,7 @@
     },
     {
       "name": "gross_margin",
+      "i18n_key": "examples.metrics_commerce.metrics.gross_margin",
       "label": "Gross Margin",
       "dimensions": [
         {
@@ -145,6 +150,7 @@
     },
     {
       "name": "monthly_cost",
+      "i18n_key": "examples.metrics_commerce.metrics.monthly_cost",
       "label": "Monthly Cost",
       "source": {
         "entity": "cost_entry",
@@ -177,6 +183,7 @@
     },
     {
       "name": "monthly_revenue",
+      "i18n_key": "examples.metrics_commerce.metrics.monthly_revenue",
       "label": "Monthly Revenue",
       "source": {
         "entity": "payment",
@@ -220,6 +227,7 @@
     },
     {
       "name": "visitor_sessions",
+      "i18n_key": "examples.metrics_commerce.metrics.visitor_sessions",
       "label": "Visitor Sessions",
       "source": {
         "entity": "visitor",

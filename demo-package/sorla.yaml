@@ -11,18 +11,22 @@ records:
       authoritative: true
     fields:
       - name: record_id
-        type: string
+        type: uuid
         authority: external
+        rules:
+          unique: true
       - name: workflow_state
         type: string
         authority: local
+        rules:
+          max_length: 64
 events:
   - name: TenancyRecordChanged
     record: TenancyRecord
     kind: domain
     emits:
       - name: record_id
-        type: string
+        type: uuid
 projections:
   - name: TenancyRecordProjection
     record: TenancyRecord
