@@ -71,6 +71,14 @@ The schema now also carries:
 - previous locked locale during update flows
 - `en`
 
+Domain i18n follows the same base-language rule as the SoRLa source: English is
+the canonical language for answers and generated `sorla.yaml`. The generated
+package can carry stable `i18n_key` metadata on package, record, field,
+ontology, event, projection, metric, and agent endpoint objects. Localized
+labels live in sidecar catalogs such as `i18n/en.json` and `i18n/es.json`;
+`greentic-i18n` can translate the English catalog into more locale files later.
+Do not create a different `sorla.yaml` per language.
+
 ## Answer Documents
 
 `--schema` defines the stable question IDs and defaults. `--answers` now uses

@@ -138,6 +138,7 @@ mod tests {
                         required: true,
                         sensitive: true,
                         description: None,
+                        rules: None,
                     }],
                 }],
                 ..SorDesignDraft::default()

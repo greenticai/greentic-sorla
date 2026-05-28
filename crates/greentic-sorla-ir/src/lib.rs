@@ -1,7 +1,8 @@
 use greentic_sorla_lang::ast::{
-    AgentEndpointApprovalMode, AgentEndpointRisk, CardinalityValue, CompatibilityMode, ConceptKind,
-    ConfidenceScore, EventKind, FieldAuthority, MigrationOperationDecl, OperationalIndexKind,
-    Package, ProjectionMode, ProviderRequirement, RecordSource, ViewMode,
+    AccessRule, AgentEndpointApprovalMode, AgentEndpointRisk, CardinalityValue, CompatibilityMode,
+    ConceptKind, ConfidenceScore, EndpointAuthorization, EventKind, FieldAuthority,
+    MigrationOperationDecl, OperationalIndexKind, Package, ProjectionMode, ProviderRequirement,
+    RecordAccess, RecordSource, ViewMode,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -33,6 +34,8 @@ pub struct CanonicalIr {
     pub retrieval_bindings: Option<RetrievalBindingsIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operational_indexes: Option<OperationalIndexesIr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<RoleIr>,
     pub records: Vec<RecordIr>,
     pub events: Vec<EventIr>,
     pub actions: Vec<NamedItemIr>,
@@ -296,11 +299,57 @@ pub struct PackageIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleIr {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordIr {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub source: RecordSourceIr,
+    #[serde(default, skip_serializing_if = "RecordAccessIr::is_empty")]
+    pub access: RecordAccessIr,
     pub fields: Vec<FieldIr>,
     pub external_source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RecordAccessIr {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read: Option<AccessRuleIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub create: Option<AccessRuleIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update: Option<AccessRuleIr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete: Option<AccessRuleIr>,
+}
+
+impl RecordAccessIr {
+    pub fn is_empty(&self) -> bool {
+        self.read.is_none()
+            && self.create.is_none()
+            && self.update.is_none()
+            && self.delete.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AccessRuleIr {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policies: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,6 +363,8 @@ pub enum RecordSourceIr {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldIr {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub type_name: String,
     #[serde(default, skip_serializing_if = "is_false")]
     pub required: bool,
@@ -321,10 +372,51 @@ pub struct FieldIr {
     pub sensitive: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enum_values: Vec<String>,
+    #[serde(default, skip_serializing_if = "FieldValidationRulesIr::is_empty")]
+    pub rules: FieldValidationRulesIr,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authority: Option<FieldAuthorityIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub references: Option<FieldReferenceIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct FieldValidationRulesIr {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precision: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scale: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unique: bool,
+}
+
+impl FieldValidationRulesIr {
+    pub fn is_empty(&self) -> bool {
+        self.min.is_none()
+            && self.max.is_none()
+            && self.min_length.is_none()
+            && self.max_length.is_none()
+            && self.pattern.is_none()
+            && self.precision.is_none()
+            && self.scale.is_none()
+            && self.before.is_none()
+            && self.after.is_none()
+            && !self.unique
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -343,6 +435,8 @@ pub enum FieldAuthorityIr {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventIr {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub record: String,
     pub kind: EventKindIr,
     pub emits: Vec<EventFieldIr>,
@@ -364,6 +458,8 @@ pub struct EventFieldIr {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectionIr {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub record: String,
     pub source_event: String,
     pub mode: ProjectionModeIr,
@@ -372,6 +468,8 @@ pub struct ProjectionIr {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetricIr {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -550,6 +648,8 @@ pub struct ProviderRequirementIr {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentEndpointIr {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub title: String,
     pub intent: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -561,6 +661,8 @@ pub struct AgentEndpointIr {
     pub approval: AgentEndpointApprovalModeIr,
     pub provider_requirements: Vec<ProviderRequirementIr>,
     pub backing: AgentEndpointBackingIr,
+    #[serde(default, skip_serializing_if = "EndpointAuthorizationIr::is_empty")]
+    pub authorization: EndpointAuthorizationIr,
     pub agent_visibility: AgentEndpointVisibilityIr,
     pub examples: Vec<AgentEndpointExampleIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -569,9 +671,35 @@ pub struct AgentEndpointIr {
     pub execution: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct EndpointAuthorizationIr {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roles: Option<EndpointRoleRequirementIr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policies: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditions: Vec<serde_json::Value>,
+}
+
+impl EndpointAuthorizationIr {
+    pub fn is_empty(&self) -> bool {
+        self.roles.is_none() && self.policies.is_empty() && self.conditions.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct EndpointRoleRequirementIr {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub any_of: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub all_of: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentEndpointInputIr {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub type_name: String,
     pub required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -583,6 +711,8 @@ pub struct AgentEndpointInputIr {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentEndpointOutputIr {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub type_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -638,16 +768,35 @@ pub struct AgentEndpointEmitIr {
 }
 
 pub fn lower_package(package: &Package) -> CanonicalIr {
+    let mut roles: Vec<RoleIr> = package
+        .roles
+        .iter()
+        .map(|role| {
+            let mut grants = role.grants.clone();
+            grants.sort();
+            RoleIr {
+                id: role.id.clone(),
+                i18n_key: role.i18n_key.clone(),
+                label: role.label.clone(),
+                description: role.description.clone(),
+                grants,
+            }
+        })
+        .collect();
+    roles.sort_by(|left, right| left.id.cmp(&right.id));
+
     let mut records: Vec<RecordIr> = package
         .records
         .iter()
         .map(|record| RecordIr {
             name: record.name.clone(),
+            i18n_key: record.i18n_key.clone(),
             source: match record.source.clone().expect("source normalized by parser") {
                 RecordSource::Native => RecordSourceIr::Native,
                 RecordSource::External => RecordSourceIr::External,
                 RecordSource::Hybrid => RecordSourceIr::Hybrid,
             },
+            access: access_ir(&record.access),
             fields: sorted_fields(record),
             external_source: record
                 .external_ref
@@ -673,6 +822,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
 
             EventIr {
                 name: event.name.clone(),
+                i18n_key: event.i18n_key.clone(),
                 record: event.record.clone(),
                 kind: match event.kind {
                     EventKind::Domain => EventKindIr::Domain,
@@ -689,6 +839,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         .iter()
         .map(|projection| ProjectionIr {
             name: projection.name.clone(),
+            i18n_key: projection.i18n_key.clone(),
             record: projection.record.clone(),
             source_event: projection.source_event.clone(),
             mode: match projection.mode {
@@ -704,6 +855,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         .iter()
         .map(|metric| MetricIr {
             name: metric.name.clone(),
+            i18n_key: metric.i18n_key.clone(),
             label: metric.label.clone(),
             description: metric.description.clone(),
             source: metric.source.as_ref().map(|source| MetricSourceIr {
@@ -850,6 +1002,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         ontology: lower_ontology(package),
         retrieval_bindings: lower_retrieval_bindings(package),
         operational_indexes: lower_operational_indexes(package),
+        roles,
         records,
         events,
         actions: sorted_named_items(
@@ -1254,10 +1407,23 @@ fn sorted_fields(record: &greentic_sorla_lang::ast::Record) -> Vec<FieldIr> {
         .iter()
         .map(|field| FieldIr {
             name: field.name.clone(),
+            i18n_key: field.i18n_key.clone(),
             type_name: field.type_name.clone(),
             required: field.required,
             sensitive: field.sensitive,
             enum_values: field.enum_values.clone(),
+            rules: FieldValidationRulesIr {
+                min: field.rules.min.clone(),
+                max: field.rules.max.clone(),
+                min_length: field.rules.min_length,
+                max_length: field.rules.max_length,
+                pattern: field.rules.pattern.clone(),
+                precision: field.rules.precision,
+                scale: field.rules.scale,
+                before: field.rules.before.clone(),
+                after: field.rules.after.clone(),
+                unique: field.rules.unique,
+            },
             authority: field.authority.as_ref().map(|authority| match authority {
                 FieldAuthority::Local => FieldAuthorityIr::Local,
                 FieldAuthority::External => FieldAuthorityIr::External,
@@ -1270,6 +1436,36 @@ fn sorted_fields(record: &greentic_sorla_lang::ast::Record) -> Vec<FieldIr> {
         .collect();
     fields.sort_by(|left, right| left.name.cmp(&right.name));
     fields
+}
+
+fn access_ir(access: &RecordAccess) -> RecordAccessIr {
+    RecordAccessIr {
+        read: access.read.as_ref().map(access_rule_ir),
+        create: access.create.as_ref().map(access_rule_ir),
+        update: access.update.as_ref().map(access_rule_ir),
+        delete: access.delete.as_ref().map(access_rule_ir),
+    }
+}
+
+fn access_rule_ir(rule: &AccessRule) -> AccessRuleIr {
+    AccessRuleIr {
+        roles: sorted_strings(&rule.roles),
+        policies: sorted_strings(&rule.policies),
+    }
+}
+
+fn authorization_ir(authorization: &EndpointAuthorization) -> EndpointAuthorizationIr {
+    EndpointAuthorizationIr {
+        roles: authorization
+            .roles
+            .as_ref()
+            .map(|roles| EndpointRoleRequirementIr {
+                any_of: sorted_strings(&roles.any_of),
+                all_of: sorted_strings(&roles.all_of),
+            }),
+        policies: sorted_strings(&authorization.policies),
+        conditions: authorization.conditions.clone(),
+    }
 }
 
 fn sorted_named_items(names: &[&str]) -> Vec<NamedItemIr> {
@@ -1314,6 +1510,7 @@ fn sorted_agent_endpoints(package: &Package) -> Vec<AgentEndpointIr> {
                     enum_values.sort();
                     AgentEndpointInputIr {
                         name: input.name.clone(),
+                        i18n_key: input.i18n_key.clone(),
                         type_name: input.type_name.clone(),
                         required: input.required,
                         description: input.description.clone(),
@@ -1329,6 +1526,7 @@ fn sorted_agent_endpoints(package: &Package) -> Vec<AgentEndpointIr> {
                 .iter()
                 .map(|output| AgentEndpointOutputIr {
                     name: output.name.clone(),
+                    i18n_key: output.i18n_key.clone(),
                     type_name: output.type_name.clone(),
                     description: output.description.clone(),
                 })
@@ -1352,6 +1550,7 @@ fn sorted_agent_endpoints(package: &Package) -> Vec<AgentEndpointIr> {
 
             AgentEndpointIr {
                 id: endpoint.id.clone(),
+                i18n_key: endpoint.i18n_key.clone(),
                 title: endpoint.title.clone(),
                 intent: endpoint.intent.clone(),
                 description: endpoint.description.clone(),
@@ -1381,6 +1580,7 @@ fn sorted_agent_endpoints(package: &Package) -> Vec<AgentEndpointIr> {
                     policies: sorted_strings(&endpoint.backing.policies),
                     approvals: sorted_strings(&endpoint.backing.approvals),
                 },
+                authorization: authorization_ir(&endpoint.authorization),
                 agent_visibility: AgentEndpointVisibilityIr {
                     openapi: endpoint.agent_visibility.openapi,
                     arazzo: endpoint.agent_visibility.arazzo,

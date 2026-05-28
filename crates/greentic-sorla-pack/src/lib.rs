@@ -25,9 +25,10 @@ pub use validation_generator::{
 
 use greentic_sorla_ir::{
     AgentEndpointApprovalModeIr, AgentEndpointInputIr, AgentEndpointIr, AgentEndpointOutputIr,
-    AgentEndpointRiskIr, CanonicalIr, EntityLinkingIr, IrVersion, OntologyModelIr,
-    OperationalIndexesIr, ProviderRequirementIr, RecordIr, RetrievalBindingsIr, SemanticAliasesIr,
-    ViewIr, agent_tools_json, canonical_cbor, canonical_hash_hex, inspect_ir, lower_package,
+    AgentEndpointRiskIr, CanonicalIr, EndpointAuthorizationIr, EntityLinkingIr, IrVersion,
+    OntologyModelIr, OperationalIndexesIr, ProviderRequirementIr, RecordIr, RetrievalBindingsIr,
+    SemanticAliasesIr, ViewIr, agent_tools_json, canonical_cbor, canonical_hash_hex, inspect_ir,
+    lower_package,
 };
 use greentic_sorla_lang::parser::parse_package;
 use serde::{Deserialize, Serialize};
@@ -74,6 +75,7 @@ pub const OPERATIONAL_INDEXES_IR_CBOR_PATH: &str = "assets/sorla/operational-ind
 pub const METRICS_SCHEMA: &str = "greentic.sorla.metrics.v1";
 pub const METRICS_FILENAME: &str = "metrics.json";
 pub const METRICS_PATH: &str = "assets/sorla/metrics.json";
+pub const I18N_ASSET_DIR: &str = "assets/sorla/i18n";
 pub const DESIGNER_NODE_TYPES_SCHEMA: &str = "greentic.sorla.designer-node-types.v1";
 pub const DESIGNER_NODE_TYPES_FILENAME: &str = "designer-node-types.json";
 pub const DESIGNER_NODE_TYPES_PATH: &str = "assets/sorla/designer-node-types.json";
@@ -179,6 +181,8 @@ impl ArtifactSet {
 pub struct AgentGatewayHandoffManifest {
     pub schema: String,
     pub package: AgentGatewayPackageRef,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub record_hierarchy: Vec<AgentGatewayRecordHierarchyRef>,
     pub endpoints: Vec<AgentGatewayEndpointRef>,
     pub provider_contract: AgentGatewayProviderContract,
     pub exports: AgentGatewayExports,
@@ -191,6 +195,23 @@ pub struct AgentGatewayPackageRef {
     pub version: String,
     pub ir_version: String,
     pub ir_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentGatewayRecordHierarchyRef {
+    pub record: String,
+    #[serde(default)]
+    pub main: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parents: Vec<AgentGatewayRecordParentRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentGatewayRecordParentRef {
+    pub record: String,
+    pub field: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,6 +231,8 @@ pub struct AgentGatewayEndpointRef {
     pub intent: String,
     pub risk: String,
     pub approval: String,
+    #[serde(default, skip_serializing_if = "EndpointAuthorizationIr::is_empty")]
+    pub authorization: EndpointAuthorizationIr,
     pub input_schema: serde_json::Value,
     pub output_schema: serde_json::Value,
     pub inputs: Vec<String>,
@@ -394,6 +417,8 @@ struct MetricsArtifactPackage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct MetricsArtifactMetric {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -948,6 +973,7 @@ fn metrics_artifact_metrics(ir: &CanonicalIr) -> Vec<MetricsArtifactMetric> {
         .iter()
         .map(|metric| MetricsArtifactMetric {
             name: metric.name.clone(),
+            i18n_key: metric.i18n_key.clone(),
             label: metric.label.clone(),
             description: metric.description.clone(),
             source: metric.source.as_ref().map(|source| {
@@ -1413,6 +1439,11 @@ fn build_sorla_gtpack_from_artifacts(
         SORX_COMPATIBILITY_ASSET.to_string(),
         serde_json::to_vec_pretty(&compatibility_manifest).map_err(|err| err.to_string())?,
     );
+    let i18n_assets = discover_adjacent_i18n_assets(&options.input_path)?;
+    let i18n_asset_paths = i18n_assets
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<Vec<_>>();
     let stack_pack = greentic_stack_pack_document(options, &artifacts);
     validate_greentic_stack_pack_document(&stack_pack)?;
     let capabilities = greentic_capability_section(&stack_pack);
@@ -1427,7 +1458,7 @@ fn build_sorla_gtpack_from_artifacts(
     let greentic_artifacts = greentic_artifacts_document(&artifacts);
     let greentic_admin_surfaces = greentic_admin_surfaces_document(&artifacts);
     let secret_requirements = greentic_secret_requirements();
-    let extension = sorx_runtime_extension_value(&artifacts, &sorx_assets);
+    let extension = sorx_runtime_extension_value(&artifacts, &sorx_assets, &i18n_asset_paths);
 
     let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     let mut asset_paths = Vec::new();
@@ -1478,6 +1509,9 @@ fn build_sorla_gtpack_from_artifacts(
             METRICS_PATH.to_string(),
             metrics_json.as_bytes().to_vec(),
         );
+    }
+    for (path, bytes) in i18n_assets {
+        insert_pack_asset(&mut entries, &mut asset_paths, path, bytes);
     }
 
     insert_pack_asset(
@@ -1662,6 +1696,56 @@ fn build_sorla_gtpack_from_artifacts(
         manifest_hash_sha256: sha256_hex(&pack_cbor),
         assets: asset_paths,
     })
+}
+
+#[cfg(feature = "pack-zip")]
+fn discover_adjacent_i18n_assets(input_path: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let Some(parent) = input_path.parent() else {
+        return Ok(Vec::new());
+    };
+    let i18n_dir = parent.join("i18n");
+    if !i18n_dir.exists() {
+        return Ok(Vec::new());
+    }
+    if !i18n_dir.is_dir() {
+        return Err(format!(
+            "i18n path next to SoRLa input must be a directory: {}",
+            i18n_dir.display()
+        ));
+    }
+
+    let mut assets = Vec::new();
+    for entry in fs::read_dir(&i18n_dir).map_err(|err| {
+        format!(
+            "failed to read i18n directory {}: {err}",
+            i18n_dir.display()
+        )
+    })? {
+        let entry = entry.map_err(|err| {
+            format!(
+                "failed to read i18n directory {}: {err}",
+                i18n_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| format!("i18n filename must be valid UTF-8: {}", path.display()))?;
+        let bytes = fs::read(&path)
+            .map_err(|err| format!("failed to read i18n catalog {}: {err}", path.display()))?;
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .map_err(|err| format!("failed to parse i18n catalog {}: {err}", path.display()))?;
+        assets.push((format!("{I18N_ASSET_DIR}/{filename}"), bytes));
+    }
+    assets.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(assets)
 }
 
 #[cfg(feature = "pack-zip")]
@@ -2084,6 +2168,7 @@ fn provider_bindings_template_yaml() -> String {
 fn sorx_runtime_extension_value(
     artifacts: &ArtifactSet,
     sorx_assets: &BTreeMap<String, Vec<u8>>,
+    i18n_asset_paths: &[String],
 ) -> serde_json::Value {
     let mut sorla = serde_json::Map::new();
     sorla.insert(
@@ -2172,6 +2257,29 @@ fn sorx_runtime_extension_value(
             serde_json::json!({
                 "schema": METRICS_SCHEMA,
                 "json": METRICS_PATH
+            }),
+        );
+    }
+    if !i18n_asset_paths.is_empty() {
+        let locales = i18n_asset_paths
+            .iter()
+            .filter_map(|path| {
+                Path::new(path)
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .map(|locale| {
+                        serde_json::json!({
+                            "locale": locale,
+                            "json": path
+                        })
+                    })
+            })
+            .collect::<Vec<_>>();
+        sorla.insert(
+            "i18n".to_string(),
+            serde_json::json!({
+                "directory": I18N_ASSET_DIR,
+                "locales": locales
             }),
         );
     }
@@ -4778,6 +4886,7 @@ pub fn agent_gateway_handoff_manifest(ir: &CanonicalIr) -> AgentGatewayHandoffMa
                 intent: endpoint.intent.clone(),
                 risk: agent_endpoint_risk_label(&endpoint.risk).to_string(),
                 approval: agent_endpoint_approval_label(&endpoint.approval).to_string(),
+                authorization: endpoint.authorization.clone(),
                 input_schema: object_schema_value(&endpoint.inputs),
                 output_schema: output_object_schema_value(&endpoint.outputs),
                 inputs: endpoint
@@ -4817,6 +4926,7 @@ pub fn agent_gateway_handoff_manifest(ir: &CanonicalIr) -> AgentGatewayHandoffMa
             ir_version: format!("{}.{}", ir.ir_version.major, ir.ir_version.minor),
             ir_hash: canonical_hash_hex(ir),
         },
+        record_hierarchy: agent_gateway_record_hierarchy(ir),
         endpoints,
         provider_contract: AgentGatewayProviderContract {
             categories: aggregated_provider_requirements(ir),
@@ -5739,6 +5849,10 @@ fn sorx_runtime_id_input(endpoint: &AgentEndpointIr, entity: &str) -> Option<Str
 }
 
 fn sorx_runtime_entity(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
+    if endpoint_uses_dynamic_record_selector(endpoint) {
+        return "Record".to_string();
+    }
+
     if let Some(record) = link_endpoint_record(endpoint, ir) {
         return record.name.clone();
     }
@@ -5848,7 +5962,73 @@ fn best_scored_record_for_endpoint<'a>(
 }
 
 fn sorx_runtime_collection(endpoint: &AgentEndpointIr, ir: &CanonicalIr) -> String {
+    if endpoint_uses_dynamic_record_selector(endpoint) {
+        return "records".to_string();
+    }
     pluralize_snake(&snake_case_identifier(&sorx_runtime_entity(endpoint, ir)))
+}
+
+fn endpoint_uses_dynamic_record_selector(endpoint: &AgentEndpointIr) -> bool {
+    endpoint
+        .execution
+        .as_ref()
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|execution| execution.contains_key("record_selector"))
+}
+
+fn agent_gateway_record_hierarchy(ir: &CanonicalIr) -> Vec<AgentGatewayRecordHierarchyRef> {
+    let mut relationship_by_child_field = BTreeMap::<(String, String), String>::new();
+    if let Some(ontology) = &ir.ontology {
+        for relationship in &ontology.relationships {
+            let Some(backing) = &relationship.backing else {
+                continue;
+            };
+            let Some(from_field) = &backing.from_field else {
+                continue;
+            };
+            relationship_by_child_field.insert(
+                (backing.record.clone(), from_field.clone()),
+                relationship.id.clone(),
+            );
+        }
+    }
+
+    let mut hierarchy = ir
+        .records
+        .iter()
+        .map(|record| {
+            let mut parents = record
+                .fields
+                .iter()
+                .filter_map(|field| {
+                    field.references.as_ref().map(|reference| {
+                        let relationship = relationship_by_child_field
+                            .get(&(record.name.clone(), field.name.clone()))
+                            .cloned();
+                        AgentGatewayRecordParentRef {
+                            record: reference.record.clone(),
+                            field: field.name.clone(),
+                            relationship,
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            parents.sort_by(|left, right| {
+                left.record
+                    .cmp(&right.record)
+                    .then_with(|| left.field.cmp(&right.field))
+            });
+            parents
+                .dedup_by(|left, right| left.record == right.record && left.field == right.field);
+            AgentGatewayRecordHierarchyRef {
+                record: record.name.clone(),
+                main: parents.is_empty(),
+                parents,
+            }
+        })
+        .collect::<Vec<_>>();
+    hierarchy.sort_by(|left, right| left.record.cmp(&right.record));
+    hierarchy
 }
 
 fn snake_case_identifier(value: &str) -> String {
@@ -6355,6 +6535,7 @@ projections:
     source_event: payment_changed
 metrics:
   - name: monthly_revenue
+    i18n_key: examples.metrics_pack_demo.metrics.monthly_revenue
     label: Monthly Revenue
     source:
       kind: record
@@ -6452,6 +6633,10 @@ metrics:
         assert_eq!(document.package.name, "metrics-pack-demo");
         assert_eq!(document.package.ir_hash, artifacts.canonical_hash);
         assert_eq!(document.metrics[0].name, "monthly_revenue");
+        assert_eq!(
+            document.metrics[0].i18n_key.as_deref(),
+            Some("examples.metrics_pack_demo.metrics.monthly_revenue")
+        );
 
         let rebuilt =
             build_handoff_artifacts_from_yaml(metrics_fixture_yaml()).expect("fixture rebuilds");
@@ -6615,6 +6800,71 @@ metrics:
     }
 
     #[test]
+    fn dynamic_record_selector_endpoints_are_record_wide() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: dynamic-record-admin
+  version: 0.1.0
+actions:
+  - name: AdminUpdateRecord
+records:
+  - name: Landlord
+    fields:
+      - name: id
+        type: uuid
+      - name: full_name
+        type: string
+events:
+  - name: RecordUpdated
+    record: Landlord
+agent_endpoints:
+  - id: admin_update_record
+    title: Admin update record
+    intent: Update any selected record.
+    inputs:
+      - name: record_name
+        type: string
+        required: true
+      - name: record_id
+        type: uuid
+        required: true
+      - name: patch_json
+        type: string
+        required: true
+    outputs:
+      - name: record_id
+        type: uuid
+    side_effects:
+      - records.update
+    risk: high
+    approval: required
+    backing:
+      actions:
+        - AdminUpdateRecord
+      events:
+        - RecordUpdated
+    execution:
+      kind: record-update
+      record_selector: "$input.record_name"
+"#,
+        )
+        .expect("dynamic record endpoint package should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+        let endpoint = manifest
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.id == "admin_update_record")
+            .expect("admin endpoint exists");
+
+        assert_eq!(endpoint.entity, "Record");
+        assert_eq!(endpoint.collection, "records");
+        assert_eq!(endpoint.path, "/v1/agent/records/admin_update_record");
+    }
+
+    #[test]
     fn builds_deterministic_landlord_tenant_gtpack() {
         let temp = tempdir().expect("tempdir");
         let input = PathBuf::from("../../tests/e2e/fixtures/landlord_sor_v1.yaml");
@@ -6744,6 +6994,34 @@ metrics:
 
         let mut archive =
             ZipArchive::new(fs::File::open(&first_out).expect("open pack")).expect("read pack");
+        let gateway: serde_json::Value = serde_json::from_str(
+            &zip_text(
+                &mut archive,
+                &format!("assets/sorla/{AGENT_GATEWAY_HANDOFF_FILENAME}"),
+            )
+            .expect("agent gateway"),
+        )
+        .expect("agent gateway JSON decodes");
+        let hierarchy = gateway["record_hierarchy"]
+            .as_array()
+            .expect("record hierarchy array");
+        let unit_hierarchy = hierarchy
+            .iter()
+            .find(|entry| entry["record"] == "Unit")
+            .expect("Unit hierarchy entry");
+        assert_eq!(unit_hierarchy["main"], false);
+        assert!(
+            unit_hierarchy["parents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|parent| parent["record"] == "Property" && parent["field"] == "property_id")
+        );
+        let landlord_hierarchy = hierarchy
+            .iter()
+            .find(|entry| entry["record"] == "Landlord")
+            .expect("Landlord hierarchy entry");
+        assert_eq!(landlord_hierarchy["main"], true);
         for required in required_pack_entries() {
             archive.by_name(required).expect("required entry exists");
         }
@@ -6897,6 +7175,87 @@ metrics:
                 .assets
                 .contains(&GREENTIC_ADMIN_SURFACES_PATH.to_string())
         );
+    }
+
+    #[test]
+    fn gtpack_embeds_adjacent_i18n_catalogs() {
+        let temp = tempdir().expect("tempdir");
+        let input = temp.path().join("sorla.yaml");
+        fs::write(
+            &input,
+            r#"
+package:
+  name: i18n-demo
+  version: 0.1.0
+  i18n_key: examples.i18n_demo.package
+records:
+  - name: customer
+    i18n_key: examples.i18n_demo.records.customer
+    fields:
+      - name: id
+        i18n_key: examples.i18n_demo.records.customer.fields.id
+        type: uuid
+"#
+            .trim_start(),
+        )
+        .expect("write input");
+        let i18n_dir = temp.path().join("i18n");
+        fs::create_dir(&i18n_dir).expect("create i18n dir");
+        fs::write(
+            i18n_dir.join("en.json"),
+            r#"{"examples.i18n_demo.package.label":"I18n demo"}"#,
+        )
+        .expect("write English catalog");
+        fs::write(
+            i18n_dir.join("es.json"),
+            r#"{"examples.i18n_demo.package.label":"Demo i18n"}"#,
+        )
+        .expect("write Spanish catalog");
+        fs::write(i18n_dir.join("notes.txt"), "not packed").expect("write ignored file");
+
+        let out = temp.path().join("i18n.gtpack");
+        let summary = build_sorla_gtpack(&SorlaGtpackOptions {
+            input_path: input,
+            name: "i18n-demo".to_string(),
+            version: "0.1.0".to_string(),
+            out_path: out.clone(),
+        })
+        .expect("pack builds");
+
+        assert!(
+            summary
+                .assets
+                .contains(&"assets/sorla/i18n/en.json".to_string())
+        );
+        assert!(
+            summary
+                .assets
+                .contains(&"assets/sorla/i18n/es.json".to_string())
+        );
+        assert!(
+            !summary
+                .assets
+                .contains(&"assets/sorla/i18n/notes.txt".to_string())
+        );
+
+        let mut archive =
+            ZipArchive::new(fs::File::open(&out).expect("open pack")).expect("read pack");
+        let en_json =
+            zip_text(&mut archive, "assets/sorla/i18n/en.json").expect("read English catalog");
+        assert!(en_json.contains("I18n demo"));
+        let pack_manifest: SorlaPackManifest = ciborium::de::from_reader(Cursor::new(
+            zip_bytes(&mut archive, "pack.cbor").expect("pack.cbor"),
+        ))
+        .expect("pack manifest decodes");
+        let locales = pack_manifest.extension["sorla"]["i18n"]["locales"]
+            .as_array()
+            .expect("i18n locales listed");
+        assert!(locales.iter().any(|locale| {
+            locale["locale"] == "en" && locale["json"] == "assets/sorla/i18n/en.json"
+        }));
+        assert!(locales.iter().any(|locale| {
+            locale["locale"] == "es" && locale["json"] == "assets/sorla/i18n/es.json"
+        }));
     }
 
     #[test]

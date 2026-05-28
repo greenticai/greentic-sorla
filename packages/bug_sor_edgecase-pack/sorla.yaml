@@ -2,998 +2,1202 @@
 package:
   name: bug_sor_edgecase_pack
   version: 0.1.0
+roles:
+- id: admin
+  label: Admin
+  description: Full access to bug SoR edge-case operations.
+  grants:
+  - records.*
+  - agent_endpoints.*
+- id: case_worker
+  label: Case worker
+  description: Create, update, archive, restore, and link bug cases and assets.
+  grants:
+  - records.bug_case.*
+  - records.bug_asset.*
+  - records.bug_assignment.create
+  - records.bug_assignment.update
+- id: approver
+  label: Approver
+  description: Approve or reject assignments and sensitive changes.
+  grants:
+  - agent_endpoints.approve_assignment
+  - agent_endpoints.reject_assignment
+- id: importer
+  label: Importer
+  description: Run bulk assignment import operations.
+  grants:
+  - agent_endpoints.bulk_import_assignments
 records:
-  - name: bug_case
-    source: native
-    fields:
-      - name: case_id
-        type: string
-        sensitive: false
-      - name: case_type
-        type: enum
-        sensitive: false
-        enum_values:
-          - logic
-          - ui
-          - integration
-          - performance
-          - security
-      - name: opened_at
-        type: timestamp
-        sensitive: false
-      - name: is_active
-        type: boolean
-        sensitive: false
-      - name: sensitive_info
-        type: string
-        sensitive: true
-      - name: owner_id
-        type: string
-        sensitive: false
-        references:
-          record: bug_actor
-          field: owner_id
-      - name: external_source_id
-        type: string
-        sensitive: false
-        references:
-          record: external_bug_source
-          field: source_id
-  - name: bug_actor
-    source: native
-    fields:
-      - name: owner_id
-        type: string
-        sensitive: false
-      - name: display_name
-        type: string
-        sensitive: false
-      - name: role_type
-        type: enum
-        sensitive: false
-        enum_values:
-          - user
-          - admin
-          - automation
-          - guest
-      - name: created_on
-        type: date
-        sensitive: false
-  - name: bug_asset
-    source: hybrid
-    external_ref:
-      system: external-system
-      key: record_id
-      authoritative: true
-    fields:
-      - name: asset_id
-        type: string
-        authority: local
-        sensitive: false
-      - name: storage_url
-        type: string
-        authority: external
-        sensitive: false
-      - name: asset_type
-        type: enum
-        authority: local
-        sensitive: false
-        enum_values:
-          - image
-          - log
-          - video
-          - screenshot
-          - other
-      - name: case_id
-        type: string
-        authority: local
-        sensitive: false
-        references:
-          record: bug_case
-          field: case_id
-      - name: is_archived
-        type: boolean
-        authority: local
-        sensitive: false
-  - name: bug_assignment
-    source: native
-    fields:
-      - name: assignment_id
-        type: string
-        sensitive: false
-      - name: case_id
-        type: string
-        sensitive: false
-        references:
-          record: bug_case
-          field: case_id
-      - name: owner_id
-        type: string
-        sensitive: false
-        references:
-          record: bug_actor
-          field: owner_id
-      - name: status
-        type: enum
-        sensitive: false
-        enum_values:
-          - pending
-          - active
-          - rejected
-          - archived
-      - name: approved_by
-        type: string
-        sensitive: false
-      - name: assigned_at
-        type: timestamp
-        sensitive: false
-  - name: bug_audit_event
-    source: hybrid
-    external_ref:
-      system: external-system
-      key: record_id
-      authoritative: true
-    fields:
-      - name: audit_event_id
-        type: string
-        authority: local
-        sensitive: false
-      - name: event_type
-        type: enum
-        authority: local
-        sensitive: false
-        enum_values:
-          - create
-          - update
-          - import
-          - approve
-          - reject
-          - archive
-          - restore
-          - link
-          - unlink
-      - name: subject_record_type
-        type: enum
-        authority: local
-        sensitive: false
-        enum_values:
-          - bug_case
-          - bug_actor
-          - bug_assignment
-          - bug_asset
-      - name: subject_record_id
-        type: string
-        authority: local
-        sensitive: false
-      - name: actor_id
-        type: string
-        authority: local
-        sensitive: false
-        references:
-          record: bug_actor
-          field: owner_id
-      - name: occurred_at
-        type: timestamp
-        authority: local
-        sensitive: false
-      - name: external_event_ref
-        type: string
-        authority: external
-        sensitive: false
-        references:
-          record: external_bug_source
-          field: source_id
-  - name: external_bug_source
-    source: external
-    external_ref:
-      system: external-system
-      key: record_id
-      authoritative: true
-    fields:
-      - name: source_id
-        type: string
-        sensitive: false
-      - name: external_name
-        type: string
-        sensitive: false
-      - name: connected_since
-        type: timestamp
-        sensitive: false
-      - name: external_code
-        type: string
-        sensitive: true
+- name: bug_case
+  source: native
+  fields:
+  - name: case_id
+    type: uuid
+    sensitive: false
+    rules:
+      unique: true
+  - name: case_type
+    type: enum
+    sensitive: false
+    enum_values:
+    - logic
+    - ui
+    - integration
+    - performance
+    - security
+  - name: opened_at
+    type: datetime
+    sensitive: false
+  - name: is_active
+    type: boolean
+    sensitive: false
+  - name: sensitive_info
+    type: string
+    sensitive: true
+    rules:
+      max_length: 4096
+  - name: owner_id
+    type: uuid
+    sensitive: false
+    references:
+      record: bug_actor
+      field: owner_id
+  - name: external_source_id
+    type: uuid
+    sensitive: false
+    references:
+      record: external_bug_source
+      field: source_id
+  access:
+    read:
+      roles:
+      - admin
+      - case_worker
+      - approver
+    create:
+      roles:
+      - admin
+      - case_worker
+    update:
+      roles:
+      - admin
+      - case_worker
+    delete:
+      roles:
+      - admin
+- name: bug_actor
+  source: native
+  fields:
+  - name: owner_id
+    type: uuid
+    sensitive: false
+    rules:
+      unique: true
+  - name: display_name
+    type: string
+    sensitive: false
+    rules:
+      min_length: 1
+      max_length: 160
+  - name: role_type
+    type: enum
+    sensitive: false
+    enum_values:
+    - user
+    - admin
+    - automation
+    - guest
+  - name: created_on
+    type: date
+    sensitive: false
+  access:
+    read:
+      roles:
+      - admin
+      - case_worker
+      - approver
+    create:
+      roles:
+      - admin
+      - case_worker
+    update:
+      roles:
+      - admin
+      - case_worker
+    delete:
+      roles:
+      - admin
+- name: bug_asset
+  source: hybrid
+  external_ref:
+    system: external-system
+    key: record_id
+    authoritative: true
+  fields:
+  - name: asset_id
+    type: uuid
+    authority: local
+    sensitive: false
+    rules:
+      unique: true
+  - name: storage_url
+    type: url
+    authority: external
+    sensitive: false
+  - name: asset_type
+    type: enum
+    authority: local
+    sensitive: false
+    enum_values:
+    - image
+    - log
+    - video
+    - screenshot
+    - other
+  - name: case_id
+    type: uuid
+    authority: local
+    sensitive: false
+    references:
+      record: bug_case
+      field: case_id
+  - name: is_archived
+    type: boolean
+    authority: local
+    sensitive: false
+  access:
+    read:
+      roles:
+      - admin
+      - case_worker
+    create:
+      roles:
+      - admin
+      - case_worker
+    update:
+      roles:
+      - admin
+      - case_worker
+    delete:
+      roles:
+      - admin
+- name: bug_assignment
+  source: native
+  fields:
+  - name: assignment_id
+    type: uuid
+    sensitive: false
+    rules:
+      unique: true
+  - name: case_id
+    type: uuid
+    sensitive: false
+    references:
+      record: bug_case
+      field: case_id
+  - name: owner_id
+    type: uuid
+    sensitive: false
+    references:
+      record: bug_actor
+      field: owner_id
+  - name: status
+    type: enum
+    sensitive: false
+    enum_values:
+    - pending
+    - active
+    - rejected
+    - archived
+  - name: approved_by
+    type: string
+    sensitive: false
+  - name: assigned_at
+    type: datetime
+    sensitive: false
+  access:
+    read:
+      roles:
+      - admin
+      - case_worker
+      - approver
+    create:
+      roles:
+      - admin
+      - case_worker
+    update:
+      roles:
+      - admin
+      - case_worker
+      - approver
+    delete:
+      roles:
+      - admin
+- name: bug_audit_event
+  source: hybrid
+  external_ref:
+    system: external-system
+    key: record_id
+    authoritative: true
+  fields:
+  - name: audit_event_id
+    type: uuid
+    authority: local
+    sensitive: false
+    rules:
+      unique: true
+  - name: event_type
+    type: enum
+    authority: local
+    sensitive: false
+    enum_values:
+    - create
+    - update
+    - import
+    - approve
+    - reject
+    - archive
+    - restore
+    - link
+    - unlink
+  - name: subject_record_type
+    type: enum
+    authority: local
+    sensitive: false
+    enum_values:
+    - bug_case
+    - bug_actor
+    - bug_assignment
+    - bug_asset
+  - name: subject_record_id
+    type: string
+    authority: local
+    sensitive: false
+  - name: actor_id
+    type: uuid
+    authority: local
+    sensitive: false
+    references:
+      record: bug_actor
+      field: owner_id
+  - name: occurred_at
+    type: datetime
+    authority: local
+    sensitive: false
+  - name: external_event_ref
+    type: string
+    authority: external
+    sensitive: false
+    references:
+      record: external_bug_source
+      field: source_id
+  access:
+    read:
+      roles:
+      - admin
+      - approver
+    create:
+      roles:
+      - admin
+    update:
+      roles:
+      - admin
+    delete:
+      roles:
+      - admin
+- name: external_bug_source
+  source: external
+  external_ref:
+    system: external-system
+    key: record_id
+    authoritative: true
+  fields:
+  - name: source_id
+    type: uuid
+    sensitive: false
+    rules:
+      unique: true
+  - name: external_name
+    type: string
+    sensitive: false
+  - name: connected_since
+    type: datetime
+    sensitive: false
+  - name: external_code
+    type: string
+    sensitive: true
+  access:
+    read:
+      roles:
+      - admin
+      - case_worker
+    create:
+      roles:
+      - admin
+    update:
+      roles:
+      - admin
+    delete:
+      roles:
+      - admin
 actions:
-  - name: create_case
-  - name: update_case
-  - name: delete_case
-  - name: archive_case
-  - name: restore_case
-  - name: link_asset
-  - name: unlink_asset
-  - name: apply_assignment
-  - name: approve_assignment
-  - name: reject_assignment
-  - name: generate_case_token
-  - name: bulk_import_assignments
-  - name: custom_assignment_workflow
+- name: create_case
+- name: update_case
+- name: delete_case
+- name: archive_case
+- name: restore_case
+- name: link_asset
+- name: unlink_asset
+- name: apply_assignment
+- name: approve_assignment
+- name: reject_assignment
+- name: generate_case_token
+- name: bulk_import_assignments
+- name: custom_assignment_workflow
 events:
-  - name: case_created
-    record: bug_case
-    kind: domain
-    emits: []
-  - name: case_updated
-    record: bug_case
-    kind: domain
-    emits: []
-  - name: case_archived
-    record: bug_case
-    kind: domain
-    emits: []
-  - name: case_restored
-    record: bug_case
-    kind: domain
-    emits: []
-  - name: asset_linked
-    record: bug_asset
-    kind: domain
-    emits: []
-  - name: asset_unlinked
-    record: bug_asset
-    kind: domain
-    emits: []
-  - name: assignment_applied
-    record: bug_assignment
-    kind: domain
-    emits: []
-  - name: assignment_approved
-    record: bug_assignment
-    kind: domain
-    emits: []
-  - name: assignment_rejected
-    record: bug_assignment
-    kind: domain
-    emits: []
-  - name: assignments_bulk_imported
-    record: bug_assignment
-    kind: domain
-    emits: []
-  - name: audit_event_created
-    record: bug_audit_event
-    kind: domain
-    emits: []
+- name: case_created
+  record: bug_case
+  kind: domain
+  emits: []
+- name: case_updated
+  record: bug_case
+  kind: domain
+  emits: []
+- name: case_archived
+  record: bug_case
+  kind: domain
+  emits: []
+- name: case_restored
+  record: bug_case
+  kind: domain
+  emits: []
+- name: asset_linked
+  record: bug_asset
+  kind: domain
+  emits: []
+- name: asset_unlinked
+  record: bug_asset
+  kind: domain
+  emits: []
+- name: assignment_applied
+  record: bug_assignment
+  kind: domain
+  emits: []
+- name: assignment_approved
+  record: bug_assignment
+  kind: domain
+  emits: []
+- name: assignment_rejected
+  record: bug_assignment
+  kind: domain
+  emits: []
+- name: assignments_bulk_imported
+  record: bug_assignment
+  kind: domain
+  emits: []
+- name: audit_event_created
+  record: bug_audit_event
+  kind: domain
+  emits: []
 projections:
-  - name: case_list_view
-    record: bug_case
-    source_event: case_created
-    mode: current-state
-  - name: case_detail_view
-    record: bug_case
-    source_event: case_updated
-    mode: current-state
-  - name: assignment_dashboard
-    record: bug_assignment
-    source_event: assignment_applied
-    mode: current-state
-  - name: audit_event_history_view
-    record: bug_audit_event
-    source_event: audit_event_created
-    mode: audit-trail
+- name: case_list_view
+  record: bug_case
+  source_event: case_created
+  mode: current-state
+- name: case_detail_view
+  record: bug_case
+  source_event: case_updated
+  mode: current-state
+- name: assignment_dashboard
+  record: bug_assignment
+  source_event: assignment_applied
+  mode: current-state
+- name: audit_event_history_view
+  record: bug_audit_event
+  source_event: audit_event_created
+  mode: audit-trail
 provider_requirements:
-  - category: storage
-    capabilities:
-      - event-log
-      - projections
+- category: storage
+  capabilities:
+  - event-log
+  - projections
 policies:
-  - name: sensitive_field_policy
-  - name: high_risk_op_policy
-  - name: cross_record_consistency_policy
-  - name: prevent_duplicate_assignments
-  - name: approval_on_sensitive_change
+- name: sensitive_field_policy
+- name: high_risk_op_policy
+- name: cross_record_consistency_policy
+- name: prevent_duplicate_assignments
+- name: approval_on_sensitive_change
 approvals:
-  - name: delete_case_approval
-  - name: bulk_import_assignment_approval
-  - name: sensitive_field_change_approval
+- name: delete_case_approval
+- name: bulk_import_assignment_approval
+- name: sensitive_field_change_approval
 migrations:
-  - name: add_assignment_status_enum
-    compatibility: additive
-    projection_updates: []
-    backfills: []
-  - name: audit_event_backfill
-    compatibility: additive
-    projection_updates: []
-    backfills: []
-  - name: projection_update_for_asset_type
-    compatibility: additive
-    projection_updates: []
-    backfills: []
+- name: add_assignment_status_enum
+  compatibility: additive
+  projection_updates: []
+  backfills: []
+- name: audit_event_backfill
+  compatibility: additive
+  projection_updates: []
+  backfills: []
+- name: projection_update_for_asset_type
+  compatibility: additive
+  projection_updates: []
+  backfills: []
 agent_endpoints:
-  - id: create_case
-    title: "create case"
-    intent: "Create a new bug_case."
-    description: "Create a new bug_case."
-    inputs:
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary case identifier."
-      - name: case_type
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - logic
-          - ui
-          - integration
-          - performance
-          - security
-        description: "Type/category of bug case."
-      - name: opened_at
-        type: timestamp
-        required: true
-        sensitive: false
-        description: "When the case was opened."
-      - name: is_active
-        type: boolean
-        required: true
-        sensitive: false
-        description: "Current active state."
-      - name: sensitive_info
-        type: string
-        required: true
-        sensitive: true
-        description: "Field with policy-protected data."
-      - name: owner_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Reference to bug_actor.owner_id (optional)."
-      - name: external_source_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Optional reference to external_bug_source.source_id."
-    outputs: []
-    side_effects:
-      - action.create_case
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - create_case
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: update_case
-    title: "update case"
-    intent: "Update details of bug_case."
-    description: "Update details of bug_case."
-    inputs:
-      - name: id
-        type: string
-        required: true
-      - name: case_id
-        type: string
-        required: false
-        sensitive: false
-        description: "Primary case identifier."
-      - name: case_type
-        type: enum
-        required: false
-        sensitive: false
-        enum_values:
-          - logic
-          - ui
-          - integration
-          - performance
-          - security
-        description: "Type/category of bug case."
-      - name: opened_at
-        type: timestamp
-        required: false
-        sensitive: false
-        description: "When the case was opened."
-      - name: is_active
-        type: boolean
-        required: false
-        sensitive: false
-        description: "Current active state."
-      - name: sensitive_info
-        type: string
-        required: false
-        sensitive: true
-        description: "Field with policy-protected data."
-      - name: owner_id
-        type: string
-        required: false
-        sensitive: false
-        description: "Reference to bug_actor.owner_id (optional)."
-      - name: external_source_id
-        type: string
-        required: false
-        sensitive: false
-        description: "Optional reference to external_bug_source.source_id."
-    outputs: []
-    side_effects:
-      - action.update_case
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - update_case
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: delete_case
-    title: "delete case"
-    intent: "Delete a bug_case (requires approval)."
-    description: "Delete a bug_case (requires approval)."
-    inputs:
-      - name: id
-        type: string
-        required: true
-    outputs: []
-    side_effects:
-      - action.delete_case
-    risk: high
-    approval: policy-driven
-    backing:
-      actions:
-        - delete_case
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: archive_case
-    title: "archive case"
-    intent: "Archive a bug_case."
-    description: "Archive a bug_case."
-    inputs:
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary case identifier."
-      - name: case_type
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - logic
-          - ui
-          - integration
-          - performance
-          - security
-        description: "Type/category of bug case."
-      - name: opened_at
-        type: timestamp
-        required: true
-        sensitive: false
-        description: "When the case was opened."
-      - name: is_active
-        type: boolean
-        required: true
-        sensitive: false
-        description: "Current active state."
-      - name: sensitive_info
-        type: string
-        required: true
-        sensitive: true
-        description: "Field with policy-protected data."
-      - name: owner_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Reference to bug_actor.owner_id (optional)."
-      - name: external_source_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Optional reference to external_bug_source.source_id."
-    outputs: []
-    side_effects:
-      - action.archive_case
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - archive_case
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: restore_case
-    title: "restore case"
-    intent: "Restore an archived bug_case."
-    description: "Restore an archived bug_case."
-    inputs:
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary case identifier."
-      - name: case_type
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - logic
-          - ui
-          - integration
-          - performance
-          - security
-        description: "Type/category of bug case."
-      - name: opened_at
-        type: timestamp
-        required: true
-        sensitive: false
-        description: "When the case was opened."
-      - name: is_active
-        type: boolean
-        required: true
-        sensitive: false
-        description: "Current active state."
-      - name: sensitive_info
-        type: string
-        required: true
-        sensitive: true
-        description: "Field with policy-protected data."
-      - name: owner_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Reference to bug_actor.owner_id (optional)."
-      - name: external_source_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Optional reference to external_bug_source.source_id."
-    outputs: []
-    side_effects:
-      - action.restore_case
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - restore_case
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: link_asset
-    title: "link asset"
-    intent: "Link a bug_asset to a bug_case."
-    description: "Link a bug_asset to a bug_case."
-    inputs:
-      - name: asset_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Asset identifier (local)."
-      - name: storage_url
-        type: string
-        required: true
-        sensitive: false
-        description: "Location (authoritative in external_bug_source)."
-      - name: asset_type
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - image
-          - log
-          - video
-          - screenshot
-          - other
-        description: "Type of asset (enum; local)."
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Related bug_case.case_id."
-      - name: is_archived
-        type: boolean
-        required: true
-        sensitive: false
-        description: "Lifecycle field; whether the asset is archived (local)."
-    outputs: []
-    side_effects:
-      - action.link_asset
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - link_asset
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: unlink_asset
-    title: "unlink asset"
-    intent: "Unlink asset from a case."
-    description: "Unlink asset from a case."
-    inputs:
-      - name: asset_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Asset identifier (local)."
-      - name: storage_url
-        type: string
-        required: true
-        sensitive: false
-        description: "Location (authoritative in external_bug_source)."
-      - name: asset_type
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - image
-          - log
-          - video
-          - screenshot
-          - other
-        description: "Type of asset (enum; local)."
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Related bug_case.case_id."
-      - name: is_archived
-        type: boolean
-        required: true
-        sensitive: false
-        description: "Lifecycle field; whether the asset is archived (local)."
-    outputs: []
-    side_effects:
-      - action.unlink_asset
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - unlink_asset
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: apply_assignment
-    title: "apply assignment"
-    intent: "Apply a bug_assignment (join record)."
-    description: "Apply a bug_assignment (join record)."
-    inputs:
-      - name: assignment_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary assignment identifier."
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "References bug_case.case_id."
-      - name: owner_id
-        type: string
-        required: true
-        sensitive: false
-        description: "References bug_actor.owner_id."
-      - name: status
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - pending
-          - active
-          - rejected
-          - archived
-        description: "Assignment status (enum)."
-      - name: approved_by
-        type: string
-        required: true
-        sensitive: false
-        description: "Approver actor (owner_id, optional)."
-      - name: assigned_at
-        type: timestamp
-        required: true
-        sensitive: false
-        description: "Assignment timestamp."
-    outputs: []
-    side_effects:
-      - action.apply_assignment
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - apply_assignment
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: approve_assignment
-    title: "approve assignment"
-    intent: "Approve a bug_assignment."
-    description: "Approve a bug_assignment."
-    inputs:
-      - name: assignment_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary assignment identifier."
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "References bug_case.case_id."
-      - name: owner_id
-        type: string
-        required: true
-        sensitive: false
-        description: "References bug_actor.owner_id."
-      - name: status
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - pending
-          - active
-          - rejected
-          - archived
-        description: "Assignment status (enum)."
-      - name: approved_by
-        type: string
-        required: true
-        sensitive: false
-        description: "Approver actor (owner_id, optional)."
-      - name: assigned_at
-        type: timestamp
-        required: true
-        sensitive: false
-        description: "Assignment timestamp."
-    outputs: []
-    side_effects:
-      - action.approve_assignment
-    risk: high
-    approval: policy-driven
-    backing:
-      actions:
-        - approve_assignment
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: reject_assignment
-    title: "reject assignment"
-    intent: "Reject an assignment with or without reason."
-    description: "Reject an assignment with or without reason."
-    inputs:
-      - name: assignment_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary assignment identifier."
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "References bug_case.case_id."
-      - name: owner_id
-        type: string
-        required: true
-        sensitive: false
-        description: "References bug_actor.owner_id."
-      - name: status
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - pending
-          - active
-          - rejected
-          - archived
-        description: "Assignment status (enum)."
-      - name: approved_by
-        type: string
-        required: true
-        sensitive: false
-        description: "Approver actor (owner_id, optional)."
-      - name: assigned_at
-        type: timestamp
-        required: true
-        sensitive: false
-        description: "Assignment timestamp."
-    outputs: []
-    side_effects:
-      - action.reject_assignment
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - reject_assignment
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: generate_case_token
-    title: "generate case token"
-    intent: "Generate a code/token for the case if missing. No user inputs required."
-    description: "Generate a code/token for the case if missing. No user inputs required."
-    inputs:
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary case identifier."
-      - name: case_type
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - logic
-          - ui
-          - integration
-          - performance
-          - security
-        description: "Type/category of bug case."
-      - name: opened_at
-        type: timestamp
-        required: true
-        sensitive: false
-        description: "When the case was opened."
-      - name: is_active
-        type: boolean
-        required: true
-        sensitive: false
-        description: "Current active state."
-      - name: sensitive_info
-        type: string
-        required: true
-        sensitive: true
-        description: "Field with policy-protected data."
-      - name: owner_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Reference to bug_actor.owner_id (optional)."
-      - name: external_source_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Optional reference to external_bug_source.source_id."
-    outputs: []
-    side_effects:
-      - action.generate_case_token
-    risk: medium
-    approval: policy-driven
-    backing:
-      actions:
-        - generate_case_token
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: bulk_import_assignments
-    title: "bulk import assignments"
-    intent: "Bulk import multiple bug_assignments. Creates audit events. Requires approval."
-    description: "Bulk import multiple bug_assignments. Creates audit events. Requires approval."
-    inputs:
-      - name: items
-        type: array
-        required: true
-    outputs: []
-    side_effects:
-      - action.bulk_import_assignments
-    risk: high
-    approval: policy-driven
-    backing:
-      actions:
-        - bulk_import_assignments
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
-  - id: custom_assignment_workflow
-    title: "custom assignment workflow"
-    intent: "Custom synthetic workflow handling edge assignment business rules."
-    description: "Custom synthetic workflow handling edge assignment business rules."
-    inputs:
-      - name: assignment_id
-        type: string
-        required: true
-        sensitive: false
-        description: "Primary assignment identifier."
-      - name: case_id
-        type: string
-        required: true
-        sensitive: false
-        description: "References bug_case.case_id."
-      - name: owner_id
-        type: string
-        required: true
-        sensitive: false
-        description: "References bug_actor.owner_id."
-      - name: status
-        type: enum
-        required: true
-        sensitive: false
-        enum_values:
-          - pending
-          - active
-          - rejected
-          - archived
-        description: "Assignment status (enum)."
-      - name: approved_by
-        type: string
-        required: true
-        sensitive: false
-        description: "Approver actor (owner_id, optional)."
-      - name: assigned_at
-        type: timestamp
-        required: true
-        sensitive: false
-        description: "Assignment timestamp."
-    outputs: []
-    side_effects:
-      - action.custom_assignment_workflow
-    risk: high
-    approval: policy-driven
-    backing:
-      actions:
-        - custom_assignment_workflow
-      events: []
-      policies: []
-      approvals: []
-    agent_visibility:
-      openapi: true
-      arazzo: true
-      mcp: true
-      llms_txt: true
+- id: create_case
+  title: create case
+  intent: Create a new bug_case.
+  description: Create a new bug_case.
+  inputs:
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary case identifier.
+  - name: case_type
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - logic
+    - ui
+    - integration
+    - performance
+    - security
+    description: Type/category of bug case.
+  - name: opened_at
+    type: datetime
+    required: true
+    sensitive: false
+    description: When the case was opened.
+  - name: is_active
+    type: boolean
+    required: true
+    sensitive: false
+    description: Current active state.
+  - name: sensitive_info
+    type: string
+    required: true
+    sensitive: true
+    description: Field with policy-protected data.
+  - name: owner_id
+    type: string
+    required: true
+    sensitive: false
+    description: Reference to bug_actor.owner_id (optional).
+  - name: external_source_id
+    type: string
+    required: true
+    sensitive: false
+    description: Optional reference to external_bug_source.source_id.
+  outputs: []
+  side_effects:
+  - action.create_case
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - create_case
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
+- id: update_case
+  title: update case
+  intent: Update details of bug_case.
+  description: Update details of bug_case.
+  inputs:
+  - name: id
+    type: string
+    required: true
+  - name: case_id
+    type: string
+    required: false
+    sensitive: false
+    description: Primary case identifier.
+  - name: case_type
+    type: enum
+    required: false
+    sensitive: false
+    enum_values:
+    - logic
+    - ui
+    - integration
+    - performance
+    - security
+    description: Type/category of bug case.
+  - name: opened_at
+    type: datetime
+    required: false
+    sensitive: false
+    description: When the case was opened.
+  - name: is_active
+    type: boolean
+    required: false
+    sensitive: false
+    description: Current active state.
+  - name: sensitive_info
+    type: string
+    required: false
+    sensitive: true
+    description: Field with policy-protected data.
+  - name: owner_id
+    type: string
+    required: false
+    sensitive: false
+    description: Reference to bug_actor.owner_id (optional).
+  - name: external_source_id
+    type: string
+    required: false
+    sensitive: false
+    description: Optional reference to external_bug_source.source_id.
+  outputs: []
+  side_effects:
+  - action.update_case
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - update_case
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
+- id: delete_case
+  title: delete case
+  intent: Delete a bug_case (requires approval).
+  description: Delete a bug_case (requires approval).
+  inputs:
+  - name: id
+    type: string
+    required: true
+  outputs: []
+  side_effects:
+  - action.delete_case
+  risk: high
+  approval: policy-driven
+  backing:
+    actions:
+    - delete_case
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+- id: archive_case
+  title: archive case
+  intent: Archive a bug_case.
+  description: Archive a bug_case.
+  inputs:
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary case identifier.
+  - name: case_type
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - logic
+    - ui
+    - integration
+    - performance
+    - security
+    description: Type/category of bug case.
+  - name: opened_at
+    type: datetime
+    required: true
+    sensitive: false
+    description: When the case was opened.
+  - name: is_active
+    type: boolean
+    required: true
+    sensitive: false
+    description: Current active state.
+  - name: sensitive_info
+    type: string
+    required: true
+    sensitive: true
+    description: Field with policy-protected data.
+  - name: owner_id
+    type: string
+    required: true
+    sensitive: false
+    description: Reference to bug_actor.owner_id (optional).
+  - name: external_source_id
+    type: string
+    required: true
+    sensitive: false
+    description: Optional reference to external_bug_source.source_id.
+  outputs: []
+  side_effects:
+  - action.archive_case
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - archive_case
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
+- id: restore_case
+  title: restore case
+  intent: Restore an archived bug_case.
+  description: Restore an archived bug_case.
+  inputs:
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary case identifier.
+  - name: case_type
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - logic
+    - ui
+    - integration
+    - performance
+    - security
+    description: Type/category of bug case.
+  - name: opened_at
+    type: datetime
+    required: true
+    sensitive: false
+    description: When the case was opened.
+  - name: is_active
+    type: boolean
+    required: true
+    sensitive: false
+    description: Current active state.
+  - name: sensitive_info
+    type: string
+    required: true
+    sensitive: true
+    description: Field with policy-protected data.
+  - name: owner_id
+    type: string
+    required: true
+    sensitive: false
+    description: Reference to bug_actor.owner_id (optional).
+  - name: external_source_id
+    type: string
+    required: true
+    sensitive: false
+    description: Optional reference to external_bug_source.source_id.
+  outputs: []
+  side_effects:
+  - action.restore_case
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - restore_case
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
+- id: link_asset
+  title: link asset
+  intent: Link a bug_asset to a bug_case.
+  description: Link a bug_asset to a bug_case.
+  inputs:
+  - name: asset_id
+    type: string
+    required: true
+    sensitive: false
+    description: Asset identifier (local).
+  - name: storage_url
+    type: string
+    required: true
+    sensitive: false
+    description: Location (authoritative in external_bug_source).
+  - name: asset_type
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - image
+    - log
+    - video
+    - screenshot
+    - other
+    description: Type of asset (enum; local).
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: Related bug_case.case_id.
+  - name: is_archived
+    type: boolean
+    required: true
+    sensitive: false
+    description: Lifecycle field; whether the asset is archived (local).
+  outputs: []
+  side_effects:
+  - action.link_asset
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - link_asset
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
+- id: unlink_asset
+  title: unlink asset
+  intent: Unlink asset from a case.
+  description: Unlink asset from a case.
+  inputs:
+  - name: asset_id
+    type: string
+    required: true
+    sensitive: false
+    description: Asset identifier (local).
+  - name: storage_url
+    type: string
+    required: true
+    sensitive: false
+    description: Location (authoritative in external_bug_source).
+  - name: asset_type
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - image
+    - log
+    - video
+    - screenshot
+    - other
+    description: Type of asset (enum; local).
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: Related bug_case.case_id.
+  - name: is_archived
+    type: boolean
+    required: true
+    sensitive: false
+    description: Lifecycle field; whether the asset is archived (local).
+  outputs: []
+  side_effects:
+  - action.unlink_asset
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - unlink_asset
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
+- id: apply_assignment
+  title: apply assignment
+  intent: Apply a bug_assignment (join record).
+  description: Apply a bug_assignment (join record).
+  inputs:
+  - name: assignment_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary assignment identifier.
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: References bug_case.case_id.
+  - name: owner_id
+    type: string
+    required: true
+    sensitive: false
+    description: References bug_actor.owner_id.
+  - name: status
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - pending
+    - active
+    - rejected
+    - archived
+    description: Assignment status (enum).
+  - name: approved_by
+    type: string
+    required: true
+    sensitive: false
+    description: Approver actor (owner_id, optional).
+  - name: assigned_at
+    type: datetime
+    required: true
+    sensitive: false
+    description: Assignment timestamp.
+  outputs: []
+  side_effects:
+  - action.apply_assignment
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - apply_assignment
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
+- id: approve_assignment
+  title: approve assignment
+  intent: Approve a bug_assignment.
+  description: Approve a bug_assignment.
+  inputs:
+  - name: assignment_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary assignment identifier.
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: References bug_case.case_id.
+  - name: owner_id
+    type: string
+    required: true
+    sensitive: false
+    description: References bug_actor.owner_id.
+  - name: status
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - pending
+    - active
+    - rejected
+    - archived
+    description: Assignment status (enum).
+  - name: approved_by
+    type: string
+    required: true
+    sensitive: false
+    description: Approver actor (owner_id, optional).
+  - name: assigned_at
+    type: datetime
+    required: true
+    sensitive: false
+    description: Assignment timestamp.
+  outputs: []
+  side_effects:
+  - action.approve_assignment
+  risk: high
+  approval: policy-driven
+  backing:
+    actions:
+    - approve_assignment
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - approver
+- id: reject_assignment
+  title: reject assignment
+  intent: Reject an assignment with or without reason.
+  description: Reject an assignment with or without reason.
+  inputs:
+  - name: assignment_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary assignment identifier.
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: References bug_case.case_id.
+  - name: owner_id
+    type: string
+    required: true
+    sensitive: false
+    description: References bug_actor.owner_id.
+  - name: status
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - pending
+    - active
+    - rejected
+    - archived
+    description: Assignment status (enum).
+  - name: approved_by
+    type: string
+    required: true
+    sensitive: false
+    description: Approver actor (owner_id, optional).
+  - name: assigned_at
+    type: datetime
+    required: true
+    sensitive: false
+    description: Assignment timestamp.
+  outputs: []
+  side_effects:
+  - action.reject_assignment
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - reject_assignment
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - approver
+- id: generate_case_token
+  title: generate case token
+  intent: Generate a code/token for the case if missing. No user inputs required.
+  description: Generate a code/token for the case if missing. No user inputs required.
+  inputs:
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary case identifier.
+  - name: case_type
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - logic
+    - ui
+    - integration
+    - performance
+    - security
+    description: Type/category of bug case.
+  - name: opened_at
+    type: datetime
+    required: true
+    sensitive: false
+    description: When the case was opened.
+  - name: is_active
+    type: boolean
+    required: true
+    sensitive: false
+    description: Current active state.
+  - name: sensitive_info
+    type: string
+    required: true
+    sensitive: true
+    description: Field with policy-protected data.
+  - name: owner_id
+    type: string
+    required: true
+    sensitive: false
+    description: Reference to bug_actor.owner_id (optional).
+  - name: external_source_id
+    type: string
+    required: true
+    sensitive: false
+    description: Optional reference to external_bug_source.source_id.
+  outputs: []
+  side_effects:
+  - action.generate_case_token
+  risk: medium
+  approval: policy-driven
+  backing:
+    actions:
+    - generate_case_token
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
+- id: bulk_import_assignments
+  title: bulk import assignments
+  intent: Bulk import multiple bug_assignments. Creates audit events. Requires approval.
+  description: Bulk import multiple bug_assignments. Creates audit events. Requires
+    approval.
+  inputs:
+  - name: items
+    type: array
+    required: true
+  outputs: []
+  side_effects:
+  - action.bulk_import_assignments
+  risk: high
+  approval: policy-driven
+  backing:
+    actions:
+    - bulk_import_assignments
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - importer
+- id: custom_assignment_workflow
+  title: custom assignment workflow
+  intent: Custom synthetic workflow handling edge assignment business rules.
+  description: Custom synthetic workflow handling edge assignment business rules.
+  inputs:
+  - name: assignment_id
+    type: string
+    required: true
+    sensitive: false
+    description: Primary assignment identifier.
+  - name: case_id
+    type: string
+    required: true
+    sensitive: false
+    description: References bug_case.case_id.
+  - name: owner_id
+    type: string
+    required: true
+    sensitive: false
+    description: References bug_actor.owner_id.
+  - name: status
+    type: enum
+    required: true
+    sensitive: false
+    enum_values:
+    - pending
+    - active
+    - rejected
+    - archived
+    description: Assignment status (enum).
+  - name: approved_by
+    type: string
+    required: true
+    sensitive: false
+    description: Approver actor (owner_id, optional).
+  - name: assigned_at
+    type: datetime
+    required: true
+    sensitive: false
+    description: Assignment timestamp.
+  outputs: []
+  side_effects:
+  - action.custom_assignment_workflow
+  risk: high
+  approval: policy-driven
+  backing:
+    actions:
+    - custom_assignment_workflow
+    events: []
+    policies: []
+    approvals: []
+  agent_visibility:
+    openapi: true
+    arazzo: true
+    mcp: true
+    llms_txt: true
+  authorization:
+    roles:
+      any_of:
+      - admin
+      - case_worker
 # --- END GREENTIC-SORLA GENERATED ---

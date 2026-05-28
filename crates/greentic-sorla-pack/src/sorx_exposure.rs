@@ -188,11 +188,14 @@ fn risk_label(risk: &AgentEndpointRiskIr) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use greentic_sorla_ir::{AgentEndpointBackingIr, AgentEndpointVisibilityIr};
+    use greentic_sorla_ir::{
+        AgentEndpointBackingIr, AgentEndpointVisibilityIr, EndpointAuthorizationIr,
+    };
 
     fn endpoint(id: &str, risk: AgentEndpointRiskIr) -> AgentEndpointIr {
         AgentEndpointIr {
             id: id.to_string(),
+            i18n_key: None,
             title: id.to_string(),
             intent: String::new(),
             description: None,
@@ -209,6 +212,7 @@ mod tests {
                 policies: Vec::new(),
                 approvals: Vec::new(),
             },
+            authorization: EndpointAuthorizationIr::default(),
             agent_visibility: AgentEndpointVisibilityIr {
                 openapi: true,
                 arazzo: false,

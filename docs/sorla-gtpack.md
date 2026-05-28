@@ -100,6 +100,12 @@ The pack also carries the existing deterministic SoRLa CBOR artifacts under
 `assets/sorla/`, including actions, events, projections, policies, approvals,
 views, external sources, compatibility, and provider contract.
 
+The canonical model in `assets/sorla/model.cbor` is also the source of truth for
+first-class roles and authorization. Sorx should read `roles[]`,
+`records[].access`, and `agent_endpoints[].authorization` from that model and
+use the repeated endpoint `authorization` in `assets/sorla/agent-gateway.json`
+for route-level checks.
+
 When the source package declares metrics, the pack also includes:
 
 - `assets/sorla/metrics.json`
@@ -108,6 +114,17 @@ When the source package declares metrics, the pack also includes:
 metadata, the canonical IR hash, and the lowered metric definitions. Pack
 inspect reports metric count and names. Pack doctor verifies that the JSON
 matches `model.cbor`, package metadata, and `pack.lock.cbor`.
+
+When a source `sorla.yaml` has an adjacent `i18n/` directory, direct JSON
+catalogs in that directory are embedded automatically:
+
+- `assets/sorla/i18n/en.json`
+- `assets/sorla/i18n/es.json`
+- any other direct `i18n/*.json` locale catalog
+
+The pack manifest extension lists these catalogs under `sorla.i18n.locales`.
+Non-JSON files and nested directories are ignored. Malformed JSON catalogs fail
+pack generation so a gtpack cannot silently ship unusable locale data.
 
 ## Generic Stack-Pack Metadata
 

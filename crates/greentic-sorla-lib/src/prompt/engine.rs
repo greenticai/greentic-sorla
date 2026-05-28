@@ -438,7 +438,9 @@ You are the planning step. Use the customer's original prompt and all follow-up 
 
 A good plan:
 - Names the durable business records the System of Record must own, using concise snake_case names.
-- Gives each record useful fields with practical types such as string, integer, decimal, boolean, date, or timestamp.
+- Gives each record useful fields with practical scalar types such as uuid, email, url, string, integer, decimal, boolean, date, time, or datetime.
+- Adds record-field validation rules when they make the model safer, for example unique identifiers, length limits, numeric bounds, decimal precision/scale, patterns, and temporal before/after bounds.
+- Keeps English as the base authoring language. Do not generate a separate sorla.yaml per locale; use stable i18n_key values in the schema and sidecar locale catalogs such as i18n/en.json and i18n/es.json for translated labels.
 - Marks sensitive fields, required fields, lifecycle status fields, and external identifiers when the business intent implies them.
 - Includes domain actions the system must support, such as join, leave, approve, apply, record, publish, or update.
 - Includes events only for meaningful business facts that should be immutable or drive projections.
@@ -478,6 +480,7 @@ A good response:
 - Proposes domain-specific records, fields, actions, events, projections, policies, and approvals that match the customer prompt.
 - Proposes domain-specific metrics/KPIs when the prompt mentions tracking, reporting, dashboards, revenue, cost, conversion, margin, churn, ROAS, CAC, MRR, targets, or thresholds.
 - Uses concise snake_case names that can become generated artifact names.
+- Treats English as the canonical authoring language and localization as sidecar catalogs keyed by i18n_key, not as translated sorla.yaml variants.
 - Asks only high-value clarifying questions when the scope is ambiguous or a risky business rule is missing.
 - Does not invent unrelated domain concepts.
 
@@ -487,7 +490,7 @@ Return JSON only with this exact shape:
   "assumptions": [{{"id":"kebab-case-id","text":"assumption","confidence":"low|medium|high"}}],
   "draft": {{
     "summary": "short summary",
-    "records": [{{"name":"snake_case","description":"...", "fields":[{{"name":"snake_case","type_name":"string|integer|decimal|boolean|date|timestamp","required":true,"sensitive":false,"description":"..."}}]}}],
+    "records": [{{"name":"snake_case","description":"...", "fields":[{{"name":"snake_case","type_name":"uuid|email|url|string|integer|decimal|boolean|date|time|datetime","required":true,"sensitive":false,"description":"...","rules":{{"unique":true}}}}]}}],
     "relationships": [],
     "actions": [{{"name":"snake_case","description":"...", "risk":"low|medium|high"}}],
     "events": [{{"name":"snake_case","description":"..."}}],
@@ -605,7 +608,12 @@ A high-quality answers.json:
 - Preserves the customer intent and avoids unrelated example domains.
 - Defines a stable package name and version.
 - Sets output_dir to the default prompt-generated output path unless the caller overwrites it.
+- Generates the latest SoRLa shape: English base names and descriptions in answers/sorla.yaml, stable i18n_key metadata for package, roles, records, fields, events, projections, metrics, ontology concepts/relationships, and agent endpoints, with translations kept in i18n/en.json, i18n/es.json, and later greentic-i18n catalogs instead of separate localized sorla.yaml files.
+- Defines roles when different user groups can perform different work. Put role ids in top-level roles, record CRUD permissions in records.items[].access, and endpoint requirements in agent_endpoints.items[].authorization. Do not hide role requirements inside execution.authorization.
 - Includes records for each durable business entity, with useful required fields and sensitive markers where appropriate.
+- Uses semantic scalar record field types: uuid for stable identifiers, email for email addresses, url for links, datetime for timestamps, date or time for date-only or time-only values, and string only for unconstrained text. Prefer datetime over the legacy timestamp alias.
+- Adds record-field rules when useful: unique for primary identifiers, min/max for numeric bounds, min_length/max_length/pattern for text constraints, precision/scale for decimal money or measures, and before/after for date, time, or datetime bounds.
+- Keeps rules on record fields only; do not put rules under agent_endpoints.items[].inputs or outputs.
 - Sets records.external_ref_system when records.default_source is external or hybrid; use a concise generic value such as external-system when the exact upstream system is not known.
 - For hybrid records, marks each field with authority local or external, and includes at least one local and one external field.
 - Uses events for immutable business facts and lifecycle moments, not every ordinary field update.
@@ -613,7 +621,7 @@ A high-quality answers.json:
 - Uses metrics.items for KPIs and reporting measures. Define safe aggregate metrics over records/events and formula metrics only as simple arithmetic over named metrics with depends_on.
 - Uses actions for business operations users or agents should request.
 - For agent-exposed business operations with non-trivial side effects, include explicit operational_indexes for uniqueness/idempotency constraints and agent_endpoints.items[].execution plans so sorla.yaml is the durable source of truth, not generator heuristics. Use generic steps such as find_one, create, delete_where, increment_where, query with order_by, and when guards.
-- Uses policies and approvals for ranking rules, fraud checks, permission gates, risky changes, or human review.
+- Uses policies and approvals for ranking rules, fraud checks, additional permission gates, risky changes, or human review. Authorization roles decide who may invoke or mutate; approvals decide whether a permitted action still needs review.
 - Keeps provider requirements abstract and capability-oriented, not hardcoded to a vendor.
 - Avoids empty placeholder names like record, field, action, event whenever the plan contains domain-specific names.
 
@@ -713,7 +721,23 @@ fn authoring_output_schema_json() -> serde_json::Value {
                                             "type": { "type": "string" },
                                             "required": { "type": "boolean" },
                                             "sensitive": { "type": "boolean" },
-                                            "description": { "type": ["string", "null"] }
+                                            "description": { "type": ["string", "null"] },
+                                            "rules": {
+                                                "type": "object",
+                                                "additionalProperties": true,
+                                                "properties": {
+                                                    "min": { "type": ["number", "integer", "string"] },
+                                                    "max": { "type": ["number", "integer", "string"] },
+                                                    "min_length": { "type": "integer" },
+                                                    "max_length": { "type": "integer" },
+                                                    "pattern": { "type": "string" },
+                                                    "precision": { "type": "integer" },
+                                                    "scale": { "type": "integer" },
+                                                    "before": { "type": "string" },
+                                                    "after": { "type": "string" },
+                                                    "unique": { "type": "boolean" }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -828,6 +852,20 @@ fn answers_response_schema_json() -> serde_json::Value {
               }
             }
           }
+        }
+      }
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "id": { "type": "string" },
+          "i18n_key": { "type": ["string", "null"] },
+          "label": { "type": ["string", "null"] },
+          "description": { "type": ["string", "null"] },
+          "grants": { "type": "array", "items": { "type": "string" } }
         }
       }
     },
@@ -1301,8 +1339,8 @@ fn metrics_draft(normalized_prompt: &str, answers: &[PromptAnswer]) -> SorDesign
             "click",
             "Tracked click or interaction",
             &[
-                field("id", "string"),
-                field("clicked_at", "timestamp"),
+                field("id", "uuid"),
+                field("clicked_at", "datetime"),
                 field("campaign", "string"),
                 field("product", "string"),
                 field("customer", "string"),
@@ -1328,10 +1366,10 @@ fn metrics_draft(normalized_prompt: &str, answers: &[PromptAnswer]) -> SorDesign
             "order",
             "Revenue-bearing order",
             &[
-                field("id", "string"),
+                field("id", "uuid"),
                 field("amount", "decimal"),
                 field("status", "string"),
-                field("recognized_at", "timestamp"),
+                field("recognized_at", "datetime"),
                 field("campaign", "string"),
                 field("product", "string"),
                 field("customer", "string"),
@@ -1368,9 +1406,9 @@ fn metrics_draft(normalized_prompt: &str, answers: &[PromptAnswer]) -> SorDesign
             "cost",
             "Cost entry",
             &[
-                field("id", "string"),
+                field("id", "uuid"),
                 field("amount", "decimal"),
-                field("incurred_at", "timestamp"),
+                field("incurred_at", "datetime"),
                 field("campaign", "string"),
                 field("product", "string"),
                 field("customer", "string"),
@@ -1421,9 +1459,9 @@ fn metrics_draft(normalized_prompt: &str, answers: &[PromptAnswer]) -> SorDesign
             "metric_event",
             "Metric source event",
             &[
-                field("id", "string"),
+                field("id", "uuid"),
                 field("value", "decimal"),
-                field("occurred_at", "timestamp"),
+                field("occurred_at", "datetime"),
             ],
         ));
         metrics.push(DraftMetric {
@@ -1488,14 +1526,14 @@ fn waiting_list_draft(_answers: &[PromptAnswer]) -> SorDesignDraft {
             record(
                 "lab",
                 "Greentic lab that owns a separate waiting list",
-                &[field("id", "string"), field("name", "string")],
+                &[field("id", "uuid"), field("name", "string")],
             ),
             record(
                 "person",
                 "Person joining one or more waiting lists",
                 &[
-                    field("id", "string"),
-                    field("email", "string"),
+                    field("id", "uuid"),
+                    field("email", "email"),
                     field("display_name", "string"),
                 ],
             ),
@@ -1503,9 +1541,9 @@ fn waiting_list_draft(_answers: &[PromptAnswer]) -> SorDesignDraft {
                 "waiting_list_entry",
                 "Person's position and state on a lab waiting list",
                 &[
-                    field("id", "string"),
-                    field("lab_id", "string"),
-                    field("person_id", "string"),
+                    field("id", "uuid"),
+                    field("lab_id", "uuid"),
+                    field("person_id", "uuid"),
                     field("status", "string"),
                     field("rank_score", "integer"),
                 ],
@@ -1514,19 +1552,19 @@ fn waiting_list_draft(_answers: &[PromptAnswer]) -> SorDesignDraft {
                 "referral_code",
                 "Referral code that can improve waiting list rank",
                 &[
-                    field("id", "string"),
+                    field("id", "uuid"),
                     field("code", "string"),
-                    field("owner_person_id", "string"),
-                    field("lab_id", "string"),
+                    field("owner_person_id", "uuid"),
+                    field("lab_id", "uuid"),
                 ],
             ),
             record(
                 "referral",
                 "Accepted referral between two people",
                 &[
-                    field("id", "string"),
-                    field("referral_code_id", "string"),
-                    field("referred_person_id", "string"),
+                    field("id", "uuid"),
+                    field("referral_code_id", "uuid"),
+                    field("referred_person_id", "uuid"),
                 ],
             ),
         ],
@@ -1583,37 +1621,37 @@ fn landlord_tenant_draft(answers: &[PromptAnswer]) -> SorDesignDraft {
             record(
                 "landlord",
                 "Property owner",
-                &[field("id", "string"), field("name", "string")],
+                &[field("id", "uuid"), field("name", "string")],
             ),
             record(
                 "tenant",
                 "Lease tenant",
-                &[field("id", "string"), field("name", "string")],
+                &[field("id", "uuid"), field("name", "string")],
             ),
             record(
                 "property",
                 "Managed property",
-                &[field("id", "string"), field("address", "string")],
+                &[field("id", "uuid"), field("address", "string")],
             ),
             record(
                 "lease",
                 "Rental lease",
-                &[field("id", "string"), field("status", "string")],
+                &[field("id", "uuid"), field("status", "string")],
             ),
             record(
                 "payment",
                 "Rent payment",
-                &[field("id", "string"), field("amount", "decimal")],
+                &[field("id", "uuid"), field("amount", "decimal")],
             ),
             record(
                 "maintenance_request",
                 "Maintenance request",
-                &[field("id", "string"), field("status", "string")],
+                &[field("id", "uuid"), field("status", "string")],
             ),
             record(
                 "supplier",
                 "Maintenance supplier",
-                &[field("id", "string"), field("name", "string")],
+                &[field("id", "uuid"), field("name", "string")],
             ),
         ],
         actions: vec![DraftAction {
@@ -1671,6 +1709,7 @@ fn field(name: &str, type_name: &str) -> DraftField {
         required: true,
         sensitive: false,
         description: None,
+        rules: None,
     }
 }
 
@@ -1753,13 +1792,23 @@ fn answers_from_draft(draft: &SorDesignDraft) -> serde_json::Value {
                 "name": record.name,
                 "source": "native",
                 "fields": record.fields.iter().map(|field| {
-                    serde_json::json!({
+                    let mut field_value = serde_json::json!({
                         "name": field.name,
                         "type": field.type_name,
                         "required": field.required,
                         "sensitive": field.sensitive,
                         "description": field.description
-                    })
+                    });
+                    let rules = field
+                        .rules
+                        .clone()
+                        .or_else(|| inferred_field_rules(&record.name, field));
+                    if let Some(rules) = rules
+                        && let Some(object) = field_value.as_object_mut()
+                    {
+                        object.insert("rules".to_string(), rules);
+                    }
+                    field_value
                 }).collect::<Vec<_>>()
             })
         })
@@ -1773,7 +1822,7 @@ fn answers_from_draft(draft: &SorDesignDraft) -> serde_json::Value {
                 "name": event.name,
                 "record": record,
                 "kind": "domain",
-                "emits": [{ "name": format!("{record}_id"), "type": "string" }]
+                "emits": [{ "name": format!("{record}_id"), "type": "uuid" }]
             })
         })
         .collect::<Vec<_>>();
@@ -1848,6 +1897,31 @@ fn answers_from_draft(draft: &SorDesignDraft) -> serde_json::Value {
     })
 }
 
+fn inferred_field_rules(record_name: &str, field: &DraftField) -> Option<serde_json::Value> {
+    let name = field.name.as_str();
+    match field.type_name.as_str() {
+        "uuid" if name == "id" || name == format!("{record_name}_id") => {
+            Some(serde_json::json!({ "unique": true }))
+        }
+        "email" => Some(serde_json::json!({ "max_length": 320 })),
+        "url" => Some(serde_json::json!({ "max_length": 2048 })),
+        "decimal" if matches!(name, "amount" | "revenue" | "cost" | "value") => {
+            Some(serde_json::json!({ "min": 0, "precision": 12, "scale": 2 }))
+        }
+        "integer" if name.contains("count") || name.contains("score") || name.contains("rank") => {
+            Some(serde_json::json!({ "min": 0 }))
+        }
+        "string" if matches!(name, "name" | "display_name") => {
+            Some(serde_json::json!({ "min_length": 1, "max_length": 160 }))
+        }
+        "string" if name.contains("code") => {
+            Some(serde_json::json!({ "min_length": 1, "max_length": 64 }))
+        }
+        "string" if name == "status" => Some(serde_json::json!({ "max_length": 64 })),
+        _ => None,
+    }
+}
+
 fn waiting_list_answers_from_draft() -> serde_json::Value {
     serde_json::json!({
         "schema_version": "0.5",
@@ -1868,24 +1942,24 @@ fn waiting_list_answers_from_draft() -> serde_json::Value {
                     "name": "lab",
                     "source": "native",
                     "fields": [
-                        { "name": "lab_id", "type": "string", "required": true, "sensitive": false },
-                        { "name": "name", "type": "string", "required": true, "sensitive": false }
+                        { "name": "lab_id", "type": "uuid", "required": true, "sensitive": false, "rules": { "unique": true } },
+                        { "name": "name", "type": "string", "required": true, "sensitive": false, "rules": { "min_length": 1, "max_length": 160 } }
                     ]
                 },
                 {
                     "name": "waiting_list_entry",
                     "source": "native",
                     "fields": [
-                        { "name": "entry_id", "type": "string", "required": true, "sensitive": false },
-                        { "name": "lab_id", "type": "string", "required": true, "sensitive": false },
-                        { "name": "user_id", "type": "string", "required": true, "sensitive": false },
-                        { "name": "email", "type": "string", "required": true, "sensitive": false },
-                        { "name": "name", "type": "string", "required": true, "sensitive": false },
-                        { "name": "invitation_code", "type": "string", "required": true, "sensitive": false },
-                        { "name": "invited_by_code", "type": "string", "required": false, "sensitive": false },
-                        { "name": "referrer_entry_id", "type": "string", "required": false, "sensitive": false },
-                        { "name": "referred_count", "type": "integer", "required": true, "sensitive": false },
-                        { "name": "joined_at", "type": "timestamp", "required": true, "sensitive": false }
+                        { "name": "entry_id", "type": "uuid", "required": true, "sensitive": false, "rules": { "unique": true } },
+                        { "name": "lab_id", "type": "uuid", "required": true, "sensitive": false },
+                        { "name": "user_id", "type": "uuid", "required": true, "sensitive": false },
+                        { "name": "email", "type": "email", "required": true, "sensitive": false, "rules": { "max_length": 320 } },
+                        { "name": "name", "type": "string", "required": true, "sensitive": false, "rules": { "min_length": 1, "max_length": 160 } },
+                        { "name": "invitation_code", "type": "string", "required": true, "sensitive": false, "rules": { "min_length": 6, "max_length": 64 } },
+                        { "name": "invited_by_code", "type": "string", "required": false, "sensitive": false, "rules": { "min_length": 6, "max_length": 64 } },
+                        { "name": "referrer_entry_id", "type": "uuid", "required": false, "sensitive": false },
+                        { "name": "referred_count", "type": "integer", "required": true, "sensitive": false, "rules": { "min": 0 } },
+                        { "name": "joined_at", "type": "datetime", "required": true, "sensitive": false }
                     ]
                 }
             ]
@@ -1951,8 +2025,8 @@ fn waiting_list_answers_from_draft() -> serde_json::Value {
                     "title": "Join waiting list",
                     "intent": "Add a user to a lab waiting list once by email, optionally using an invitation code, and return their invitation code and current list metrics.",
                     "inputs": [
-                        { "name": "lab_id", "type": "string", "required": true },
-                        { "name": "email", "type": "string", "required": true },
+                        { "name": "lab_id", "type": "uuid", "required": true },
+                        { "name": "email", "type": "email", "required": true },
                         { "name": "name", "type": "string", "required": true },
                         { "name": "invited_by_code", "type": "string", "required": false }
                     ],
@@ -2064,7 +2138,7 @@ fn waiting_list_answers_from_draft() -> serde_json::Value {
                     "intent": "Remove a user from a lab waiting list by email and decrement the referrer count if their invitation was used.",
                     "inputs": [
                         { "name": "lab_id", "type": "string", "required": true },
-                        { "name": "email", "type": "string", "required": true }
+                        { "name": "email", "type": "email", "required": true }
                     ],
                     "outputs": [
                         { "name": "deleted_count", "type": "integer" }
