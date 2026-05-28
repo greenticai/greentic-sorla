@@ -327,9 +327,9 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "component-qa"
-version = "0.5.0"
+version = "1.1.0-dev.26438070712"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf044036a9d87f059698002c11f72f0f46f1fcc3228b3bc1fd1a3a621653f2ff"
+checksum = "daaabdc0dfe7c0c9b3084a46be352fd00567d987c6c8b160e8a684995539a12f"
 dependencies = [
  "greentic-interfaces-guest",
  "greentic-types",
@@ -832,9 +832,9 @@ dependencies = [
 
 [[package]]
 name = "greentic-interfaces-guest"
-version = "0.5.0"
+version = "1.1.0-dev.26462954573"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6ae2fd6855448749061b052250c54b29ee8388ea6a81087ce07fdbc671e7eb7"
+checksum = "dd69bcbfc230eebf3db8ce18b1f532b7c9a3ece0e98a74263a782e54e9e730e7"
 dependencies = [
  "greentic-types",
  "wit-bindgen 0.57.1",
@@ -844,9 +844,9 @@ dependencies = [
 
 [[package]]
 name = "greentic-qa-lib"
-version = "0.5.0"
+version = "1.1.0-dev.26438070712"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f39af103bdff83a5db6852bded23317cc36aaa0134a9469f9ca1993743110740"
+checksum = "b5d1c073894c19213e96f1f60751a7d2b635a12078acac649c06efa1c5b8e28e"
 dependencies = [
  "component-qa",
  "qa-spec",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla"
-version = "0.1.15"
+version = "1.1.0-dev.0"
 dependencies = [
  "criterion",
  "greentic-sorla-lib",
@@ -867,7 +867,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-designer-extension"
-version = "0.1.15"
+version = "1.1.0-dev.0"
 dependencies = [
  "greentic-sorla-lib",
  "serde",
@@ -876,7 +876,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-ir"
-version = "0.1.15"
+version = "1.1.0-dev.0"
 dependencies = [
  "ciborium",
  "greentic-sorla-lang",
@@ -887,7 +887,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lang"
-version = "0.1.15"
+version = "1.1.0-dev.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -896,7 +896,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lib"
-version = "0.1.15"
+version = "1.1.0-dev.0"
 dependencies = [
  "ciborium",
  "clap",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-pack"
-version = "0.1.15"
+version = "1.1.0-dev.0"
 dependencies = [
  "ciborium",
  "greentic-sorla-ir",
@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-wizard"
-version = "0.1.15"
+version = "1.1.0-dev.0"
 dependencies = [
  "greentic-sorla",
  "greentic-sorla-lang",
@@ -940,9 +940,9 @@ dependencies = [
 
 [[package]]
 name = "greentic-types"
-version = "0.5.2"
+version = "1.1.0-dev.26462942350"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27d3246d833a9d0c3c44694c9381df09df6361754f9590e922bfad0829a6d789"
+checksum = "70fbb1e3da7e2cd9cd018383bdbf07baf4d51973c605b6c66e45bd8890d613fe"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1504,9 +1504,9 @@ dependencies = [
 
 [[package]]
 name = "qa-spec"
-version = "0.5.0"
+version = "1.1.0-dev.26438070712"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d58ff0de754c99d39cbdaed94e1342f82dd5dc6d0ddf5dd0b482a7d0ccf4e47b"
+checksum = "41652ef3df706e0217a270e14fca49b7ed61b05d6e9728cf627d1dee86d8ac66"
 dependencies = [
  "globset",
  "handlebars",
@@ -2637,7 +2637,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "0.1.15"
+version = "1.1.0-dev.0"
 
 [[package]]
 name = "yoke"
