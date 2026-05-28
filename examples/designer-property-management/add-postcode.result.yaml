@@ -1,0 +1,45 @@
+package:
+  name: designer-property-management
+  version: 0.1.0
+ontology: null
+semantic_aliases: null
+entity_linking: null
+retrieval_bindings: null
+operational_indexes: null
+records:
+- name: property
+  source: native
+  external_ref: null
+  fields:
+  - name: address
+    type: string
+    required: true
+    authority: null
+    references: null
+  - name: postcode
+    type: string
+    authority: null
+    references: null
+  - name: property_id
+    type: string
+    required: true
+    authority: null
+    references: null
+events:
+- name: property_changed
+  record: property
+  kind: domain
+  emits: []
+actions: []
+policies: []
+approvals: []
+views: []
+flows: []
+projections:
+- name: property_list
+  record: property
+  source_event: property_changed
+  mode: current-state
+migrations: []
+provider_requirements: []
+agent_endpoints: []

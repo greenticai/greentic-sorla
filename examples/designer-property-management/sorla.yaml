@@ -1,0 +1,20 @@
+package:
+  name: designer-property-management
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+      - name: address
+        type: string
+        required: true
+events:
+  - name: property_changed
+    record: property
+projections:
+  - name: property_list
+    record: property
+    source_event: property_changed

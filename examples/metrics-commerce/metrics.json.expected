@@ -1,0 +1,249 @@
+{
+  "schema": "greentic.sorla.metrics.v1",
+  "package": {
+    "name": "metrics-commerce",
+    "version": "0.1.0",
+    "ir_hash": "a716e6ee39fdf695544b83f5204e924a44ac89e1606a50d39a22d13561aade78"
+  },
+  "metrics": [
+    {
+      "name": "campaign_roas",
+      "label": "Campaign ROAS",
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        }
+      ],
+      "formula": {
+        "expression": "monthly_revenue / monthly_cost",
+        "dependencies": [
+          "monthly_revenue",
+          "monthly_cost"
+        ]
+      }
+    },
+    {
+      "name": "completed_orders",
+      "label": "Completed Orders",
+      "source": {
+        "entity": "order",
+        "collection": "orders"
+      },
+      "measure": {
+        "aggregate": "count"
+      },
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "customer",
+          "field": "customer"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
+      "filters": [
+        {
+          "field": "status",
+          "operator": "equals",
+          "value": "completed"
+        }
+      ],
+      "time": {
+        "field": "ordered_at",
+        "grains": [
+          "day"
+        ]
+      }
+    },
+    {
+      "name": "conversion_rate",
+      "label": "Conversion Rate",
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
+      "formula": {
+        "expression": "completed_orders / visitor_sessions",
+        "dependencies": [
+          "completed_orders",
+          "visitor_sessions"
+        ]
+      }
+    },
+    {
+      "name": "daily_clicks",
+      "label": "Daily Clicks",
+      "description": "Total clicks by day.",
+      "source": {
+        "entity": "click",
+        "collection": "clicks"
+      },
+      "measure": {
+        "aggregate": "count"
+      },
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
+      "time": {
+        "field": "clicked_at",
+        "grains": [
+          "day"
+        ]
+      }
+    },
+    {
+      "name": "gross_margin",
+      "label": "Gross Margin",
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
+      "formula": {
+        "expression": "monthly_revenue - monthly_cost",
+        "dependencies": [
+          "monthly_revenue",
+          "monthly_cost"
+        ]
+      }
+    },
+    {
+      "name": "monthly_cost",
+      "label": "Monthly Cost",
+      "source": {
+        "entity": "cost_entry",
+        "collection": "cost_entries"
+      },
+      "measure": {
+        "aggregate": "sum",
+        "field": "amount"
+      },
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
+      "time": {
+        "field": "incurred_at",
+        "grains": [
+          "month"
+        ]
+      }
+    },
+    {
+      "name": "monthly_revenue",
+      "label": "Monthly Revenue",
+      "source": {
+        "entity": "payment",
+        "collection": "payments"
+      },
+      "measure": {
+        "aggregate": "sum",
+        "field": "amount"
+      },
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "product",
+          "field": "product"
+        },
+        {
+          "name": "customer",
+          "field": "customer"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
+      "filters": [
+        {
+          "field": "status",
+          "operator": "equals",
+          "value": "settled"
+        }
+      ],
+      "time": {
+        "field": "paid_at",
+        "grains": [
+          "month"
+        ]
+      }
+    },
+    {
+      "name": "visitor_sessions",
+      "label": "Visitor Sessions",
+      "source": {
+        "entity": "visitor",
+        "collection": "visitors"
+      },
+      "measure": {
+        "aggregate": "count"
+      },
+      "dimensions": [
+        {
+          "name": "campaign",
+          "field": "campaign"
+        },
+        {
+          "name": "region",
+          "field": "region"
+        }
+      ],
+      "time": {
+        "field": "visited_at",
+        "grains": [
+          "day"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "0.4",
+  "flow": "create",
+  "output_dir": "./demo-package",
+  "package": {
+    "name": "tenancy",
+    "version": "0.2.0"
+  },
+  "records": {
+    "default_source": "hybrid",
+    "external_ref_system": "crm"
+  },
+  "providers": {
+    "hints": ["crm"]
+  }
+}

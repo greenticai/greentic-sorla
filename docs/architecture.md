@@ -18,6 +18,17 @@ the second public workflow. The supported product surface is:
 - `greentic-sorla pack doctor <file.gtpack>`
 - `greentic-sorla pack inspect <file.gtpack>`
 
+The installed CLI is intentionally thin. Reusable behavior lives behind
+`greentic-sorla-lib`, which coordinates the existing language, IR, pack, and
+wizard crates. This lets Designer extensions and future `gtc` integrations use
+the same validation and artifact paths without shelling out to the binary.
+
+Ontology authoring is part of the local source and IR contract. SoRLa validates
+ontology concepts, relationships, inheritance, record backing, sensitivity
+markers, and policy hooks as provider-agnostic handoff metadata. Runtime graph
+traversal, retrieval, public exposure, and concrete provider binding remain
+downstream responsibilities.
+
 For production composition, `gtc wizard --extensions ...` is the canonical
 entrypoint. The standalone `greentic-sorla wizard` flow remains useful for
 local development, schema iteration, fixtures, and extension debugging.
@@ -27,6 +38,7 @@ This repository owns:
 - the SoRLa authoring language
 - canonical IR and artifact contracts
 - wizard schema and answers execution
+- reusable library APIs for authoring, validation, inspection, and pack handoff
 - package and pack-ready metadata generation
 - deterministic agent endpoint handoff metadata
 - deterministic SoRLa `.gtpack` handoff archives

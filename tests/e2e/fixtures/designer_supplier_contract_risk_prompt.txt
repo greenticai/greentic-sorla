@@ -1,0 +1,4 @@
+Create a system of record for supplier contract risk management.
+It should track parties, suppliers, contracts, obligations, evidence documents,
+risk assessments, approvals, and agent endpoints for adding evidence and
+assessing contract risk.

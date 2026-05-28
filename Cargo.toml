@@ -3,6 +3,8 @@ members = [
     "crates/greentic-sorla-cli",
     "crates/greentic-sorla-ir",
     "crates/greentic-sorla-lang",
+    "crates/greentic-sorla-lib",
+    "crates/greentic-sorla-designer-extension",
     "crates/greentic-sorla-pack",
     "crates/greentic-sorla-wizard",
     "xtask",
@@ -14,6 +16,7 @@ default-members = [
     "crates/greentic-sorla-cli",
     "crates/greentic-sorla-ir",
     "crates/greentic-sorla-lang",
+    "crates/greentic-sorla-lib",
     "crates/greentic-sorla-pack",
     "crates/greentic-sorla-wizard",
     "xtask",
@@ -46,10 +49,16 @@ greentic-qa-lib = ">=1.1.0-dev, <1.2.0-0"
 greentic-sorla-cli = { package = "greentic-sorla", version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-cli" }
 greentic-sorla-ir = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-ir" }
 greentic-sorla-lang = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-lang" }
-greentic-sorla-pack = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-pack" }
+greentic-sorla-lib = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-lib", default-features = false }
+greentic-sorla-designer-extension = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-designer-extension" }
+greentic-sorla-pack = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-pack", default-features = false }
+semver = "1"
 serde_json = "1"
 serde_yaml = "0.9"
 sha2 = "0.11"
+tempfile = "3"
+ureq = { version = "3", features = ["json"] }
+zip = "8.6"
 
 [workspace.dependencies.clap]
 version = "4.5"

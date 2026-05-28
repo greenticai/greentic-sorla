@@ -1,0 +1,43 @@
+{
+  "schema_version": "0.4",
+  "flow": "create",
+  "output_dir": "target/greentic-sorla-landlord-tenant-validation-pack-example",
+  "package": {
+    "name": "landlord-tenant-sor",
+    "version": "0.1.0"
+  },
+  "records": {
+    "default_source": "native"
+  },
+  "events": {
+    "enabled": true
+  },
+  "projections": {
+    "mode": "current-state"
+  },
+  "migrations": {
+    "compatibility": "additive"
+  },
+  "agent_endpoints": {
+    "enabled": true,
+    "ids": [
+      "create_tenant",
+      "assign_tenant_to_unit",
+      "record_rent_payment",
+      "add_maintenance_request",
+      "list_active_tenants"
+    ],
+    "default_risk": "medium",
+    "default_approval": "policy-driven",
+    "exports": [
+      "openapi",
+      "arazzo",
+      "mcp",
+      "llms_txt"
+    ],
+    "provider_category": "storage"
+  },
+  "output": {
+    "include_agent_tools": true
+  }
+}

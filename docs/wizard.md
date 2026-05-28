@@ -18,6 +18,11 @@ When `greentic-sorla wizard` runs without `--schema` or `--answers`, the CLI
 now starts an interactive wizard powered by `greentic-qa-lib` and then reuses
 the same answers application pipeline as `--answers`.
 
+The wizard pipeline is exposed through `greentic-sorla-lib` and re-exported by
+the CLI crate for compatibility. New integrations should use the library facade
+instead of invoking the CLI when they need schema emission or deterministic
+answers application.
+
 Update metadata is part of the schema so clients can understand that:
 
 - partial answers are supported for update flows
@@ -77,7 +82,7 @@ those IDs as the deterministic control plane for create and update flows.
 
 Schema `0.5` also supports rich domain declarations in answers documents. A
 create answer can provide concrete `records.items`, `actions`, `events.items`,
-`projections.items`, `provider_requirements`, `policies`, `approvals`,
+`projections.items`, `metrics.items`, `provider_requirements`, `policies`, `approvals`,
 `migrations.items`, and typed `agent_endpoints.items`. When these sections are
 present, the generated `sorla.yaml` is rendered from the declared domain model
 instead of the older generic scaffold. Existing `0.4` minimal answers continue
@@ -140,3 +145,6 @@ Sample answer documents live in:
 - `crates/greentic-sorla-cli/examples/answers/update_minimal.json`
 - `crates/greentic-sorla-cli/examples/answers/landlord_tenant_pack.json`
 - `examples/landlord-tenant/answers.json`
+- `examples/metrics-commerce/answers.json`
+
+Metrics and KPIs are documented in `docs/metrics.md`.

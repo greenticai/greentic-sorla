@@ -112,6 +112,115 @@
       }
     ]
   },
+  "ontology": {
+    "schema": "greentic.sorla.ontology.v1",
+    "concepts": [
+      {
+        "id": "Party",
+        "kind": "abstract",
+        "description": "A legal or natural actor in the domain."
+      },
+      {
+        "id": "Landlord",
+        "kind": "entity",
+        "extends": ["Party"],
+        "backed_by": { "record": "Landlord" },
+        "sensitivity": { "classification": "confidential", "pii": true }
+      },
+      {
+        "id": "Tenant",
+        "kind": "entity",
+        "extends": ["Party"],
+        "backed_by": { "record": "Tenant" },
+        "sensitivity": { "classification": "confidential", "pii": true }
+      },
+      {
+        "id": "Property",
+        "kind": "entity",
+        "backed_by": { "record": "Property" }
+      },
+      {
+        "id": "Unit",
+        "kind": "entity",
+        "backed_by": { "record": "Unit" }
+      },
+      {
+        "id": "Tenancy",
+        "kind": "entity",
+        "backed_by": { "record": "Tenancy" }
+      }
+    ],
+    "relationships": [
+      {
+        "id": "owns",
+        "label": "owns",
+        "from": "Landlord",
+        "to": "Property",
+        "cardinality": { "from": "one", "to": "many" },
+        "backed_by": {
+          "record": "Property",
+          "from_field": "landlord_id",
+          "to_field": "id"
+        }
+      },
+      {
+        "id": "occupies",
+        "label": "occupies",
+        "from": "Tenant",
+        "to": "Unit",
+        "cardinality": { "from": "many", "to": "one" },
+        "backed_by": {
+          "record": "Tenancy",
+          "from_field": "tenant_id",
+          "to_field": "unit_id"
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "id": "tenant_data_policy",
+        "applies_to": { "concept": "Tenant" },
+        "requires_policy": "TenancyWritePolicy"
+      }
+    ]
+  },
+  "semantic_aliases": {
+    "concepts": {
+      "Landlord": ["owner", "property owner"],
+      "Tenant": ["renter", "occupant"],
+      "Tenancy": ["lease", "rental agreement"]
+    },
+    "relationships": {
+      "occupies": ["lives in", "rents"],
+      "owns": ["belongs to", "owned by"]
+    }
+  },
+  "entity_linking": {
+    "strategies": [
+      {
+        "id": "tenant_email_match",
+        "applies_to": "Tenant",
+        "match": {
+          "source_field": "email",
+          "target_field": "email"
+        },
+        "confidence": 0.95,
+        "sensitivity": {
+          "classification": "confidential",
+          "pii": true
+        }
+      },
+      {
+        "id": "unit_id_match",
+        "applies_to": "Unit",
+        "match": {
+          "source_field": "unit_id",
+          "target_field": "id"
+        },
+        "confidence": 1.0
+      }
+    ]
+  },
   "actions": [
     { "name": "CreateTenant" },
     { "name": "AssignTenantToUnit" },

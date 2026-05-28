@@ -1,0 +1,17 @@
+{
+  "schema": "greentic.sorla.concept-view.v1",
+  "title": "Designer Property Management",
+  "status": "valid",
+  "summary": "1 records, 0 relationships, 1 events, 1 projections, 0 agent endpoints",
+  "required_sections": [
+    "overview",
+    "records",
+    "events",
+    "projections",
+    "artifacts"
+  ],
+  "required_actions": [
+    "add_record",
+    "add_field.property"
+  ]
+}

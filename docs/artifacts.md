@@ -73,9 +73,23 @@ pack, SoRLa artifacts live under `assets/sorla/` and Sorx startup handoff assets
 live under `assets/sorx/`.
 
 The pack root includes `pack.cbor`, `pack.lock.cbor`, `manifest.cbor`, and
-`manifest.json`. `pack.cbor` declares the `greentic.sorx.runtime.v1` extension,
-and `pack.lock.cbor` records deterministic size and digest metadata for archive
-entries.
+`manifest.json`. `pack.cbor` declares the `greentic.sorx.runtime.v1` extension
+and generic Greentic stack-pack metadata paths. `pack.lock.cbor` records
+deterministic size and digest metadata for archive entries.
+
+Generic deploy/setup metadata lives under `assets/greentic/`:
+
+- `stack-pack.json`
+- `capabilities.json`
+- `routes.json`
+- `setup.schema.json`
+- `call.request.schema.json`
+- `call.response.schema.json`
+- `artifacts.json`
+- `admin-surfaces.json`
+
+The pack also includes `assets/secret-requirements.json`, which is referenced by
+the generic setup schema and contains no plaintext secret values.
 
 See `docs/sorla-gtpack.md` for the command, required entries, optional agent
 endpoint entries, and doctor checks.

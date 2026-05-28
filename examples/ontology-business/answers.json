@@ -1,0 +1,373 @@
+{
+  "schema_version": "0.5",
+  "flow": "create",
+  "output_dir": "examples/ontology-business",
+  "locale": "en",
+  "package": {
+    "name": "ontology-business-sor",
+    "version": "0.1.0"
+  },
+  "providers": {
+    "storage_category": "storage",
+    "hints": [
+      "abstract evidence provider",
+      "abstract storage provider"
+    ]
+  },
+  "records": {
+    "default_source": "native",
+    "items": [
+      {
+        "name": "Customer",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "display_name", "type": "string", "required": true },
+          { "name": "email", "type": "string", "sensitive": true }
+        ]
+      },
+      {
+        "name": "Supplier",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "display_name", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "Contract",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "customer_id", "type": "string", "references": { "record": "Customer", "field": "id" } },
+          { "name": "status", "type": "string", "enum_values": ["draft", "active", "closed"] }
+        ]
+      },
+      {
+        "name": "Asset",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "contract_id", "type": "string", "references": { "record": "Contract", "field": "id" } },
+          { "name": "label", "type": "string" }
+        ]
+      },
+      {
+        "name": "Obligation",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "supplier_id", "type": "string", "references": { "record": "Supplier", "field": "id" } },
+          { "name": "risk_level", "type": "string", "enum_values": ["low", "medium", "high"] }
+        ]
+      },
+      {
+        "name": "EvidenceDocument",
+        "fields": [
+          { "name": "id", "type": "string", "required": true },
+          { "name": "contract_id", "type": "string", "references": { "record": "Contract", "field": "id" } },
+          { "name": "document_ref", "type": "string", "required": true }
+        ]
+      },
+      {
+        "name": "CustomerContract",
+        "fields": [
+          { "name": "customer_id", "type": "string", "references": { "record": "Customer", "field": "id" } },
+          { "name": "contract_id", "type": "string", "references": { "record": "Contract", "field": "id" } }
+        ]
+      },
+      {
+        "name": "SupplierObligation",
+        "fields": [
+          { "name": "supplier_id", "type": "string", "references": { "record": "Supplier", "field": "id" } },
+          { "name": "obligation_id", "type": "string", "references": { "record": "Obligation", "field": "id" } }
+        ]
+      }
+    ]
+  },
+  "ontology": {
+    "schema": "greentic.sorla.ontology.v1",
+    "concepts": [
+      { "id": "Party", "kind": "abstract", "description": "A business actor." },
+      { "id": "Customer", "kind": "entity", "extends": ["Party"], "backed_by": { "record": "Customer" }, "sensitivity": { "classification": "confidential", "pii": true } },
+      { "id": "Supplier", "kind": "entity", "extends": ["Party"], "backed_by": { "record": "Supplier" } },
+      { "id": "Contract", "kind": "entity", "backed_by": { "record": "Contract" } },
+      { "id": "Asset", "kind": "entity", "backed_by": { "record": "Asset" } },
+      { "id": "Obligation", "kind": "entity", "backed_by": { "record": "Obligation" }, "policy_hooks": [{ "policy": "obligation_risk_policy", "reason": "risk assessment requires policy review" }] },
+      { "id": "EvidenceDocument", "kind": "entity", "backed_by": { "record": "EvidenceDocument" } }
+    ],
+    "relationships": [
+      {
+        "id": "has_contract",
+        "label": "has contract",
+        "from": "Customer",
+        "to": "Contract",
+        "cardinality": { "from": "one", "to": "many" },
+        "backed_by": { "record": "CustomerContract", "from_field": "customer_id", "to_field": "contract_id" }
+      },
+      {
+        "id": "fulfills_obligation",
+        "label": "fulfills obligation",
+        "from": "Supplier",
+        "to": "Obligation",
+        "cardinality": { "from": "one", "to": "many" },
+        "backed_by": { "record": "SupplierObligation", "from_field": "supplier_id", "to_field": "obligation_id" }
+      },
+      {
+        "id": "governs",
+        "label": "governs",
+        "from": "Contract",
+        "to": "Asset",
+        "cardinality": { "from": "one", "to": "many" },
+        "backed_by": { "record": "Asset", "from_field": "contract_id", "to_field": "id" }
+      },
+      {
+        "id": "supports",
+        "label": "supports",
+        "from": "EvidenceDocument",
+        "to": "Contract",
+        "cardinality": { "from": "many", "to": "one" },
+        "backed_by": { "record": "EvidenceDocument", "from_field": "id", "to_field": "contract_id" }
+      }
+    ],
+    "constraints": [
+      {
+        "id": "obligation_risk_policy",
+        "applies_to": { "concept": "Obligation" },
+        "requires_policy": "obligation_risk_policy"
+      }
+    ]
+  },
+  "semantic_aliases": {
+    "concepts": {
+      "Customer": ["client", "account"],
+      "Supplier": ["vendor"],
+      "EvidenceDocument": ["evidence", "supporting document"]
+    },
+    "relationships": {
+      "has_contract": ["covered by"],
+      "supports": ["substantiates"]
+    }
+  },
+  "entity_linking": {
+    "strategies": [
+      {
+        "id": "customer_email_match",
+        "applies_to": "Customer",
+        "match": { "source_field": "email", "target_field": "email" },
+        "confidence": 0.95,
+        "sensitivity": { "pii": true }
+      },
+      {
+        "id": "evidence_document_ref_match",
+        "applies_to": "EvidenceDocument",
+        "match": { "source_field": "document_ref", "target_field": "document_ref" },
+        "confidence": 0.9
+      }
+    ]
+  },
+  "retrieval_bindings": {
+    "schema": "greentic.sorla.retrieval-bindings.v1",
+    "providers": [
+      {
+        "id": "evidence_index",
+        "category": "evidence-store",
+        "required_capabilities": ["evidence.query", "entity.link"]
+      }
+    ],
+    "scopes": [
+      {
+        "id": "customer_contract_evidence",
+        "applies_to": { "concept": "Customer" },
+        "provider": "evidence_index",
+        "filters": {
+          "entity_scope": {
+            "include_self": true,
+            "include_related": [
+              { "relationship": "has_contract", "direction": "outgoing", "max_depth": 1 },
+              { "relationship": "supports", "direction": "incoming", "max_depth": 2 }
+            ]
+          }
+        },
+        "permission": "requires-policy"
+      },
+      {
+        "id": "contract_support_documents",
+        "applies_to": { "relationship": "supports" },
+        "provider": "evidence_index",
+        "permission": "inherit"
+      }
+    ]
+  },
+  "actions": [
+    { "name": "CreateCustomer" },
+    { "name": "AttachEvidenceToContract" },
+    { "name": "ListContractsForCustomer" },
+    { "name": "AssessObligationRisk" }
+  ],
+  "events": {
+    "enabled": true,
+    "items": [
+      {
+        "name": "CustomerCreated",
+        "record": "Customer",
+        "kind": "domain",
+        "emits": [
+          { "name": "customer_id", "type": "string" }
+        ]
+      },
+      {
+        "name": "EvidenceAttached",
+        "record": "EvidenceDocument",
+        "kind": "domain",
+        "emits": [
+          { "name": "document_id", "type": "string" },
+          { "name": "contract_id", "type": "string" }
+        ]
+      },
+      {
+        "name": "ObligationRiskAssessed",
+        "record": "Obligation",
+        "kind": "domain",
+        "emits": [
+          { "name": "obligation_id", "type": "string" },
+          { "name": "risk_level", "type": "string" }
+        ]
+      }
+    ]
+  },
+  "projections": {
+    "mode": "current-state",
+    "items": [
+      { "name": "customer_contract_index", "record": "Customer", "source_event": "CustomerCreated", "mode": "current-state" },
+      { "name": "contract_evidence_index", "record": "EvidenceDocument", "source_event": "EvidenceAttached", "mode": "current-state" }
+    ]
+  },
+  "provider_requirements": [
+    { "category": "storage", "capabilities": ["event-log", "projections"] },
+    { "category": "evidence-store", "capabilities": ["evidence.query", "entity.link"] }
+  ],
+  "policies": [
+    { "name": "obligation_risk_policy" },
+    { "name": "evidence_access_policy" }
+  ],
+  "approvals": [
+    { "name": "risk_review" }
+  ],
+  "migrations": {
+    "compatibility": "additive",
+    "items": [
+      {
+        "name": "add_obligation_risk_projection",
+        "compatibility": "additive",
+        "projection_updates": ["customer_contract_index"],
+        "backfills": [
+          { "record": "Obligation", "field": "risk_level", "default": "medium" }
+        ],
+        "idempotence_key": "obligation-risk-projection-v1"
+      }
+    ]
+  },
+  "agent_endpoints": {
+    "enabled": true,
+    "exports": ["openapi", "arazzo", "mcp", "llms_txt"],
+    "provider_category": "agent-router",
+    "items": [
+      {
+        "id": "create_customer",
+        "title": "Create customer",
+        "intent": "Create a customer record.",
+        "inputs": [
+          { "name": "display_name", "type": "string", "required": true },
+          { "name": "email", "type": "string", "sensitive": true }
+        ],
+        "outputs": [
+          { "name": "customer_id", "type": "string" }
+        ],
+        "risk": "medium",
+        "approval": "policy-driven",
+        "side_effects": ["customer.create"],
+        "emits": {
+          "event": "CustomerCreated",
+          "stream": "customer.$input.display_name",
+          "payload": { "customer_id": "$input.display_name" }
+        },
+        "backing": {
+          "actions": ["CreateCustomer"],
+          "events": ["CustomerCreated"],
+          "policies": ["evidence_access_policy"]
+        }
+      },
+      {
+        "id": "attach_evidence_to_contract",
+        "title": "Attach evidence to contract",
+        "intent": "Attach evidence metadata to a contract.",
+        "inputs": [
+          { "name": "contract_id", "type": "string", "required": true },
+          { "name": "document_ref", "type": "string", "required": true }
+        ],
+        "outputs": [
+          { "name": "document_id", "type": "string" }
+        ],
+        "risk": "medium",
+        "approval": "policy-driven",
+        "side_effects": ["evidence.attach"],
+        "provider_requirements": [
+          { "category": "evidence-store", "capabilities": ["evidence.write"] }
+        ],
+        "emits": {
+          "event": "EvidenceAttached",
+          "stream": "contract.$input.contract_id",
+          "payload": { "contract_id": "$input.contract_id", "document_id": "$input.document_ref" }
+        },
+        "backing": {
+          "actions": ["AttachEvidenceToContract"],
+          "events": ["EvidenceAttached"],
+          "policies": ["evidence_access_policy"]
+        }
+      },
+      {
+        "id": "list_contracts_for_customer",
+        "title": "List contracts for customer",
+        "intent": "List contracts associated with a customer.",
+        "inputs": [
+          { "name": "customer_id", "type": "string", "required": true }
+        ],
+        "outputs": [
+          { "name": "contract_count", "type": "u32" }
+        ],
+        "risk": "low",
+        "approval": "none",
+        "backing": {
+          "actions": ["ListContractsForCustomer"]
+        }
+      },
+      {
+        "id": "assess_obligation_risk",
+        "title": "Assess obligation risk",
+        "intent": "Assess obligation risk from business metadata and evidence.",
+        "inputs": [
+          { "name": "obligation_id", "type": "string", "required": true }
+        ],
+        "outputs": [
+          { "name": "risk_level", "type": "string" }
+        ],
+        "risk": "high",
+        "approval": "policy-driven",
+        "side_effects": ["obligation.risk.assess"],
+        "provider_requirements": [
+          { "category": "evidence-store", "capabilities": ["evidence.query"] }
+        ],
+        "emits": {
+          "event": "ObligationRiskAssessed",
+          "stream": "obligation.$input.obligation_id",
+          "payload": { "obligation_id": "$input.obligation_id", "risk_level": "medium" }
+        },
+        "backing": {
+          "actions": ["AssessObligationRisk"],
+          "events": ["ObligationRiskAssessed"],
+          "policies": ["obligation_risk_policy"],
+          "approvals": ["risk_review"]
+        }
+      }
+    ]
+  },
+  "output": {
+    "include_agent_tools": true
+  }
+}

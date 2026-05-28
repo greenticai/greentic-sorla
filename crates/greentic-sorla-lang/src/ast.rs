@@ -1,4 +1,7 @@
-use serde::{Deserialize, Serialize};
+use serde::de::Error as DeError;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::BTreeMap;
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedPackage {
@@ -17,6 +20,16 @@ pub struct ParseWarning {
 pub struct Package {
     pub package: PackageMeta,
     #[serde(default)]
+    pub ontology: Option<OntologyModel>,
+    #[serde(default)]
+    pub semantic_aliases: Option<SemanticAliases>,
+    #[serde(default)]
+    pub entity_linking: Option<EntityLinking>,
+    #[serde(default)]
+    pub retrieval_bindings: Option<RetrievalBindings>,
+    #[serde(default)]
+    pub operational_indexes: Option<OperationalIndexes>,
+    #[serde(default)]
     pub records: Vec<Record>,
     #[serde(default)]
     pub events: Vec<EventDecl>,
@@ -27,17 +40,405 @@ pub struct Package {
     #[serde(default)]
     pub approvals: Vec<NamedBlock>,
     #[serde(default)]
-    pub views: Vec<NamedBlock>,
+    pub views: Vec<ViewDecl>,
     #[serde(default)]
     pub flows: Vec<NamedBlock>,
     #[serde(default)]
     pub projections: Vec<ProjectionDecl>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub metrics: Vec<MetricDecl>,
     #[serde(default)]
     pub migrations: Vec<MigrationDecl>,
     #[serde(default)]
     pub provider_requirements: Vec<ProviderRequirement>,
     #[serde(default)]
     pub agent_endpoints: Vec<AgentEndpointDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OntologyModel {
+    pub schema: String,
+    #[serde(default)]
+    pub concepts: Vec<ConceptDefinition>,
+    #[serde(default)]
+    pub relationships: Vec<RelationshipDefinition>,
+    #[serde(default)]
+    pub constraints: Vec<OntologyConstraint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConceptId(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConceptKind {
+    Abstract,
+    Entity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConceptDefinition {
+    pub id: String,
+    pub kind: ConceptKind,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_string_or_vec")]
+    pub extends: Vec<String>,
+    #[serde(default)]
+    pub backed_by: Option<OntologyBacking>,
+    #[serde(default)]
+    pub sensitivity: Option<OntologySensitivity>,
+    #[serde(default)]
+    pub policy_hooks: Vec<OntologyPolicyHook>,
+    #[serde(default)]
+    pub provider_requirements: Vec<OntologyProviderRequirement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationshipId(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationshipDefinition {
+    pub id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub cardinality: Option<RelationshipCardinality>,
+    #[serde(default)]
+    pub backed_by: Option<OntologyBacking>,
+    #[serde(default)]
+    pub sensitivity: Option<OntologySensitivity>,
+    #[serde(default)]
+    pub policy_hooks: Vec<OntologyPolicyHook>,
+    #[serde(default)]
+    pub provider_requirements: Vec<OntologyProviderRequirement>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationshipCardinality {
+    pub from: CardinalityValue,
+    pub to: CardinalityValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CardinalityValue {
+    One,
+    Many,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OntologyBacking {
+    pub record: String,
+    #[serde(default)]
+    pub from_field: Option<String>,
+    #[serde(default)]
+    pub to_field: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OntologyConstraint {
+    pub id: String,
+    pub applies_to: OntologyConstraintTarget,
+    #[serde(default)]
+    pub requires_policy: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OntologyConstraintTarget {
+    pub concept: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OntologySensitivity {
+    #[serde(default)]
+    pub classification: Option<String>,
+    #[serde(default)]
+    pub pii: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OntologyPolicyHook {
+    pub policy: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OntologyProviderRequirement {
+    pub category: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct SemanticAliases {
+    #[serde(default)]
+    pub concepts: std::collections::BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub relationships: std::collections::BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EntityLinking {
+    #[serde(default)]
+    pub strategies: Vec<EntityLinkingStrategy>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityLinkingStrategy {
+    pub id: String,
+    pub applies_to: String,
+    #[serde(default)]
+    pub source_type: Option<String>,
+    #[serde(rename = "match")]
+    pub match_fields: EntityLinkingMatch,
+    pub confidence: ConfidenceScore,
+    #[serde(default)]
+    pub sensitivity: Option<OntologySensitivity>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntityLinkingMatch {
+    pub source_field: String,
+    pub target_field: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetrievalBindings {
+    pub schema: String,
+    #[serde(default)]
+    pub providers: Vec<RetrievalProviderRequirement>,
+    #[serde(default)]
+    pub scopes: Vec<RetrievalScope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperationalIndexes {
+    pub schema: String,
+    #[serde(default)]
+    pub indexes: Vec<OperationalIndexDecl>,
+    #[serde(default)]
+    pub query_requirements: Vec<QueryRequirementDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperationalIndexDecl {
+    pub id: String,
+    pub record: String,
+    pub kind: OperationalIndexKind,
+    #[serde(default)]
+    pub fields: Vec<String>,
+    #[serde(default)]
+    pub unique: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OperationalIndexKind {
+    Exact,
+    Composite,
+    Text,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueryRequirementDecl {
+    pub id: String,
+    pub used_by: QueryRequirementTarget,
+    #[serde(default)]
+    pub requires_index: Option<String>,
+    #[serde(default)]
+    pub scan_ok: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QueryRequirementTarget {
+    #[serde(default)]
+    pub projection: Option<String>,
+    #[serde(default)]
+    pub view: Option<String>,
+    #[serde(default)]
+    pub agent_endpoint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetrievalProviderRequirement {
+    pub id: String,
+    pub category: String,
+    #[serde(default)]
+    pub required_capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetrievalScope {
+    pub id: String,
+    pub applies_to: RetrievalScopeTarget,
+    pub provider: String,
+    #[serde(default)]
+    pub filters: Option<RetrievalFilter>,
+    #[serde(default)]
+    pub permission: Option<RetrievalPermissionMode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetrievalScopeTarget {
+    #[serde(default)]
+    pub concept: Option<String>,
+    #[serde(default)]
+    pub relationship: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetrievalFilter {
+    #[serde(default)]
+    pub entity_scope: Option<EntityScope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EntityScope {
+    #[serde(default)]
+    pub include_self: bool,
+    #[serde(default)]
+    pub include_related: Vec<RelationshipTraversalRule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationshipTraversalRule {
+    pub relationship: String,
+    pub direction: RelationshipTraversalDirection,
+    pub max_depth: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RelationshipTraversalDirection {
+    Incoming,
+    Outgoing,
+    Both,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RetrievalPermissionMode {
+    Inherit,
+    PublicMetadataOnly,
+    RequiresPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ConfidenceScore(pub u32);
+
+impl ConfidenceScore {
+    pub const SCALE: u32 = 1_000_000;
+
+    pub fn as_f64(self) -> f64 {
+        f64::from(self.0) / f64::from(Self::SCALE)
+    }
+}
+
+impl Serialize for ConfidenceScore {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_f64(self.as_f64())
+    }
+}
+
+impl<'de> Deserialize<'de> for ConfidenceScore {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = ConfidenceScore;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a confidence number between 0.0 and 1.0")
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                confidence_from_f64(value).map_err(E::custom)
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                confidence_from_f64(value as f64).map_err(E::custom)
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                confidence_from_f64(value as f64).map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
+fn confidence_from_f64(value: f64) -> Result<ConfidenceScore, String> {
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return Err("confidence must be between 0.0 and 1.0".to_string());
+    }
+    Ok(ConfidenceScore(
+        (value * f64::from(ConfidenceScore::SCALE)).round() as u32,
+    ))
+}
+
+fn deserialize_optional_string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrVec {
+        String(String),
+        Vec(Vec<String>),
+    }
+
+    Ok(match Option::<StringOrVec>::deserialize(deserializer)? {
+        Some(StringOrVec::String(value)) => vec![value],
+        Some(StringOrVec::Vec(values)) => values,
+        None => Vec::new(),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,6 +556,84 @@ pub enum ProjectionMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct MetricDecl {
+    pub name: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub source: Option<MetricSource>,
+    #[serde(default)]
+    pub measure: Option<MetricMeasure>,
+    #[serde(default)]
+    pub filters: Vec<MetricFilter>,
+    #[serde(default)]
+    pub time: Option<MetricTime>,
+    #[serde(default)]
+    pub window: Option<MetricWindow>,
+    #[serde(default)]
+    pub unit: Option<String>,
+    #[serde(default)]
+    pub dimensions: Vec<String>,
+    #[serde(default)]
+    pub formula: Option<String>,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub target: Option<MetricTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricSource {
+    pub kind: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricMeasure {
+    pub aggregate: String,
+    #[serde(default)]
+    pub field: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricFilter {
+    pub field: String,
+    pub operator: String,
+    #[serde(default)]
+    pub value: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricTime {
+    pub field: String,
+    pub grain: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricWindow {
+    pub mode: String,
+    pub size: u32,
+    pub unit: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricTarget {
+    pub operator: String,
+    pub value: serde_json::Value,
+    #[serde(default)]
+    pub unit: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderRequirement {
     pub category: String,
     #[serde(default)]
@@ -189,6 +668,8 @@ pub struct AgentEndpointDecl {
     pub examples: Vec<AgentEndpointExampleDecl>,
     #[serde(default)]
     pub emits: Option<AgentEndpointEmitDecl>,
+    #[serde(default)]
+    pub execution: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -302,9 +783,15 @@ pub struct MigrationDecl {
     #[serde(default)]
     pub compatibility: CompatibilityMode,
     #[serde(default)]
+    pub from_version: Option<String>,
+    #[serde(default)]
+    pub to_version: Option<String>,
+    #[serde(default)]
     pub projection_updates: Vec<String>,
     #[serde(default)]
     pub backfills: Vec<MigrationBackfillDecl>,
+    #[serde(default)]
+    pub operations: Vec<MigrationOperationDecl>,
     #[serde(default)]
     pub idempotence_key: Option<String>,
     #[serde(default)]
@@ -318,6 +805,59 @@ pub struct MigrationBackfillDecl {
     pub field: String,
     #[serde(default)]
     pub default: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum MigrationOperationDecl {
+    AddRecord {
+        record: String,
+    },
+    SplitRecord {
+        from_record: String,
+        #[serde(default)]
+        into_records: Vec<String>,
+    },
+    RequireIndex {
+        index: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewDecl {
+    pub name: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub mode: Option<ViewMode>,
+    #[serde(default)]
+    pub maps_from: Option<ViewMappingDecl>,
+    #[serde(default)]
+    pub writes: Option<ViewWriteDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ViewMode {
+    ReadOnly,
+    ReadWrite,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewMappingDecl {
+    pub record: String,
+    #[serde(default)]
+    pub fields: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewWriteDecl {
+    pub agent_endpoint: String,
+    #[serde(default)]
+    pub input_mapping: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

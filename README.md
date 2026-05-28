@@ -15,6 +15,7 @@ The supported product surface is:
 greentic-sorla wizard --schema
 greentic-sorla wizard --answers answers.json
 greentic-sorla wizard --answers landlord-tenant-pack.json --pack-out landlord-tenant-sor.gtpack
+greentic-sorla prompt --answers-out answers.json --llm-provider <provider>
 ```
 
 For production composition, treat `gtc wizard --extensions ...` as the canonical
@@ -37,6 +38,42 @@ See `docs/agent-endpoints.md` for the authoring model, safety fields, and
 
 See `docs/agent-endpoint-handoff-contract.md` for the downstream `gtc` handoff
 contract.
+
+## Prompt Authoring
+
+`greentic-sorla prompt` interactively turns a business description into
+wizard-compatible `answers.json`.
+
+```text
+greentic-sorla prompt -> answers.json
+greentic-sorla wizard --answers answers.json -> sorla.yaml / optional .gtpack
+```
+
+The prompt engine lives in `greentic-sorla-lib` and is shared by the CLI and
+Designer extension. It requires an LLM capability, but provider implementations
+and credential resolution stay outside this repository or in host capability
+systems. The prompt engine only emits answers JSON; final production
+composition remains owned by `gtc`.
+
+See `docs/prompt-authoring.md` for the full boundary, CLI options, SDK usage,
+and Designer/WebChat/Teams integration notes.
+
+## Designer Integration
+
+Designer and CLI design tools use `sorla.yaml` as source of truth:
+
+```text
+sorla.yaml -> ConceptViewModel -> Designer/CLI -> semantic patch -> sorla.yaml
+```
+
+Use `greentic-sorla design view`, `design validate`, `design patch`, and
+`design add-field` for local YAML-first workflows. The Designer extension
+exposes the same parse, concept-view, semantic patch, LLM proposal, validation,
+and pack-entry APIs through the current `greentic-extension-sdk-*` tool
+boundary.
+
+See `docs/designer-yaml-source-of-truth.md`, `docs/concept-view-model.md`,
+`docs/semantic-patches.md`, and `docs/designer-sdk-extension.md`.
 
 ## gtpack Handoff
 
@@ -76,6 +113,8 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 ## Workspace Layout
 
 - `crates/greentic-sorla-cli`: public CLI entrypoint
+- `crates/greentic-sorla-lib`: reusable facade used by the CLI and future
+  Designer/tooling integrations
 - `crates/greentic-sorla-lang`: authoring-language-facing types
 - `crates/greentic-sorla-ir`: canonical IR scaffolding
 - `crates/greentic-sorla-pack`: abstract artifact and manifest scaffolding
@@ -86,7 +125,11 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 - `docs/agent-endpoint-handoff-contract.md`: downstream `gtc` handoff contract
 - `docs/landlord-tenant-e2e.md`: FoundationDB-backed landlord/tenant e2e scenario
 - `docs/product-shape.md`: wizard-first product contract
+- `docs/prompt-authoring.md`: interactive prompt-to-answers authoring contract
+- `docs/metrics.md`: first-class metrics and KPI authoring contract
 - `docs/sorla-gtpack.md`: deterministic SoRLa `.gtpack` handoff contract
+- `docs/library-api.md`: reusable library and CLI boundary
+- `docs/sorla-lib.md`: stable facade API for Designer/tooling reuse
 - `docs/sorx-deployment-handoff.md`: downstream SORX deployment and public
   exposure handoff expectations
 - `docs/wizard.md`: wizard schema and answer-model notes
@@ -98,9 +141,12 @@ See `docs/landlord-tenant-e2e.md` for details and smoke-mode usage.
 ## CLI
 
 The current scaffold keeps internal helper commands hidden and reserves the
-public surface for the wizard flow. This standalone CLI is a local authoring
-and extension-development surface, not a competing pack/bundle toolchain. It
-also supports deterministic `.gtpack` handoff output for SoRLa artifacts.
+public surface for the wizard flow. The installed binary is now a thin wrapper
+over `greentic-sorla-lib`, so Designer extensions and tests can reuse the same
+authoring, validation, and pack logic without invoking a subprocess. This
+standalone CLI is a local authoring and extension-development surface, not a
+competing pack/bundle toolchain. It also supports deterministic `.gtpack`
+handoff output for SoRLa artifacts.
 
 ```bash
 cargo run -p greentic-sorla -- wizard --schema

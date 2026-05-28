@@ -16,6 +16,8 @@ pub struct SorxValidationGenerationInput<'a> {
     pub agent_endpoints: &'a [AgentEndpointIr],
     pub provider_requirements: Vec<ProviderRequirementIr>,
     pub sorx_startup_asset_names: Vec<String>,
+    pub has_ontology: bool,
+    pub has_retrieval_bindings: bool,
 }
 
 pub fn generate_sorx_validation_manifest_from_ir(
@@ -32,6 +34,8 @@ pub fn generate_sorx_validation_manifest_from_ir(
         agent_endpoints: &ir.agent_endpoints,
         provider_requirements: aggregated_provider_requirements(ir),
         sorx_startup_asset_names,
+        has_ontology: ir.ontology.is_some(),
+        has_retrieval_bindings: ir.retrieval_bindings.is_some(),
     })
 }
 
@@ -44,6 +48,12 @@ pub fn generate_sorx_validation_manifest(
     let exported_endpoints = exported_endpoints(input.agent_endpoints);
     if !exported_endpoints.is_empty() {
         suites.push(contract_suite(&exported_endpoints));
+    }
+    if input.has_ontology {
+        suites.push(ontology_suite(!exported_endpoints.is_empty()));
+    }
+    if input.has_retrieval_bindings {
+        suites.push(retrieval_suite(!exported_endpoints.is_empty()));
     }
 
     let provider_requirements = aggregate_requirements(&input.provider_requirements);
@@ -196,6 +206,50 @@ fn security_suite(endpoints: &[AgentEndpointIr]) -> SorxValidationSuite {
     }
 }
 
+fn ontology_suite(required: bool) -> SorxValidationSuite {
+    let tests = vec![
+        SorxValidationTest::OntologyStatic {
+            id: "ontology-static".to_string(),
+            title: Some("Ontology static metadata is valid".to_string()),
+            required: Some(required),
+        },
+        SorxValidationTest::OntologyRelationship {
+            id: "ontology-relationships".to_string(),
+            title: Some("Ontology relationships resolve".to_string()),
+            required: Some(required),
+        },
+        SorxValidationTest::OntologyAlias {
+            id: "ontology-aliases".to_string(),
+            title: Some("Ontology aliases are deterministic".to_string()),
+            required: Some(required),
+        },
+        SorxValidationTest::EntityLinking {
+            id: "entity-linking".to_string(),
+            title: Some("Entity linking declarations resolve".to_string()),
+            required: Some(required),
+        },
+    ];
+    SorxValidationSuite {
+        id: "ontology".to_string(),
+        title: Some("Ontology handoff checks".to_string()),
+        required,
+        tests,
+    }
+}
+
+fn retrieval_suite(required: bool) -> SorxValidationSuite {
+    SorxValidationSuite {
+        id: "retrieval".to_string(),
+        title: Some("Retrieval binding checks".to_string()),
+        required,
+        tests: vec![SorxValidationTest::RetrievalBinding {
+            id: "retrieval-bindings".to_string(),
+            title: Some("Retrieval bindings resolve".to_string()),
+            required: Some(required),
+        }],
+    }
+}
+
 fn healthcheck(id: &str) -> SorxValidationTest {
     SorxValidationTest::Healthcheck {
         id: id.to_string(),
@@ -238,6 +292,17 @@ fn aggregated_provider_requirements(ir: &CanonicalIr) -> Vec<ProviderRequirement
     let mut requirements = ir.provider_contract.categories.clone();
     for endpoint in &ir.agent_endpoints {
         requirements.extend(endpoint.provider_requirements.clone());
+    }
+    if let Some(retrieval) = &ir.retrieval_bindings {
+        requirements.extend(
+            retrieval
+                .providers
+                .iter()
+                .map(|provider| ProviderRequirementIr {
+                    category: provider.category.clone(),
+                    capabilities: provider.required_capabilities.clone(),
+                }),
+        );
     }
     requirements
 }
@@ -407,6 +472,133 @@ agent_endpoints:
     }
 
     #[test]
+    fn private_ontology_generates_optional_ontology_suite() {
+        let artifacts = build_handoff_artifacts_from_yaml(ontology_fixture(false))
+            .expect("ontology fixture should build");
+
+        let manifest =
+            generate_sorx_validation_manifest_from_ir(&artifacts.ir, None, startup_assets());
+
+        assert_eq!(suite_ids(&manifest), vec!["smoke", "ontology"]);
+        assert_eq!(manifest.promotion_requires, vec!["smoke"]);
+        let ontology = manifest
+            .suites
+            .iter()
+            .find(|suite| suite.id == "ontology")
+            .expect("ontology suite");
+        assert!(!ontology.required);
+        assert_eq!(
+            ontology
+                .tests
+                .iter()
+                .map(SorxValidationTest::id)
+                .collect::<Vec<_>>(),
+            vec![
+                "ontology-static",
+                "ontology-relationships",
+                "ontology-aliases",
+                "entity-linking"
+            ]
+        );
+        manifest
+            .validate_static()
+            .expect("generated manifest should validate");
+    }
+
+    #[test]
+    fn exported_ontology_and_retrieval_generate_promotion_suites() {
+        let artifacts = build_handoff_artifacts_from_yaml(ontology_fixture(true))
+            .expect("ontology and retrieval fixture should build");
+
+        let manifest =
+            generate_sorx_validation_manifest_from_ir(&artifacts.ir, None, startup_assets());
+
+        assert_eq!(
+            suite_ids(&manifest),
+            vec![
+                "smoke",
+                "contract",
+                "ontology",
+                "retrieval",
+                "provider",
+                "security"
+            ]
+        );
+        assert_eq!(
+            manifest.promotion_requires,
+            vec![
+                "smoke",
+                "contract",
+                "ontology",
+                "retrieval",
+                "provider",
+                "security"
+            ]
+        );
+
+        let retrieval = manifest
+            .suites
+            .iter()
+            .find(|suite| suite.id == "retrieval")
+            .expect("retrieval suite");
+        assert!(retrieval.required);
+        assert!(matches!(
+            retrieval.tests.as_slice(),
+            [SorxValidationTest::RetrievalBinding { id, required, .. }]
+                if id == "retrieval-bindings" && required == &Some(true)
+        ));
+
+        let provider = manifest
+            .suites
+            .iter()
+            .find(|suite| suite.id == "provider")
+            .expect("provider suite");
+        assert!(provider.tests.iter().any(|test| matches!(
+            test,
+            SorxValidationTest::ProviderCapability {
+                provider_category,
+                capabilities,
+                ..
+            } if provider_category == "evidence"
+                && capabilities == &["entity.link", "evidence.query"]
+        )));
+        manifest
+            .validate_static()
+            .expect("generated manifest should validate");
+    }
+
+    #[test]
+    fn suite_level_legacy_kind_fields_are_rejected() {
+        let manifest = serde_json::json!({
+            "schema": SORX_VALIDATION_SCHEMA,
+            "suite_version": "1.0.0",
+            "package": {
+                "name": "legacy",
+                "version": "0.1.0"
+            },
+            "default_visibility": "private",
+            "promotion_requires": [],
+            "suites": [{
+                "id": "ontology",
+                "kind": "ontology-static",
+                "required_for_public_exposure": true,
+                "required": false,
+                "tests": []
+            }]
+        });
+
+        let err = serde_json::from_value::<SorxValidationManifest>(manifest)
+            .expect_err("legacy suite fields should not deserialize");
+        assert!(
+            err.to_string().contains("unknown field `kind`")
+                || err
+                    .to_string()
+                    .contains("unknown field `required_for_public_exposure`"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn generation_is_stable() {
         let artifacts = build_handoff_artifacts_from_yaml(
             r#"
@@ -446,5 +638,130 @@ agent_endpoints:
             .iter()
             .map(|suite| suite.id.as_str())
             .collect()
+    }
+
+    fn ontology_fixture(exported: bool) -> &'static str {
+        if exported {
+            r#"
+package:
+  name: ontology-retrieval-demo
+  version: 0.1.0
+records:
+  - name: Customer
+    fields:
+      - name: id
+        type: string
+      - name: email
+        type: string
+  - name: Contract
+    fields:
+      - name: id
+        type: string
+  - name: CustomerContract
+    fields:
+      - name: customer_id
+        type: string
+      - name: contract_id
+        type: string
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+      backed_by:
+        record: Customer
+    - id: Contract
+      kind: entity
+      backed_by:
+        record: Contract
+  relationships:
+    - id: has_contract
+      from: Customer
+      to: Contract
+      backed_by:
+        record: CustomerContract
+        from_field: customer_id
+        to_field: contract_id
+semantic_aliases:
+  concepts:
+    Customer:
+      - client
+entity_linking:
+  strategies:
+    - id: email_match
+      applies_to: Customer
+      match:
+        source_field: email
+        target_field: email
+      confidence: 0.95
+retrieval_bindings:
+  schema: greentic.sorla.retrieval-bindings.v1
+  providers:
+    - id: primary_evidence
+      category: evidence
+      required_capabilities:
+        - evidence.query
+        - entity.link
+  scopes:
+    - id: customer_evidence
+      applies_to:
+        concept: Customer
+      provider: primary_evidence
+      filters:
+        entity_scope:
+          include_self: true
+          include_related:
+            - relationship: has_contract
+              direction: outgoing
+              max_depth: 1
+agent_endpoints:
+  - id: find_customer
+    title: Find customer
+    intent: Find a customer.
+    risk: high
+    approval: policy-driven
+    side_effects:
+      - customer.lookup
+    agent_visibility:
+      openapi: true
+      arazzo: false
+      mcp: true
+      llms_txt: false
+"#
+        } else {
+            r#"
+package:
+  name: ontology-private-demo
+  version: 0.1.0
+records:
+  - name: Customer
+    fields:
+      - name: id
+        type: string
+      - name: email
+        type: string
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Customer
+      kind: entity
+      backed_by:
+        record: Customer
+  relationships: []
+semantic_aliases:
+  concepts:
+    Customer:
+      - client
+entity_linking:
+  strategies:
+    - id: email_match
+      applies_to: Customer
+      match:
+        source_field: email
+        target_field: email
+      confidence: 0.95
+agent_endpoints: []
+"#
+        }
     }
 }
