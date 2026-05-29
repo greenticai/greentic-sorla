@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "சொத்து மாற்றப்பட்டது",
+  "examples.designer_property_management.package.label": "வடிவமைப்பாளர் சொத்து மேலாண்மை",
+  "examples.designer_property_management.projections.property_list.label": "சொத்து பட்டியல்",
+  "examples.designer_property_management.records.property.fields.address.label": "முகவரி",
+  "examples.designer_property_management.records.property.fields.postcode.label": "அஞ்சல் குறியீடு",
+  "examples.designer_property_management.records.property.fields.property_id.label": "சொத்து ID",
+  "examples.designer_property_management.records.property.label": "சொத்து"
+}

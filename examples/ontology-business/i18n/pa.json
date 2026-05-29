@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "ਸੰਪਤੀ",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "ਕਰਾਰ",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "ਗਾਹਕ",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "ਸਬੂਤ ਦਸਤਾਵੇਜ਼",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "ਜ਼ਿੰਮੇਵਾਰੀ",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "ਪੱਖ",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "ਸਪਲਾਇਰ",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "ਜ਼ਿੰਮੇਵਾਰੀ ਪੂਰੀ ਕਰਦਾ ਹੈ",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "ਨਿਯੰਤਰਿਤ ਕਰਦਾ ਹੈ",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "ਕਰਾਰ ਹੈ",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "ਸਮਰਥਨ ਕਰਦਾ ਹੈ",
+  "examples.ontology_business_sor.package.label": "ਓਂਟੋਲੋਜੀ ਬਿਜ਼ਨਸ SoR",
+  "examples.ontology_business_sor.roles.admin.label": "ਐਡਮਿਨ",
+  "examples.ontology_business_sor.roles.customer_ops.label": "ਗਾਹਕ ਕਾਰਜ",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "ਸਬੂਤ ਮੈਨੇਜਰ",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "ਜੋਖਮ ਸਮੀਖਿਅਕ"
+}

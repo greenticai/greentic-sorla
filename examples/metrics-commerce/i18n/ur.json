@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "مہم ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "مکمل شدہ آرڈرز",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "تبدیلی کی شرح",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "روزانہ کلکس",
+  "examples.metrics_commerce.metrics.gross_margin.label": "مجموعی مارجن",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "ماہانہ لاگت",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "ماہانہ آمدنی",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "وزیٹر سیشنز",
+  "examples.metrics_commerce.package.label": "میٹرکس کامرس",
+  "examples.metrics_commerce.records.campaign.label": "مہم",
+  "examples.metrics_commerce.records.click.label": "کلک",
+  "examples.metrics_commerce.records.cost_entry.label": "لاگت کا اندراج",
+  "examples.metrics_commerce.records.order.label": "آرڈر",
+  "examples.metrics_commerce.records.payment.label": "ادائیگی",
+  "examples.metrics_commerce.records.visitor.label": "وزیٹر",
+  "examples.metrics_commerce.roles.admin.label": "ایڈمن",
+  "examples.metrics_commerce.roles.analytics.label": "تجزیات",
+  "examples.metrics_commerce.roles.finance.label": "مالیات",
+  "examples.metrics_commerce.roles.marketing_ops.label": "مارکیٹنگ آپریشنز"
+}

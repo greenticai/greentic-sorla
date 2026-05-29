@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Nemovitost změněna",
+  "examples.designer_property_management.package.label": "Správa nemovitostí pro designéry",
+  "examples.designer_property_management.projections.property_list.label": "Seznam nemovitostí",
+  "examples.designer_property_management.records.property.fields.address.label": "Adresa",
+  "examples.designer_property_management.records.property.fields.postcode.label": "PSČ",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID nemovitosti",
+  "examples.designer_property_management.records.property.label": "Nemovitost"
+}

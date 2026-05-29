@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Hartanah diubah",
+  "examples.designer_property_management.package.label": "Pengurusan Hartanah Pereka",
+  "examples.designer_property_management.projections.property_list.label": "Senarai hartanah",
+  "examples.designer_property_management.records.property.fields.address.label": "Alamat",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Poskod",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID Hartanah",
+  "examples.designer_property_management.records.property.label": "Hartanah"
+}

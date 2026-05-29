@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ప్రచార ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "పూర్తయిన ఆర్డర్లు",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "మార్పిడి రేటు",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "రోజువారీ క్లిక్‌లు",
+  "examples.metrics_commerce.metrics.gross_margin.label": "స్థూల మార్జిన్",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "నెలవారీ ఖర్చు",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "నెలవారీ ఆదాయం",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "సందర్శక సెషన్లు",
+  "examples.metrics_commerce.package.label": "మెట్రిక్స్ కామర్స్",
+  "examples.metrics_commerce.records.campaign.label": "ప్రచారం",
+  "examples.metrics_commerce.records.click.label": "క్లిక్",
+  "examples.metrics_commerce.records.cost_entry.label": "ఖర్చు నమోదు",
+  "examples.metrics_commerce.records.order.label": "ఆర్డర్",
+  "examples.metrics_commerce.records.payment.label": "చెల్లింపు",
+  "examples.metrics_commerce.records.visitor.label": "సందర్శకుడు",
+  "examples.metrics_commerce.roles.admin.label": "అడ్మిన్",
+  "examples.metrics_commerce.roles.analytics.label": "విశ్లేషణలు",
+  "examples.metrics_commerce.roles.finance.label": "ఆర్థికం",
+  "examples.metrics_commerce.roles.marketing_ops.label": "మార్కెటింగ్ కార్యకలాపాలు"
+}

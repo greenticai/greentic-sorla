@@ -178,6 +178,86 @@ run_validation_pack_check() {
   trap - RETURN
 }
 
+yaml_package_field() {
+  local yaml_path="$1"
+  local field="$2"
+  FIELD="$field" perl -0ne '
+    if (/^package:\s*\n((?:[ \t]+.*\n)+)/m) {
+      my $field = $ENV{"FIELD"};
+      if ($1 =~ /^[ \t]+\Q$field\E:[ \t]*["'"'"']?([^"'"'"'\n#]+)["'"'"']?/m) {
+        my $value = $1;
+        $value =~ s/[ \t]+$//;
+        print "$value\n";
+      }
+    }
+  ' "$yaml_path"
+}
+
+run_all_gtpack_fixture_check() {
+  local tmp_dir
+  tmp_dir="$(mktemp -d -t greentic-sorla-all-gtpacks.XXXXXX)"
+  trap 'rm -rf "${tmp_dir}"' RETURN
+
+  local sorla_files=()
+  while IFS= read -r path; do
+    sorla_files+=("$path")
+  done < <(find examples packages -path '*/sorla.yaml' -type f | LC_ALL=C sort)
+
+  if [[ ${#sorla_files[@]} -eq 0 ]]; then
+    echo "ERROR: no example or package sorla.yaml files found" >&2
+    return 1
+  fi
+
+  local sorla_path name version safe_name pack_path inspect_path
+  for sorla_path in "${sorla_files[@]}"; do
+    name="$(yaml_package_field "$sorla_path" name)"
+    version="$(yaml_package_field "$sorla_path" version)"
+    if [[ -z "$name" || -z "$version" ]]; then
+      echo "ERROR: failed to resolve package name/version from ${sorla_path}" >&2
+      return 1
+    fi
+    safe_name="${name//[^A-Za-z0-9_.-]/_}"
+    pack_path="${tmp_dir}/${safe_name}.gtpack"
+    inspect_path="${tmp_dir}/${safe_name}.inspect.json"
+    run_cmd cargo run -p greentic-sorla -- pack "$sorla_path" \
+      --name "$name" \
+      --version "$version" \
+      --out "$pack_path"
+    run_cmd cargo run -p greentic-sorla -- pack doctor "$pack_path"
+    run_capture "$inspect_path" cargo run -p greentic-sorla -- pack inspect "$pack_path"
+  done
+
+  local answers_path answers_dir output_dir answers_copy pack_name pack_version
+  while IFS= read -r answers_path; do
+    answers_dir="$(dirname "$answers_path")"
+    if [[ -f "${answers_dir}/sorla.yaml" ]]; then
+      continue
+    fi
+    pack_name="$(jq -r '.package.name // empty' "$answers_path")"
+    pack_version="$(jq -r '.package.version // empty' "$answers_path")"
+    if [[ -z "$pack_name" || -z "$pack_version" ]]; then
+      echo "ERROR: failed to resolve package name/version from ${answers_path}" >&2
+      return 1
+    fi
+    safe_name="${pack_name//[^A-Za-z0-9_.-]/_}"
+    output_dir="${tmp_dir}/${safe_name}-workspace"
+    answers_copy="${tmp_dir}/${safe_name}.answers.json"
+    pack_path="${output_dir}/${safe_name}.gtpack"
+    inspect_path="${tmp_dir}/${safe_name}.answers.inspect.json"
+    mkdir -p "$output_dir"
+    jq --arg output_dir "$output_dir" '.output_dir = $output_dir' \
+      "$answers_path" > "$answers_copy"
+    run_cmd cargo run -p greentic-sorla -- wizard \
+      --answers "$answers_copy" \
+      --pack-out "${safe_name}.gtpack"
+    run_cmd cargo run -p greentic-sorla -- pack doctor "$pack_path"
+    run_capture "$inspect_path" cargo run -p greentic-sorla -- pack inspect "$pack_path"
+  done < <(find examples -path '*/answers.json' -type f | LC_ALL=C sort)
+
+  rm -rf "${tmp_dir}"
+  trap - RETURN
+}
+
 run_step "Environment and metadata pre-checks"
 if ! command -v cargo >/dev/null 2>&1; then
   echo "cargo is required but not installed" >&2
@@ -246,6 +326,9 @@ run_cmd cargo test --all-features
 
 run_step "Validation-enabled gtpack checks"
 run_validation_pack_check
+
+run_step "All example and package gtpack checks"
+run_all_gtpack_fixture_check
 
 run_step "Ontology handoff smoke"
 run_cmd bash scripts/e2e/ontology-handoff-smoke.sh

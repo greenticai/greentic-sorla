@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampanje-ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Fullførte bestillinger",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Konverteringsrate",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Daglige klikk",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Bruttomargin",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Månedlig kostnad",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Månedlig omsetning",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Besøksøkter",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Kampanje",
+  "examples.metrics_commerce.records.click.label": "Klikk",
+  "examples.metrics_commerce.records.cost_entry.label": "Kostnadsføring",
+  "examples.metrics_commerce.records.order.label": "Bestilling",
+  "examples.metrics_commerce.records.payment.label": "Betaling",
+  "examples.metrics_commerce.records.visitor.label": "Besøkende",
+  "examples.metrics_commerce.roles.admin.label": "Admin",
+  "examples.metrics_commerce.roles.analytics.label": "Analyse",
+  "examples.metrics_commerce.roles.finance.label": "Finans",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Markedsføringsdrift"
+}

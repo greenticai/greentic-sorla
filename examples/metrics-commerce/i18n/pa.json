@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ਮੁਹਿੰਮ ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "ਪੂਰੇ ਹੋਏ ਆਰਡਰ",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "ਰੂਪਾਂਤਰਨ ਦਰ",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "ਰੋਜ਼ਾਨਾ ਕਲਿੱਕ",
+  "examples.metrics_commerce.metrics.gross_margin.label": "ਕੁੱਲ ਮਾਰਜਿਨ",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "ਮਹੀਨਾਵਾਰ ਲਾਗਤ",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "ਮਹੀਨਾਵਾਰ ਆਮਦਨ",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "ਵਿਜ਼ਟਰ ਸੈਸ਼ਨ",
+  "examples.metrics_commerce.package.label": "ਮੈਟਰਿਕਸ ਕਾਮਰਸ",
+  "examples.metrics_commerce.records.campaign.label": "ਮੁਹਿੰਮ",
+  "examples.metrics_commerce.records.click.label": "ਕਲਿੱਕ",
+  "examples.metrics_commerce.records.cost_entry.label": "ਲਾਗਤ ਐਂਟਰੀ",
+  "examples.metrics_commerce.records.order.label": "ਆਰਡਰ",
+  "examples.metrics_commerce.records.payment.label": "ਭੁਗਤਾਨ",
+  "examples.metrics_commerce.records.visitor.label": "ਵਿਜ਼ਟਰ",
+  "examples.metrics_commerce.roles.admin.label": "ਐਡਮਿਨ",
+  "examples.metrics_commerce.roles.analytics.label": "ਵਿਸ਼ਲੇਸ਼ਣ",
+  "examples.metrics_commerce.roles.finance.label": "ਵਿੱਤ",
+  "examples.metrics_commerce.roles.marketing_ops.label": "ਮਾਰਕੀਟਿੰਗ ਕਾਰਜ"
+}

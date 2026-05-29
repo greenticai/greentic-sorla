@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampány ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Teljesített rendelések",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Konverziós arány",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Napi kattintások",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Bruttó árrés",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Havi költség",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Havi bevétel",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Látogatói munkamenetek",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Kampány",
+  "examples.metrics_commerce.records.click.label": "Kattintás",
+  "examples.metrics_commerce.records.cost_entry.label": "Költségbejegyzés",
+  "examples.metrics_commerce.records.order.label": "Rendelés",
+  "examples.metrics_commerce.records.payment.label": "Fizetés",
+  "examples.metrics_commerce.records.visitor.label": "Látogató",
+  "examples.metrics_commerce.roles.admin.label": "Adminisztráció",
+  "examples.metrics_commerce.roles.analytics.label": "Elemzés",
+  "examples.metrics_commerce.roles.finance.label": "Pénzügy",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Marketingműveletek"
+}

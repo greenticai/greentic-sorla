@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS Kampanye",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Pesanan Selesai",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Tingkat Konversi",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Klik Harian",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Margin Kotor",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Biaya Bulanan",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Pendapatan Bulanan",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Sesi Pengunjung",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Kampanye",
+  "examples.metrics_commerce.records.click.label": "Klik",
+  "examples.metrics_commerce.records.cost_entry.label": "Entri biaya",
+  "examples.metrics_commerce.records.order.label": "Pesanan",
+  "examples.metrics_commerce.records.payment.label": "Pembayaran",
+  "examples.metrics_commerce.records.visitor.label": "Pengunjung",
+  "examples.metrics_commerce.roles.admin.label": "Admin",
+  "examples.metrics_commerce.roles.analytics.label": "Analitik",
+  "examples.metrics_commerce.roles.finance.label": "Keuangan",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Operasi pemasaran"
+}

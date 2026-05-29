@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "Средство",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "Уговор",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "Клијент",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "Документ доказа",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "Обавеза",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "Страна",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "Добављач",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "Испуњава обавезу",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "Управља",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "Има уговор",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "Подржава",
+  "examples.ontology_business_sor.package.label": "Онтологија пословног SoR-а",
+  "examples.ontology_business_sor.roles.admin.label": "Administracija",
+  "examples.ontology_business_sor.roles.customer_ops.label": "Операције са клијентима",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "Менаџер доказа",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "Прегледач ризика"
+}

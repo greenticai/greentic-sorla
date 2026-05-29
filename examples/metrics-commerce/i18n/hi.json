@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "अभियान ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "पूर्ण किए गए ऑर्डर",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "रूपांतरण दर",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "दैनिक क्लिक",
+  "examples.metrics_commerce.metrics.gross_margin.label": "सकल मार्जिन",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "मासिक लागत",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "मासिक राजस्व",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "आगंतुक सत्र",
+  "examples.metrics_commerce.package.label": "मेट्रिक्स कॉमर्स",
+  "examples.metrics_commerce.records.campaign.label": "अभियान",
+  "examples.metrics_commerce.records.click.label": "क्लिक",
+  "examples.metrics_commerce.records.cost_entry.label": "लागत प्रविष्टि",
+  "examples.metrics_commerce.records.order.label": "ऑर्डर",
+  "examples.metrics_commerce.records.payment.label": "भुगतान",
+  "examples.metrics_commerce.records.visitor.label": "आगंतुक",
+  "examples.metrics_commerce.roles.admin.label": "एडमिन",
+  "examples.metrics_commerce.roles.analytics.label": "विश्लेषिकी",
+  "examples.metrics_commerce.roles.finance.label": "वित्त",
+  "examples.metrics_commerce.roles.marketing_ops.label": "मार्केटिंग संचालन"
+}

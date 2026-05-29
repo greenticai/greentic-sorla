@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "Mbaʼerepy",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "Ñoñeʼẽmeʼẽ",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "Ñemuhára",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "Kuatia techaukaha",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "Tembiaporã",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "Tapicha aty",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "Meʼẽhára",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "Omoañete tembiaporã",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "Oisãmbyhy",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "Oguereko ñoñeʼẽmeʼẽ",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "Oipytyvõ",
+  "examples.ontology_business_sor.package.label": "Ontology Business SoR",
+  "examples.ontology_business_sor.roles.admin.label": "Mboguataha",
+  "examples.ontology_business_sor.roles.customer_ops.label": "Ñemuhára rembiapo",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "Techaukaha mohendaha",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "Ñehesaʼỹijoha mbaʼe vai ikatúvare oiko"
+}

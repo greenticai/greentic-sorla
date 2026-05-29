@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "属性已更改",
+  "examples.designer_property_management.package.label": "设计器属性管理",
+  "examples.designer_property_management.projections.property_list.label": "属性列表",
+  "examples.designer_property_management.records.property.fields.address.label": "地址",
+  "examples.designer_property_management.records.property.fields.postcode.label": "邮政编码",
+  "examples.designer_property_management.records.property.fields.property_id.label": "属性 ID",
+  "examples.designer_property_management.records.property.label": "属性"
+}

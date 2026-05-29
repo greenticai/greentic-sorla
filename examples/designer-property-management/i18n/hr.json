@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Svojstvo promijenjeno",
+  "examples.designer_property_management.package.label": "Upravljanje svojstvima dizajnera",
+  "examples.designer_property_management.projections.property_list.label": "Popis svojstava",
+  "examples.designer_property_management.records.property.fields.address.label": "Adresa",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Poštanski broj",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID svojstva",
+  "examples.designer_property_management.records.property.label": "Svojstvo"
+}

@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ಪ್ರಚಾರ ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "ಪೂರ್ಣಗೊಂಡ ಆರ್ಡರ್‌ಗಳು",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "ಪರಿವರ್ತನೆ ದರ",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "ದೈನಂದಿನ ಕ್ಲಿಕ್‌ಗಳು",
+  "examples.metrics_commerce.metrics.gross_margin.label": "ಒಟ್ಟು ಮಾರ್ಜಿನ್",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "ಮಾಸಿಕ ವೆಚ್ಚ",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "ಮಾಸಿಕ ಆದಾಯ",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "ಸಂದರ್ಶಕರ ಸೆಷನ್‌ಗಳು",
+  "examples.metrics_commerce.package.label": "ಮೆಟ್ರಿಕ್ಸ್ ಕಾಮರ್ಸ್",
+  "examples.metrics_commerce.records.campaign.label": "ಪ್ರಚಾರ",
+  "examples.metrics_commerce.records.click.label": "ಕ್ಲಿಕ್",
+  "examples.metrics_commerce.records.cost_entry.label": "ವೆಚ್ಚ ನಮೂದು",
+  "examples.metrics_commerce.records.order.label": "ಆರ್ಡರ್",
+  "examples.metrics_commerce.records.payment.label": "ಪಾವತಿ",
+  "examples.metrics_commerce.records.visitor.label": "ಸಂದರ್ಶಕ",
+  "examples.metrics_commerce.roles.admin.label": "ನಿರ್ವಾಹಕ",
+  "examples.metrics_commerce.roles.analytics.label": "ವಿಶ್ಲೇಷಣೆ",
+  "examples.metrics_commerce.roles.finance.label": "ಹಣಕಾಸು",
+  "examples.metrics_commerce.roles.marketing_ops.label": "ಮಾರ್ಕೆಟಿಂಗ್ ಕಾರ್ಯಾಚರಣೆಗಳು"
+}

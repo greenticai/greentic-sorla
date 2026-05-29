@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "បានផ្លាស់ប្តូរអចលនទ្រព្យ",
+  "examples.designer_property_management.package.label": "ការគ្រប់គ្រងអចលនទ្រព្យរបស់អ្នករចនា",
+  "examples.designer_property_management.projections.property_list.label": "បញ្ជីអចលនទ្រព្យ",
+  "examples.designer_property_management.records.property.fields.address.label": "អាសយដ្ឋាន",
+  "examples.designer_property_management.records.property.fields.postcode.label": "លេខកូដប្រៃសណីយ៍",
+  "examples.designer_property_management.records.property.fields.property_id.label": "លេខសម្គាល់អចលនទ្រព្យ",
+  "examples.designer_property_management.records.property.label": "អចលនទ្រព្យ"
+}

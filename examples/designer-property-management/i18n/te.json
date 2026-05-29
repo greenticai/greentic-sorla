@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "ప్రాపర్టీ మార్చబడింది",
+  "examples.designer_property_management.package.label": "డిజైనర్ ప్రాపర్టీ నిర్వహణ",
+  "examples.designer_property_management.projections.property_list.label": "ప్రాపర్టీ జాబితా",
+  "examples.designer_property_management.records.property.fields.address.label": "చిరునామా",
+  "examples.designer_property_management.records.property.fields.postcode.label": "పోస్ట్‌కోడ్",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ప్రాపర్టీ ID",
+  "examples.designer_property_management.records.property.label": "ప్రాపర్టీ"
+}

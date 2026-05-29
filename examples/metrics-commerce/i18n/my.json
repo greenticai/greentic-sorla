@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ကမ်ပိန်း ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "ပြီးစီးသော အော်ဒါများ",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "ပြောင်းလဲမှုနှုန်း",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "နေ့စဉ် ကလစ်များ",
+  "examples.metrics_commerce.metrics.gross_margin.label": "စုစုပေါင်း အမြတ်အနား",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "လစဉ် ကုန်ကျစရိတ်",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "လစဉ် ဝင်ငွေ",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "လာရောက်သူ စက်ရှင်များ",
+  "examples.metrics_commerce.package.label": "မက်ထရစ် ကူးသန်းရောင်းဝယ်ရေး",
+  "examples.metrics_commerce.records.campaign.label": "ကမ်ပိန်း",
+  "examples.metrics_commerce.records.click.label": "ကလစ်",
+  "examples.metrics_commerce.records.cost_entry.label": "ကုန်ကျစရိတ် မှတ်တမ်း",
+  "examples.metrics_commerce.records.order.label": "အော်ဒါ",
+  "examples.metrics_commerce.records.payment.label": "ပေးချေမှု",
+  "examples.metrics_commerce.records.visitor.label": "လာရောက်သူ",
+  "examples.metrics_commerce.roles.admin.label": "စီမံခန့်ခွဲမှု",
+  "examples.metrics_commerce.roles.analytics.label": "ဒေတာခွဲခြမ်းစိတ်ဖြာမှု",
+  "examples.metrics_commerce.roles.finance.label": "ဘဏ္ဍာရေး",
+  "examples.metrics_commerce.roles.marketing_ops.label": "မားကတ်တင်း လုပ်ငန်းဆောင်ရွက်မှုများ"
+}

@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS на кампанията",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Завършени поръчки",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Коефициент на конверсия",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Дневни кликвания",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Брутен марж",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Месечни разходи",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Месечни приходи",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Сесии на посетители",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Кампания",
+  "examples.metrics_commerce.records.click.label": "Кликване",
+  "examples.metrics_commerce.records.cost_entry.label": "Запис за разход",
+  "examples.metrics_commerce.records.order.label": "Поръчка",
+  "examples.metrics_commerce.records.payment.label": "Плащане",
+  "examples.metrics_commerce.records.visitor.label": "Посетител",
+  "examples.metrics_commerce.roles.admin.label": "Администрация",
+  "examples.metrics_commerce.roles.analytics.label": "Анализи",
+  "examples.metrics_commerce.roles.finance.label": "Финанси",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Маркетингови операции"
+}

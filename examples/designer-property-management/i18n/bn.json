@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "সম্পত্তি পরিবর্তিত হয়েছে",
+  "examples.designer_property_management.package.label": "ডিজাইনার সম্পত্তি ব্যবস্থাপনা",
+  "examples.designer_property_management.projections.property_list.label": "সম্পত্তির তালিকা",
+  "examples.designer_property_management.records.property.fields.address.label": "ঠিকানা",
+  "examples.designer_property_management.records.property.fields.postcode.label": "পোস্টকোড",
+  "examples.designer_property_management.records.property.fields.property_id.label": "সম্পত্তি আইডি",
+  "examples.designer_property_management.records.property.label": "সম্পত্তি"
+}

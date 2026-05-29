@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS Kempen",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Pesanan Selesai",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Kadar Penukaran",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Klik Harian",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Margin Kasar",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Kos Bulanan",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Hasil Bulanan",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Sesi Pelawat",
+  "examples.metrics_commerce.package.label": "Perdagangan Metrik",
+  "examples.metrics_commerce.records.campaign.label": "Kempen",
+  "examples.metrics_commerce.records.click.label": "Klik",
+  "examples.metrics_commerce.records.cost_entry.label": "Entri kos",
+  "examples.metrics_commerce.records.order.label": "Pesanan",
+  "examples.metrics_commerce.records.payment.label": "Pembayaran",
+  "examples.metrics_commerce.records.visitor.label": "Pelawat",
+  "examples.metrics_commerce.roles.admin.label": "Pentadbir",
+  "examples.metrics_commerce.roles.analytics.label": "Analitik",
+  "examples.metrics_commerce.roles.finance.label": "Kewangan",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Operasi pemasaran"
+}

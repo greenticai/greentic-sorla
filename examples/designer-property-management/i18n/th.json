@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "คุณสมบัติเปลี่ยนแปลงแล้ว",
+  "examples.designer_property_management.package.label": "การจัดการคุณสมบัติของนักออกแบบ",
+  "examples.designer_property_management.projections.property_list.label": "รายการคุณสมบัติ",
+  "examples.designer_property_management.records.property.fields.address.label": "ที่อยู่",
+  "examples.designer_property_management.records.property.fields.postcode.label": "รหัสไปรษณีย์",
+  "examples.designer_property_management.records.property.fields.property_id.label": "รหัสคุณสมบัติ",
+  "examples.designer_property_management.records.property.label": "คุณสมบัติ"
+}

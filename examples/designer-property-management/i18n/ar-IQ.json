@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "تم تغيير العقار",
+  "examples.designer_property_management.package.label": "إدارة عقارات المصمم",
+  "examples.designer_property_management.projections.property_list.label": "قائمة العقارات",
+  "examples.designer_property_management.records.property.fields.address.label": "العنوان",
+  "examples.designer_property_management.records.property.fields.postcode.label": "الرمز البريدي",
+  "examples.designer_property_management.records.property.fields.property_id.label": "معرّف العقار",
+  "examples.designer_property_management.records.property.label": "العقار"
+}

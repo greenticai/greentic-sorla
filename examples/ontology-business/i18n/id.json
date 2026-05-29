@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "Aset",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "Kontrak",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "Pelanggan",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "Dokumen bukti",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "Kewajiban",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "Pihak",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "Pemasok",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "Memenuhi kewajiban",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "Mengatur",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "Memiliki kontrak",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "Mendukung",
+  "examples.ontology_business_sor.package.label": "Ontologi Business SoR",
+  "examples.ontology_business_sor.roles.admin.label": "Admin",
+  "examples.ontology_business_sor.roles.customer_ops.label": "Operasi pelanggan",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "Manajer bukti",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "Peninjau risiko"
+}

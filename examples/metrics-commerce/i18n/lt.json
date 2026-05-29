@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampanijos ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Įvykdyti užsakymai",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Konversijos rodiklis",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Dienos paspaudimai",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Bendroji marža",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Mėnesinės išlaidos",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Mėnesinės pajamos",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Lankytojų seansai",
+  "examples.metrics_commerce.package.label": "Komercijos metrikos",
+  "examples.metrics_commerce.records.campaign.label": "Kampanija",
+  "examples.metrics_commerce.records.click.label": "Paspaudimas",
+  "examples.metrics_commerce.records.cost_entry.label": "Išlaidų įrašas",
+  "examples.metrics_commerce.records.order.label": "Užsakymas",
+  "examples.metrics_commerce.records.payment.label": "Mokėjimas",
+  "examples.metrics_commerce.records.visitor.label": "Lankytojas",
+  "examples.metrics_commerce.roles.admin.label": "Administravimas",
+  "examples.metrics_commerce.roles.analytics.label": "Analitika",
+  "examples.metrics_commerce.roles.finance.label": "Finansai",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Rinkodaros operacijos"
+}

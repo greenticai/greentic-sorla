@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "சொத்து",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "ஒப்பந்தம்",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "வாடிக்கையாளர்",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "ஆதார ஆவணம்",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "கடமை",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "தரப்பு",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "வழங்குநர்",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "கடமையை நிறைவேற்றுகிறது",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "நிர்வகிக்கிறது",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "ஒப்பந்தம் உள்ளது",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "ஆதரிக்கிறது",
+  "examples.ontology_business_sor.package.label": "ஒன்டாலஜி வணிக SoR",
+  "examples.ontology_business_sor.roles.admin.label": "நிர்வாகம்",
+  "examples.ontology_business_sor.roles.customer_ops.label": "வாடிக்கையாளர் செயல்பாடுகள்",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "ஆதார மேலாளர்",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "ஆபத்து மதிப்பாய்வாளர்"
+}

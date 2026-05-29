@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampanya ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Tamamlanan Siparişler",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Dönüşüm Oranı",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Günlük Tıklamalar",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Brüt Marj",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Aylık Maliyet",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Aylık Gelir",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Ziyaretçi Oturumları",
+  "examples.metrics_commerce.package.label": "Metrik Ticaret",
+  "examples.metrics_commerce.records.campaign.label": "Kampanya",
+  "examples.metrics_commerce.records.click.label": "Tıklama",
+  "examples.metrics_commerce.records.cost_entry.label": "Maliyet kaydı",
+  "examples.metrics_commerce.records.order.label": "Sipariş",
+  "examples.metrics_commerce.records.payment.label": "Ödeme",
+  "examples.metrics_commerce.records.visitor.label": "Ziyaretçi",
+  "examples.metrics_commerce.roles.admin.label": "Yönetici",
+  "examples.metrics_commerce.roles.analytics.label": "Analitik",
+  "examples.metrics_commerce.roles.finance.label": "Finans",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Pazarlama operasyonları"
+}

@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Właściwość zmieniona",
+  "examples.designer_property_management.package.label": "Zarządzanie właściwościami projektanta",
+  "examples.designer_property_management.projections.property_list.label": "Lista właściwości",
+  "examples.designer_property_management.records.property.fields.address.label": "Adres",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Kod pocztowy",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID właściwości",
+  "examples.designer_property_management.records.property.label": "Właściwość"
+}

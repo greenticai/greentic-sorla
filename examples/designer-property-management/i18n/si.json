@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "දේපළ වෙනස් විය",
+  "examples.designer_property_management.package.label": "නිර්මාණකරු දේපළ කළමනාකරණය",
+  "examples.designer_property_management.projections.property_list.label": "දේපළ ලැයිස්තුව",
+  "examples.designer_property_management.records.property.fields.address.label": "ලිපිනය",
+  "examples.designer_property_management.records.property.fields.postcode.label": "තැපැල් කේතය",
+  "examples.designer_property_management.records.property.fields.property_id.label": "දේපළ හැඳුනුම්පත",
+  "examples.designer_property_management.records.property.label": "දේපළ"
+}

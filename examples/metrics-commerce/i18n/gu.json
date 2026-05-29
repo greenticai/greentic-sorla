@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ઝુંબેશ ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "પૂર્ણ થયેલા ઓર્ડર",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "રૂપાંતરણ દર",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "દૈનિક ક્લિક્સ",
+  "examples.metrics_commerce.metrics.gross_margin.label": "કુલ માર્જિન",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "માસિક ખર્ચ",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "માસિક આવક",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "મુલાકાતી સત્રો",
+  "examples.metrics_commerce.package.label": "મેટ્રિક્સ કોમર્સ",
+  "examples.metrics_commerce.records.campaign.label": "ઝુંબેશ",
+  "examples.metrics_commerce.records.click.label": "ક્લિક",
+  "examples.metrics_commerce.records.cost_entry.label": "ખર્ચ એન્ટ્રી",
+  "examples.metrics_commerce.records.order.label": "ઓર્ડર",
+  "examples.metrics_commerce.records.payment.label": "ચુકવણી",
+  "examples.metrics_commerce.records.visitor.label": "મુલાકાતી",
+  "examples.metrics_commerce.roles.admin.label": "એડમિન",
+  "examples.metrics_commerce.roles.analytics.label": "વિશ્લેષણ",
+  "examples.metrics_commerce.roles.finance.label": "નાણાં",
+  "examples.metrics_commerce.roles.marketing_ops.label": "માર્કેટિંગ કામગીરી"
+}

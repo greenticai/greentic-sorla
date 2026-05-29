@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS campanie",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Comenzi finalizate",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Rată de conversie",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Clicuri zilnice",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Marjă brută",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Cost lunar",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Venit lunar",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Sesiuni ale vizitatorilor",
+  "examples.metrics_commerce.package.label": "Comerț metrici",
+  "examples.metrics_commerce.records.campaign.label": "Campanie",
+  "examples.metrics_commerce.records.click.label": "Clic",
+  "examples.metrics_commerce.records.cost_entry.label": "Înregistrare cost",
+  "examples.metrics_commerce.records.order.label": "Comandă",
+  "examples.metrics_commerce.records.payment.label": "Plată",
+  "examples.metrics_commerce.records.visitor.label": "Vizitator",
+  "examples.metrics_commerce.roles.admin.label": "Administrare",
+  "examples.metrics_commerce.roles.analytics.label": "Analitică",
+  "examples.metrics_commerce.roles.finance.label": "Finanțe",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Operațiuni de marketing"
+}

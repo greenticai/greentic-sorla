@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Thuộc tính đã thay đổi",
+  "examples.designer_property_management.package.label": "Quản lý thuộc tính Designer",
+  "examples.designer_property_management.projections.property_list.label": "Danh sách thuộc tính",
+  "examples.designer_property_management.records.property.fields.address.label": "Địa chỉ",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Mã bưu chính",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID thuộc tính",
+  "examples.designer_property_management.records.property.label": "Thuộc tính"
+}

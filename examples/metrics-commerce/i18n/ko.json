@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "캠페인 ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "완료된 주문",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "전환율",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "일일 클릭 수",
+  "examples.metrics_commerce.metrics.gross_margin.label": "매출총이익률",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "월간 비용",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "월간 매출",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "방문자 세션",
+  "examples.metrics_commerce.package.label": "메트릭스 커머스",
+  "examples.metrics_commerce.records.campaign.label": "캠페인",
+  "examples.metrics_commerce.records.click.label": "클릭",
+  "examples.metrics_commerce.records.cost_entry.label": "비용 항목",
+  "examples.metrics_commerce.records.order.label": "주문",
+  "examples.metrics_commerce.records.payment.label": "결제",
+  "examples.metrics_commerce.records.visitor.label": "방문자",
+  "examples.metrics_commerce.roles.admin.label": "관리자",
+  "examples.metrics_commerce.roles.analytics.label": "분석",
+  "examples.metrics_commerce.roles.finance.label": "재무",
+  "examples.metrics_commerce.roles.marketing_ops.label": "마케팅 운영"
+}

@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Имотът е променен",
+  "examples.designer_property_management.package.label": "Управление на имоти в Designer",
+  "examples.designer_property_management.projections.property_list.label": "Списък с имоти",
+  "examples.designer_property_management.records.property.fields.address.label": "Адрес",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Пощенски код",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID на имот",
+  "examples.designer_property_management.records.property.label": "Имот"
+}

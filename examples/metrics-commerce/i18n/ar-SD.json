@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "عائد الإنفاق الإعلاني للحملة",
+  "examples.metrics_commerce.metrics.completed_orders.label": "الطلبات المكتملة",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "معدل التحويل",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "النقرات اليومية",
+  "examples.metrics_commerce.metrics.gross_margin.label": "هامش الربح الإجمالي",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "التكلفة الشهرية",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "الإيرادات الشهرية",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "جلسات الزوار",
+  "examples.metrics_commerce.package.label": "تجارة المقاييس",
+  "examples.metrics_commerce.records.campaign.label": "الحملة",
+  "examples.metrics_commerce.records.click.label": "نقرة",
+  "examples.metrics_commerce.records.cost_entry.label": "إدخال التكلفة",
+  "examples.metrics_commerce.records.order.label": "الطلب",
+  "examples.metrics_commerce.records.payment.label": "دفع",
+  "examples.metrics_commerce.records.visitor.label": "زائر",
+  "examples.metrics_commerce.roles.admin.label": "الإدارة",
+  "examples.metrics_commerce.roles.analytics.label": "التحليلات",
+  "examples.metrics_commerce.roles.finance.label": "المالية",
+  "examples.metrics_commerce.roles.marketing_ops.label": "عمليات التسويق"
+}
