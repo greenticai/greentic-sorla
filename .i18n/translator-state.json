@@ -18911,6 +18911,48 @@
           "engine": "codex-cli",
           "timestamp_epoch_secs": 1779528322
         },
+        "examples.designer_property_management.events.property_changed.label": {
+          "last_english_hash": "fc828e4e797f27601ddb7be339a7e41ffbdb900ac6c43b1848ff01589178d970",
+          "last_bot_translation_hash": "fc828e4e797f27601ddb7be339a7e41ffbdb900ac6c43b1848ff01589178d970",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.package.label": {
+          "last_english_hash": "e0f451c1f5ea562c46adf6902fa5cbfede7498e51016cdff02518c00e37e238c",
+          "last_bot_translation_hash": "e0f451c1f5ea562c46adf6902fa5cbfede7498e51016cdff02518c00e37e238c",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.projections.property_list.label": {
+          "last_english_hash": "6487a52fa35ed1bde86643c18b2c8aec25d8ec226cadfecc57e6a1d7786aa9c9",
+          "last_bot_translation_hash": "6487a52fa35ed1bde86643c18b2c8aec25d8ec226cadfecc57e6a1d7786aa9c9",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.records.property.fields.address.label": {
+          "last_english_hash": "38f692a7a965b0880e0e4492c17224768573682b68b5f81eab4ad4fe1c382518",
+          "last_bot_translation_hash": "38f692a7a965b0880e0e4492c17224768573682b68b5f81eab4ad4fe1c382518",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.records.property.fields.postcode.label": {
+          "last_english_hash": "01feb838f17131c1ea938f1d2aab18a7c4511b9ead8e2d928767f740f6c4a706",
+          "last_bot_translation_hash": "01feb838f17131c1ea938f1d2aab18a7c4511b9ead8e2d928767f740f6c4a706",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.records.property.fields.property_id.label": {
+          "last_english_hash": "c547cbe28ef5f39c9cfe24d384241cab244b44b4d53f5e786fe80ba25c5db158",
+          "last_bot_translation_hash": "c547cbe28ef5f39c9cfe24d384241cab244b44b4d53f5e786fe80ba25c5db158",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.records.property.label": {
+          "last_english_hash": "b257a6182520d10c553f8c41a00104d6f1399af099725705fa0824eb1717638e",
+          "last_bot_translation_hash": "b257a6182520d10c553f8c41a00104d6f1399af099725705fa0824eb1717638e",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
         "prompt.assistant.adjusted_draft": {
           "last_english_hash": "299ee590b4c9bc5a47f8ed63206f2481bbaf6d12a4b534c73bf73b362e582979",
           "last_bot_translation_hash": "299ee590b4c9bc5a47f8ed63206f2481bbaf6d12a4b534c73bf73b362e582979",
@@ -21102,6 +21144,48 @@
           "last_bot_translation_hash": "624f43809f0b9acf02ccaeeadd9fae46456bd9c8a6076ef9fd5cd56fc148448b",
           "engine": "codex-cli",
           "timestamp_epoch_secs": 1779528416
+        },
+        "examples.designer_property_management.events.property_changed.label": {
+          "last_english_hash": "fc828e4e797f27601ddb7be339a7e41ffbdb900ac6c43b1848ff01589178d970",
+          "last_bot_translation_hash": "87323a6bd046fc03d8bbb806ba36b6d49d37ab1f1fd5412a5fa56bdae795018a",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.package.label": {
+          "last_english_hash": "e0f451c1f5ea562c46adf6902fa5cbfede7498e51016cdff02518c00e37e238c",
+          "last_bot_translation_hash": "4b6b8c9fef0f5d495e9b7a7e3e808594b4edaf89e3ebc26a7d5100e24b1ddc77",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.projections.property_list.label": {
+          "last_english_hash": "6487a52fa35ed1bde86643c18b2c8aec25d8ec226cadfecc57e6a1d7786aa9c9",
+          "last_bot_translation_hash": "aab1308afaa9c9435786fec3eb9f4275a0e8515719c7f235e9c01e0b7d6ef198",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.records.property.fields.address.label": {
+          "last_english_hash": "38f692a7a965b0880e0e4492c17224768573682b68b5f81eab4ad4fe1c382518",
+          "last_bot_translation_hash": "14654f4b8111237e9c4b42b1fcb8a1954e33f521fce8ff779b4e6709e979f7a7",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.records.property.fields.postcode.label": {
+          "last_english_hash": "01feb838f17131c1ea938f1d2aab18a7c4511b9ead8e2d928767f740f6c4a706",
+          "last_bot_translation_hash": "d57b63529bdae648015d05521eaf2a6ce2325ac01be7b02c4b269ea3ab07f2ef",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.records.property.fields.property_id.label": {
+          "last_english_hash": "c547cbe28ef5f39c9cfe24d384241cab244b44b4d53f5e786fe80ba25c5db158",
+          "last_bot_translation_hash": "a8fb817978c81aa864143821cc16aea287fd52549328d7f7c830e1b844ea7eed",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
+        },
+        "examples.designer_property_management.records.property.label": {
+          "last_english_hash": "b257a6182520d10c553f8c41a00104d6f1399af099725705fa0824eb1717638e",
+          "last_bot_translation_hash": "be80d1f6552dc8856127892f710e739e2161552fe2737b9e3208957b8db527fb",
+          "engine": "codex-cli",
+          "timestamp_epoch_secs": 1779991037
         },
         "prompt.assistant.adjusted_draft": {
           "last_english_hash": "299ee590b4c9bc5a47f8ed63206f2481bbaf6d12a4b534c73bf73b362e582979",

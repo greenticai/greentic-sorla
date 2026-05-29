@@ -31,6 +31,11 @@ use greentic_sorla_ir::{
     lower_package,
 };
 use greentic_sorla_lang::parser::parse_package;
+#[cfg(feature = "pack-zip")]
+use greentic_types::{
+    ExtensionInline, ExtensionRef, PackId, PackKind as GreenticPackKind,
+    PackManifest as GreenticPackManifest, PackSignatures, encode_pack_manifest,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1672,8 +1677,9 @@ fn build_sorla_gtpack_from_artifacts(
         assets: sorx_visible_manifest_assets(&asset_paths),
     };
     let pack_cbor = canonical_cbor(&manifest);
+    let greentic_manifest_cbor = greentic_pack_manifest_cbor(options, &manifest)?;
     entries.insert("pack.cbor".to_string(), pack_cbor.clone());
-    entries.insert("manifest.cbor".to_string(), pack_cbor.clone());
+    entries.insert("manifest.cbor".to_string(), greentic_manifest_cbor);
     entries.insert(
         "manifest.json".to_string(),
         serde_json::to_string_pretty(&manifest)
@@ -1685,6 +1691,7 @@ fn build_sorla_gtpack_from_artifacts(
     entries.insert("pack.lock.cbor".to_string(), lock_bytes);
 
     write_zip_entries(&options.out_path, entries)?;
+    verify_with_greentic_pack_lib(&options.out_path)?;
 
     Ok(SorlaGtpackBuildSummary {
         out_path: options.out_path.display().to_string(),
@@ -2382,6 +2389,65 @@ fn pack_lock_for_entries(entries: &BTreeMap<String, Vec<u8>>) -> SorlaPackLock {
 fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(feature = "pack-zip")]
+fn greentic_pack_manifest_cbor(
+    options: &SorlaGtpackOptions,
+    sorla_manifest: &SorlaPackManifest,
+) -> Result<Vec<u8>, String> {
+    let pack_id = PackId::new(&options.name)
+        .map_err(|err| format!("invalid Greentic pack id `{}`: {err}", options.name))?;
+    let version = semver::Version::parse(&options.version)
+        .map_err(|err| format!("invalid Greentic pack version `{}`: {err}", options.version))?;
+    let mut extensions = BTreeMap::new();
+    extensions.insert(
+        "greentic.sorla.gtpack.v1".to_string(),
+        ExtensionRef {
+            kind: "greentic.sorla.gtpack.v1".to_string(),
+            version: "1".to_string(),
+            digest: None,
+            location: None,
+            inline: Some(ExtensionInline::Other(serde_json::json!({
+                "compat_manifest": "pack.cbor",
+                "compat_manifest_schema": sorla_manifest.schema,
+                "lock": "pack.lock.cbor",
+                "assets": sorla_manifest.assets,
+            }))),
+        },
+    );
+
+    let manifest = GreenticPackManifest {
+        schema_version: "pack-v1".to_string(),
+        pack_id,
+        name: Some(options.name.clone()),
+        version,
+        kind: GreenticPackKind::Application,
+        publisher: "greentic-sorla".to_string(),
+        components: Vec::new(),
+        flows: Vec::new(),
+        dependencies: Vec::new(),
+        capabilities: Vec::new(),
+        secret_requirements: Vec::new(),
+        signatures: PackSignatures::default(),
+        bootstrap: None,
+        extensions: Some(extensions),
+    };
+    encode_pack_manifest(&manifest)
+        .map_err(|err| format!("failed to encode Greentic pack manifest: {err}"))
+}
+
+#[cfg(feature = "pack-zip")]
+fn verify_with_greentic_pack_lib(path: &Path) -> Result<(), String> {
+    greentic_pack::open_pack(path, greentic_pack::SigningPolicy::DevOk)
+        .map(|_| ())
+        .map_err(|err| {
+            format!(
+                "greentic-pack-lib rejected generated gtpack {}: {}",
+                path.display(),
+                err.message
+            )
+        })
 }
 
 #[cfg(feature = "pack-zip")]
@@ -7665,7 +7731,7 @@ agent_endpoints:
         .expect("pack builds");
 
         rewrite_gtpack(&out, |path, bytes| {
-            if path == "pack.cbor" || path == "manifest.cbor" {
+            if path == "pack.cbor" {
                 let mut manifest: SorlaPackManifest =
                     ciborium::de::from_reader(Cursor::new(bytes.clone()))
                         .expect("manifest decodes");
