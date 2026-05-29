@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS ຂອງແຄມເປນ",
+  "examples.metrics_commerce.metrics.completed_orders.label": "ຄໍາສັ່ງຊື້ທີ່ສໍາເລັດແລ້ວ",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "ອັດຕາການປ່ຽນເປັນລູກຄ້າ",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "ການຄລິກລາຍວັນ",
+  "examples.metrics_commerce.metrics.gross_margin.label": "ກໍາໄລຂັ້ນຕົ້ນ",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "ຄ່າໃຊ້ຈ່າຍລາຍເດືອນ",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "ລາຍຮັບລາຍເດືອນ",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "ເຊສຊັນຂອງຜູ້ເຂົ້າຊົມ",
+  "examples.metrics_commerce.package.label": "ການຄ້າດ້ານເມຕຣິກ",
+  "examples.metrics_commerce.records.campaign.label": "ແຄມເປນ",
+  "examples.metrics_commerce.records.click.label": "ການຄລິກ",
+  "examples.metrics_commerce.records.cost_entry.label": "ລາຍການຄ່າໃຊ້ຈ່າຍ",
+  "examples.metrics_commerce.records.order.label": "ຄໍາສັ່ງຊື້",
+  "examples.metrics_commerce.records.payment.label": "ການຊຳລະເງິນ",
+  "examples.metrics_commerce.records.visitor.label": "ຜູ້ເຂົ້າຊົມ",
+  "examples.metrics_commerce.roles.admin.label": "ຜູ້ດູແລ",
+  "examples.metrics_commerce.roles.analytics.label": "ການວິເຄາະ",
+  "examples.metrics_commerce.roles.finance.label": "ການເງິນ",
+  "examples.metrics_commerce.roles.marketing_ops.label": "ການດໍາເນີນງານການຕະຫຼາດ"
+}

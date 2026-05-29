@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "ຄຸນສົມບັດຖືກປ່ຽນແປງ",
+  "examples.designer_property_management.package.label": "ການຈັດການຄຸນສົມບັດຂອງນັກອອກແບບ",
+  "examples.designer_property_management.projections.property_list.label": "ລາຍການຄຸນສົມບັດ",
+  "examples.designer_property_management.records.property.fields.address.label": "ທີ່ຢູ່",
+  "examples.designer_property_management.records.property.fields.postcode.label": "ລະຫັດໄປສະນີ",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ລະຫັດຄຸນສົມບັດ",
+  "examples.designer_property_management.records.property.label": "ຄຸນສົມບັດ"
+}

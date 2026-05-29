@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Eiendom endret",
+  "examples.designer_property_management.package.label": "Designer eiendomsforvaltning",
+  "examples.designer_property_management.projections.property_list.label": "Eiendomsliste",
+  "examples.designer_property_management.records.property.fields.address.label": "Adresse",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Postnummer",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Eiendoms-ID",
+  "examples.designer_property_management.records.property.label": "Eiendom"
+}

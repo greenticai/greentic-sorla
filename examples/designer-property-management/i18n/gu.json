@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "મિલકત બદલાઈ",
+  "examples.designer_property_management.package.label": "ડિઝાઇનર મિલકત વ્યવસ્થાપન",
+  "examples.designer_property_management.projections.property_list.label": "મિલકત યાદી",
+  "examples.designer_property_management.records.property.fields.address.label": "સરનામું",
+  "examples.designer_property_management.records.property.fields.postcode.label": "પોસ્ટકોડ",
+  "examples.designer_property_management.records.property.fields.property_id.label": "મિલકત ID",
+  "examples.designer_property_management.records.property.label": "મિલકત"
+}

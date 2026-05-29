@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Proprietate modificată",
+  "examples.designer_property_management.package.label": "Gestionarea proprietăților designerului",
+  "examples.designer_property_management.projections.property_list.label": "Listă de proprietăți",
+  "examples.designer_property_management.records.property.fields.address.label": "Adresă",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Cod poștal",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID proprietate",
+  "examples.designer_property_management.records.property.label": "Proprietate"
+}

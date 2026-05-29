@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Campaña ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Tlanahuatilmej Tlamiltilmej",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Tlaixpatlaliztli Ipan",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Mojmostla Clics",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Nochi Tlen Mocahua",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Metztli Ipan Tlaxtlahuili",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Metztli Ipan Tomin Kalaki",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Tlajpalojkej Sesiones",
+  "examples.metrics_commerce.package.label": "Tlapohualiztli Tlanamacoyotl",
+  "examples.metrics_commerce.records.campaign.label": "Campaña",
+  "examples.metrics_commerce.records.click.label": "Click",
+  "examples.metrics_commerce.records.cost_entry.label": "Tlaxtlahuili Tlajkuiloli",
+  "examples.metrics_commerce.records.order.label": "Tlanahuatili",
+  "examples.metrics_commerce.records.payment.label": "Tlaxtlahuiliztli",
+  "examples.metrics_commerce.records.visitor.label": "Tlajpalojketl",
+  "examples.metrics_commerce.roles.admin.label": "Admin",
+  "examples.metrics_commerce.roles.analytics.label": "Tlatemoliztli",
+  "examples.metrics_commerce.roles.finance.label": "Tomintlatequitl",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Tianquiztli Tekiyotl"
+}

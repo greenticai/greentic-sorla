@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampaņas ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Pabeigtie pasūtījumi",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Konversijas līmenis",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Dienas klikšķi",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Bruto peļņas norma",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Mēneša izmaksas",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Mēneša ieņēmumi",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Apmeklētāju sesijas",
+  "examples.metrics_commerce.package.label": "Metriku komercija",
+  "examples.metrics_commerce.records.campaign.label": "Kampaņa",
+  "examples.metrics_commerce.records.click.label": "Klikšķis",
+  "examples.metrics_commerce.records.cost_entry.label": "Izmaksu ieraksts",
+  "examples.metrics_commerce.records.order.label": "Pasūtījums",
+  "examples.metrics_commerce.records.payment.label": "Maksājums",
+  "examples.metrics_commerce.records.visitor.label": "Apmeklētājs",
+  "examples.metrics_commerce.roles.admin.label": "Administrēšana",
+  "examples.metrics_commerce.roles.analytics.label": "Analītika",
+  "examples.metrics_commerce.roles.finance.label": "Finanses",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Mārketinga operācijas"
+}

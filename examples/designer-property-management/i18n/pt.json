@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Propriedade alterada",
+  "examples.designer_property_management.package.label": "Gestão de Propriedades do Designer",
+  "examples.designer_property_management.projections.property_list.label": "Lista de propriedades",
+  "examples.designer_property_management.records.property.fields.address.label": "Endereço",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Código postal",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID da propriedade",
+  "examples.designer_property_management.records.property.label": "Propriedade"
+}

@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Eigenschaft geändert",
+  "examples.designer_property_management.package.label": "Designer-Eigenschaftsverwaltung",
+  "examples.designer_property_management.projections.property_list.label": "Eigenschaftsliste",
+  "examples.designer_property_management.records.property.fields.address.label": "Adresse",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Postleitzahl",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Eigenschafts-ID",
+  "examples.designer_property_management.records.property.label": "Eigenschaft"
+}

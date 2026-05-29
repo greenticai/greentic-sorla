@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampanj-ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Slutförda beställningar",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Konverteringsgrad",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Dagliga klick",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Bruttomarginal",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Månadskostnad",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Månadsintäkt",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Besökarsessioner",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Kampanj",
+  "examples.metrics_commerce.records.click.label": "Klick",
+  "examples.metrics_commerce.records.cost_entry.label": "Kostnadspost",
+  "examples.metrics_commerce.records.order.label": "Beställning",
+  "examples.metrics_commerce.records.payment.label": "Betalning",
+  "examples.metrics_commerce.records.visitor.label": "Besökare",
+  "examples.metrics_commerce.roles.admin.label": "Admin",
+  "examples.metrics_commerce.roles.analytics.label": "Analys",
+  "examples.metrics_commerce.roles.finance.label": "Ekonomi",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Marknadsföringsverksamhet"
+}

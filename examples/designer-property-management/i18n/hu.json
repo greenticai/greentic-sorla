@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Tulajdonság módosult",
+  "examples.designer_property_management.package.label": "Tervezői tulajdonságkezelés",
+  "examples.designer_property_management.projections.property_list.label": "Tulajdonságlista",
+  "examples.designer_property_management.records.property.fields.address.label": "Cím",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Irányítószám",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Tulajdonságazonosító",
+  "examples.designer_property_management.records.property.label": "Tulajdonság"
+}

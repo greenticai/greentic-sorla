@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "പ്രോപ്പർട്ടി മാറ്റി",
+  "examples.designer_property_management.package.label": "ഡിസൈനർ പ്രോപ്പർട്ടി മാനേജ്മെന്റ്",
+  "examples.designer_property_management.projections.property_list.label": "പ്രോപ്പർട്ടി പട്ടിക",
+  "examples.designer_property_management.records.property.fields.address.label": "വിലാസം",
+  "examples.designer_property_management.records.property.fields.postcode.label": "പോസ്റ്റ്‌കോഡ്",
+  "examples.designer_property_management.records.property.fields.property_id.label": "പ്രോപ്പർട്ടി ID",
+  "examples.designer_property_management.records.property.label": "പ്രോപ്പർട്ടി"
+}

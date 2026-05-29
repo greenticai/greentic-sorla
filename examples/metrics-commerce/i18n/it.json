@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS della campagna",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Ordini completati",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Tasso di conversione",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Clic giornalieri",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Margine lordo",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Costo mensile",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Ricavi mensili",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Sessioni dei visitatori",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Campagna",
+  "examples.metrics_commerce.records.click.label": "Clic",
+  "examples.metrics_commerce.records.cost_entry.label": "Voce di costo",
+  "examples.metrics_commerce.records.order.label": "Ordine",
+  "examples.metrics_commerce.records.payment.label": "Pagamento",
+  "examples.metrics_commerce.records.visitor.label": "Visitatore",
+  "examples.metrics_commerce.roles.admin.label": "Admin",
+  "examples.metrics_commerce.roles.analytics.label": "Analisi",
+  "examples.metrics_commerce.roles.finance.label": "Finanza",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Operazioni di marketing"
+}

@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS chiến dịch",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Đơn hàng đã hoàn tất",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Tỷ lệ chuyển đổi",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Lượt nhấp hằng ngày",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Biên lợi nhuận gộp",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Chi phí hằng tháng",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Doanh thu hằng tháng",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Phiên truy cập của khách",
+  "examples.metrics_commerce.package.label": "Thương mại chỉ số",
+  "examples.metrics_commerce.records.campaign.label": "Chiến dịch",
+  "examples.metrics_commerce.records.click.label": "Lượt nhấp",
+  "examples.metrics_commerce.records.cost_entry.label": "Mục chi phí",
+  "examples.metrics_commerce.records.order.label": "Đơn hàng",
+  "examples.metrics_commerce.records.payment.label": "Thanh toán",
+  "examples.metrics_commerce.records.visitor.label": "Khách truy cập",
+  "examples.metrics_commerce.roles.admin.label": "Quản trị",
+  "examples.metrics_commerce.roles.analytics.label": "Phân tích",
+  "examples.metrics_commerce.roles.finance.label": "Tài chính",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Vận hành tiếp thị"
+}

@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Nuosavybė pakeista",
+  "examples.designer_property_management.package.label": "Dizainerio nuosavybės valdymas",
+  "examples.designer_property_management.projections.property_list.label": "Nuosavybių sąrašas",
+  "examples.designer_property_management.records.property.fields.address.label": "Adresas",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Pašto kodas",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Nuosavybės ID",
+  "examples.designer_property_management.records.property.label": "Nuosavybė"
+}

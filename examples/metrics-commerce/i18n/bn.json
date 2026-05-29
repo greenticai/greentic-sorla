@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ক্যাম্পেইন ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "সম্পন্ন অর্ডার",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "কনভার্শন রেট",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "দৈনিক ক্লিক",
+  "examples.metrics_commerce.metrics.gross_margin.label": "মোট মার্জিন",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "মাসিক খরচ",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "মাসিক আয়",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "ভিজিটর সেশন",
+  "examples.metrics_commerce.package.label": "মেট্রিক্স কমার্স",
+  "examples.metrics_commerce.records.campaign.label": "ক্যাম্পেইন",
+  "examples.metrics_commerce.records.click.label": "ক্লিক",
+  "examples.metrics_commerce.records.cost_entry.label": "খরচের এন্ট্রি",
+  "examples.metrics_commerce.records.order.label": "অর্ডার",
+  "examples.metrics_commerce.records.payment.label": "পরিশোধ",
+  "examples.metrics_commerce.records.visitor.label": "ভিজিটর",
+  "examples.metrics_commerce.roles.admin.label": "অ্যাডমিন",
+  "examples.metrics_commerce.roles.analytics.label": "অ্যানালিটিক্স",
+  "examples.metrics_commerce.roles.finance.label": "অর্থ বিভাগ",
+  "examples.metrics_commerce.roles.marketing_ops.label": "মার্কেটিং অপারেশনস"
+}

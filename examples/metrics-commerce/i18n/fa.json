@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "بازگشت هزینه تبلیغات کمپین",
+  "examples.metrics_commerce.metrics.completed_orders.label": "سفارش‌های تکمیل‌شده",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "نرخ تبدیل",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "کلیک‌های روزانه",
+  "examples.metrics_commerce.metrics.gross_margin.label": "حاشیه سود ناخالص",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "هزینه ماهانه",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "درآمد ماهانه",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "نشست‌های بازدیدکننده",
+  "examples.metrics_commerce.package.label": "تجارت شاخص‌ها",
+  "examples.metrics_commerce.records.campaign.label": "کمپین",
+  "examples.metrics_commerce.records.click.label": "کلیک",
+  "examples.metrics_commerce.records.cost_entry.label": "ورودی هزینه",
+  "examples.metrics_commerce.records.order.label": "سفارش",
+  "examples.metrics_commerce.records.payment.label": "پرداخت",
+  "examples.metrics_commerce.records.visitor.label": "بازدیدکننده",
+  "examples.metrics_commerce.roles.admin.label": "مدیریت",
+  "examples.metrics_commerce.roles.analytics.label": "تحلیل‌گری",
+  "examples.metrics_commerce.roles.finance.label": "مالی",
+  "examples.metrics_commerce.roles.marketing_ops.label": "عملیات بازاریابی"
+}

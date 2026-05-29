@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Properti diubah",
+  "examples.designer_property_management.package.label": "Manajemen Properti Desainer",
+  "examples.designer_property_management.projections.property_list.label": "Daftar properti",
+  "examples.designer_property_management.records.property.fields.address.label": "Alamat",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Kode pos",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID properti",
+  "examples.designer_property_management.records.property.label": "Properti"
+}

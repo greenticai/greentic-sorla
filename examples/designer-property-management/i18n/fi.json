@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Kiinteistö muutettu",
+  "examples.designer_property_management.package.label": "Suunnittelijan kiinteistönhallinta",
+  "examples.designer_property_management.projections.property_list.label": "Kiinteistöluettelo",
+  "examples.designer_property_management.records.property.fields.address.label": "Osoite",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Postinumero",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Kiinteistön tunnus",
+  "examples.designer_property_management.records.property.label": "Kiinteistö"
+}

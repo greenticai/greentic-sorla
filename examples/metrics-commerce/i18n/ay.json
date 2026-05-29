@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Campaña ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Phuqhat mayiwinaka",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Mayjt'awi tasa",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Sapa uru ch'iqt'awinaka",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Taqpach margen",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Phaxsi chanipa",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Phaxsi qullqi mantawi",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Tumpirinakan sesiones",
+  "examples.metrics_commerce.package.label": "Comercio métricas",
+  "examples.metrics_commerce.records.campaign.label": "Campaña",
+  "examples.metrics_commerce.records.click.label": "Ch'iqt'awi",
+  "examples.metrics_commerce.records.cost_entry.label": "Chani qillqawi",
+  "examples.metrics_commerce.records.order.label": "Mayiwi",
+  "examples.metrics_commerce.records.payment.label": "Payllawi",
+  "examples.metrics_commerce.records.visitor.label": "Tumpiri",
+  "examples.metrics_commerce.roles.admin.label": "Admin",
+  "examples.metrics_commerce.roles.analytics.label": "Análisis",
+  "examples.metrics_commerce.roles.finance.label": "Qullqi apnaqawi",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Marketing lurawinaka"
+}

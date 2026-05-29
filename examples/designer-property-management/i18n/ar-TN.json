@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "تبدّلت الخاصية",
+  "examples.designer_property_management.package.label": "إدارة خصائص المصمّم",
+  "examples.designer_property_management.projections.property_list.label": "قائمة الخصائص",
+  "examples.designer_property_management.records.property.fields.address.label": "العنوان",
+  "examples.designer_property_management.records.property.fields.postcode.label": "الترقيم البريدي",
+  "examples.designer_property_management.records.property.fields.property_id.label": "معرّف الخاصية",
+  "examples.designer_property_management.records.property.label": "خاصية"
+}

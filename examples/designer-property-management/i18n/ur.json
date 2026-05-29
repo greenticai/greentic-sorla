@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "پراپرٹی تبدیل ہوئی",
+  "examples.designer_property_management.package.label": "ڈیزائنر پراپرٹی مینجمنٹ",
+  "examples.designer_property_management.projections.property_list.label": "پراپرٹی فہرست",
+  "examples.designer_property_management.records.property.fields.address.label": "پتہ",
+  "examples.designer_property_management.records.property.fields.postcode.label": "پوسٹ کوڈ",
+  "examples.designer_property_management.records.property.fields.property_id.label": "پراپرٹی آئی ڈی",
+  "examples.designer_property_management.records.property.label": "پراپرٹی"
+}

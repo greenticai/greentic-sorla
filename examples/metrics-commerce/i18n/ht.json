@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS kanpay",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Kòmand ki fini",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "To konvèsyon",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Klik chak jou",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Maj brit",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Pri chak mwa",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Revni chak mwa",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Sesyon vizitè",
+  "examples.metrics_commerce.package.label": "Komès Metrik",
+  "examples.metrics_commerce.records.campaign.label": "Kanpay",
+  "examples.metrics_commerce.records.click.label": "Klik",
+  "examples.metrics_commerce.records.cost_entry.label": "Antre pri",
+  "examples.metrics_commerce.records.order.label": "Kòmand",
+  "examples.metrics_commerce.records.payment.label": "Peman",
+  "examples.metrics_commerce.records.visitor.label": "Vizitè",
+  "examples.metrics_commerce.roles.admin.label": "Administrasyon",
+  "examples.metrics_commerce.roles.analytics.label": "Analitik",
+  "examples.metrics_commerce.roles.finance.label": "Finans",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Operasyon maketing"
+}

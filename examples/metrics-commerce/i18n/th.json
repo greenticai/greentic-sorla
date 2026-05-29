@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS ของแคมเปญ",
+  "examples.metrics_commerce.metrics.completed_orders.label": "คำสั่งซื้อที่เสร็จสมบูรณ์",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "อัตราคอนเวอร์ชัน",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "จำนวนคลิกรายวัน",
+  "examples.metrics_commerce.metrics.gross_margin.label": "อัตรากำไรขั้นต้น",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "ต้นทุนรายเดือน",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "รายได้รายเดือน",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "เซสชันผู้เข้าชม",
+  "examples.metrics_commerce.package.label": "เมตริกคอมเมิร์ซ",
+  "examples.metrics_commerce.records.campaign.label": "แคมเปญ",
+  "examples.metrics_commerce.records.click.label": "คลิก",
+  "examples.metrics_commerce.records.cost_entry.label": "รายการต้นทุน",
+  "examples.metrics_commerce.records.order.label": "คำสั่งซื้อ",
+  "examples.metrics_commerce.records.payment.label": "การชำระเงิน",
+  "examples.metrics_commerce.records.visitor.label": "ผู้เข้าชม",
+  "examples.metrics_commerce.roles.admin.label": "ผู้ดูแลระบบ",
+  "examples.metrics_commerce.roles.analytics.label": "การวิเคราะห์",
+  "examples.metrics_commerce.roles.finance.label": "การเงิน",
+  "examples.metrics_commerce.roles.marketing_ops.label": "การดำเนินงานการตลาด"
+}

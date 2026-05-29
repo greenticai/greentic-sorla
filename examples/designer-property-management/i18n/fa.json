@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "ویژگی تغییر کرد",
+  "examples.designer_property_management.package.label": "مدیریت ویژگی‌های طراح",
+  "examples.designer_property_management.projections.property_list.label": "فهرست ویژگی‌ها",
+  "examples.designer_property_management.records.property.fields.address.label": "نشانی",
+  "examples.designer_property_management.records.property.fields.postcode.label": "کد پستی",
+  "examples.designer_property_management.records.property.fields.property_id.label": "شناسه ویژگی",
+  "examples.designer_property_management.records.property.label": "ویژگی"
+}

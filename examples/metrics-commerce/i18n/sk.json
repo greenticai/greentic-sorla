@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS kampane",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Dokončené objednávky",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Miera konverzie",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Denné kliknutia",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Hrubá marža",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Mesačné náklady",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Mesačné výnosy",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Relácie návštevníkov",
+  "examples.metrics_commerce.package.label": "Metriky obchodu",
+  "examples.metrics_commerce.records.campaign.label": "Kampaň",
+  "examples.metrics_commerce.records.click.label": "Kliknutie",
+  "examples.metrics_commerce.records.cost_entry.label": "Záznam nákladov",
+  "examples.metrics_commerce.records.order.label": "Objednávka",
+  "examples.metrics_commerce.records.payment.label": "Platba",
+  "examples.metrics_commerce.records.visitor.label": "Návštevník",
+  "examples.metrics_commerce.roles.admin.label": "Administrácia",
+  "examples.metrics_commerce.roles.analytics.label": "Analytika",
+  "examples.metrics_commerce.roles.finance.label": "Financie",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Marketingové operácie"
+}

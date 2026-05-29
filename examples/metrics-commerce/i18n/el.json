@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS καμπάνιας",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Ολοκληρωμένες παραγγελίες",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Ποσοστό μετατροπής",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Ημερήσια κλικ",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Μικτό περιθώριο",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Μηνιαίο κόστος",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Μηνιαία έσοδα",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Συνεδρίες επισκεπτών",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Καμπάνια",
+  "examples.metrics_commerce.records.click.label": "Κλικ",
+  "examples.metrics_commerce.records.cost_entry.label": "Καταχώρηση κόστους",
+  "examples.metrics_commerce.records.order.label": "Παραγγελία",
+  "examples.metrics_commerce.records.payment.label": "Πληρωμή",
+  "examples.metrics_commerce.records.visitor.label": "Επισκέπτης",
+  "examples.metrics_commerce.roles.admin.label": "Διαχείριση",
+  "examples.metrics_commerce.roles.analytics.label": "Αναλυτικά στοιχεία",
+  "examples.metrics_commerce.roles.finance.label": "Οικονομικά",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Λειτουργίες μάρκετινγκ"
+}

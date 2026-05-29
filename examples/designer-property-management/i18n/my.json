@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "ပိုင်ဆိုင်မှု ပြောင်းလဲခဲ့သည်",
+  "examples.designer_property_management.package.label": "ဒီဇိုင်နာ ပိုင်ဆိုင်မှု စီမံခန့်ခွဲမှု",
+  "examples.designer_property_management.projections.property_list.label": "ပိုင်ဆိုင်မှု စာရင်း",
+  "examples.designer_property_management.records.property.fields.address.label": "လိပ်စာ",
+  "examples.designer_property_management.records.property.fields.postcode.label": "စာတိုက်ကုဒ်",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ပိုင်ဆိုင်မှု ID",
+  "examples.designer_property_management.records.property.label": "ပိုင်ဆိုင်မှု"
+}

@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "सम्पत्ति परिवर्तन भयो",
+  "examples.designer_property_management.package.label": "डिजाइनर सम्पत्ति व्यवस्थापन",
+  "examples.designer_property_management.projections.property_list.label": "सम्पत्ति सूची",
+  "examples.designer_property_management.records.property.fields.address.label": "ठेगाना",
+  "examples.designer_property_management.records.property.fields.postcode.label": "हुलाक कोड",
+  "examples.designer_property_management.records.property.fields.property_id.label": "सम्पत्ति ID",
+  "examples.designer_property_management.records.property.label": "सम्पत्ति"
+}

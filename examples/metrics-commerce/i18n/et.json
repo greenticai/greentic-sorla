@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampaania ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Lõpetatud tellimused",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Konversioonimäär",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Päevased klikid",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Brutomarginaal",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Kuu kulu",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Kuu tulu",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Külastajaseansid",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Kampaania",
+  "examples.metrics_commerce.records.click.label": "Klikk",
+  "examples.metrics_commerce.records.cost_entry.label": "Kulukanne",
+  "examples.metrics_commerce.records.order.label": "Tellimus",
+  "examples.metrics_commerce.records.payment.label": "Makse",
+  "examples.metrics_commerce.records.visitor.label": "Külastaja",
+  "examples.metrics_commerce.roles.admin.label": "Admin",
+  "examples.metrics_commerce.roles.analytics.label": "Analüütika",
+  "examples.metrics_commerce.roles.finance.label": "Rahandus",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Turundusoperatsioonid"
+}

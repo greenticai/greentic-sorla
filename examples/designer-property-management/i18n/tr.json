@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Özellik değiştirildi",
+  "examples.designer_property_management.package.label": "Tasarımcı Özellik Yönetimi",
+  "examples.designer_property_management.projections.property_list.label": "Özellik listesi",
+  "examples.designer_property_management.records.property.fields.address.label": "Adres",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Posta kodu",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Özellik Kimliği",
+  "examples.designer_property_management.records.property.label": "Özellik"
+}

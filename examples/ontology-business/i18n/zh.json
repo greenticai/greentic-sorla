@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "资产",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "合同",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "客户",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "证据文档",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "义务",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "当事方",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "供应商",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "履行义务",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "管辖",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "有合同",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "支持",
+  "examples.ontology_business_sor.package.label": "本体业务记录系统",
+  "examples.ontology_business_sor.roles.admin.label": "管理",
+  "examples.ontology_business_sor.roles.customer_ops.label": "客户运营",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "证据管理员",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "风险审核员"
+}

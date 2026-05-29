@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "ಆಸ್ತಿ ಬದಲಾಯಿಸಲಾಗಿದೆ",
+  "examples.designer_property_management.package.label": "ಡಿಸೈನರ್ ಆಸ್ತಿ ನಿರ್ವಹಣೆ",
+  "examples.designer_property_management.projections.property_list.label": "ಆಸ್ತಿ ಪಟ್ಟಿ",
+  "examples.designer_property_management.records.property.fields.address.label": "ವಿಳಾಸ",
+  "examples.designer_property_management.records.property.fields.postcode.label": "ಅಂಚೆ ಕೋಡ್",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ಆಸ್ತಿ ID",
+  "examples.designer_property_management.records.property.label": "ಆಸ್ತಿ"
+}

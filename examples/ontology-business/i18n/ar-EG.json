@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "أصل",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "عقد",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "عميل",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "مستند دليل",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "التزام",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "طرف",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "مورد",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "ينفذ الالتزام",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "يحكم",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "لديه عقد",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "يدعم",
+  "examples.ontology_business_sor.package.label": "أنطولوجيا الأعمال SoR",
+  "examples.ontology_business_sor.roles.admin.label": "الإدارة",
+  "examples.ontology_business_sor.roles.customer_ops.label": "عمليات العملاء",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "مدير الأدلة",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "مراجع المخاطر"
+}

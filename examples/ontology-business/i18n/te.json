@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "ఆస్తి",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "ఒప్పందం",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "కస్టమర్",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "సాక్ష్య పత్రం",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "బాధ్యత",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "పక్షం",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "సరఫరాదారు",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "బాధ్యతను నెరవేర్చుతుంది",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "నియంత్రిస్తుంది",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "ఒప్పందం ఉంది",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "మద్దతు ఇస్తుంది",
+  "examples.ontology_business_sor.package.label": "ఆంటాలజీ బిజినెస్ SoR",
+  "examples.ontology_business_sor.roles.admin.label": "అడ్మిన్",
+  "examples.ontology_business_sor.roles.customer_ops.label": "కస్టమర్ కార్యకలాపాలు",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "సాక్ష్య నిర్వాహకుడు",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "రిస్క్ సమీక్షకుడు"
+}

@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "मालमत्ता बदलली",
+  "examples.designer_property_management.package.label": "डिझायनर मालमत्ता व्यवस्थापन",
+  "examples.designer_property_management.projections.property_list.label": "मालमत्ता यादी",
+  "examples.designer_property_management.records.property.fields.address.label": "पत्ता",
+  "examples.designer_property_management.records.property.fields.postcode.label": "पोस्टकोड",
+  "examples.designer_property_management.records.property.fields.property_id.label": "मालमत्ता आयडी",
+  "examples.designer_property_management.records.property.label": "मालमत्ता"
+}
