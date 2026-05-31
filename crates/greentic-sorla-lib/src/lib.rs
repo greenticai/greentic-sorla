@@ -237,6 +237,8 @@ pub struct SorlaFieldView {
     pub required: bool,
     pub sensitive: bool,
     pub enum_values: Vec<String>,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub default: serde_json::Value,
     #[serde(
         default,
         skip_serializing_if = "SorlaFieldValidationRulesView::is_empty"
@@ -1256,6 +1258,8 @@ struct FieldAnswer {
     sensitive: Option<bool>,
     #[serde(default)]
     enum_values: Vec<String>,
+    #[serde(default)]
+    default: serde_json::Value,
     #[serde(default)]
     rules: SorlaFieldValidationRulesView,
     #[serde(default)]
@@ -2408,6 +2412,7 @@ fn field_view(field: &sorla_ast::Field) -> SorlaFieldView {
         required: field.required,
         sensitive: field.sensitive,
         enum_values: field.enum_values.clone(),
+        default: field.default.clone(),
         rules: field_rules_view(&field.rules),
         authority: field.authority.as_ref().map(serde_enum_string),
         references: field
@@ -3584,6 +3589,7 @@ fn patch_field_to_ast(field: &SorlaPatchField) -> sorla_ast::Field {
         required: field.required,
         sensitive: field.sensitive,
         enum_values: field.enum_values.clone(),
+        default: serde_json::Value::Null,
         rules: field_rules_ast(&field.rules),
         authority: None,
         references: field
@@ -7141,6 +7147,7 @@ fn synthetic_authority_field(
         optional: Some(true),
         sensitive: Some(false),
         enum_values: Vec::new(),
+        default: serde_json::Value::Null,
         rules: SorlaFieldValidationRulesView::default(),
         references: None,
         authority: Some(authority.to_string()),
@@ -9335,6 +9342,18 @@ fn render_schema_fields(
         }
         if !field.enum_values.is_empty() {
             render_string_list("        enum_values", &field.enum_values, lines);
+        }
+        if !field.default.is_null() {
+            match &field.default {
+                serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                    lines.push("        default:".to_string());
+                    render_json_value(&field.default, 10, lines);
+                }
+                _ => lines.push(format!(
+                    "        default: {}",
+                    yaml_scalar_value(&field.default)
+                )),
+            }
         }
         if section.trim() == "fields" && !field.rules.is_empty() {
             render_field_rules(&field.rules, lines);
@@ -12956,7 +12975,65 @@ metrics:
         assert!(package_yaml.contains("id: tenant_email_match"));
         assert!(package_yaml.contains("id: create_tenant"));
         assert!(package_yaml.contains("event: TenantCreated"));
+        assert!(package_yaml.contains("name: building_id"));
+        assert!(package_yaml.contains("default: active"));
+        assert!(package_yaml.contains("default: settled"));
+        assert!(package_yaml.contains("paid_on: \"$input.paid_on\""));
+        assert!(package_yaml.contains("status: settled"));
         assert!(!package_yaml.contains("LandlordTenantSorRecord"));
+        let artifacts = build_handoff_artifacts_from_yaml(&package_yaml)
+            .expect("generated YAML should build handoff artifacts");
+        let record_field_default = |record_name: &str, field_name: &str| {
+            artifacts
+                .ir
+                .records
+                .iter()
+                .find(|record| record.name == record_name)
+                .and_then(|record| record.fields.iter().find(|field| field.name == field_name))
+                .map(|field| field.default.clone())
+                .unwrap_or_else(|| panic!("missing `{record_name}.{field_name}`"))
+        };
+        assert_eq!(record_field_default("Tenancy", "status"), "active");
+        assert_eq!(record_field_default("Payment", "status"), "settled");
+        let metrics_json = artifacts
+            .metrics_json
+            .expect("metrics artifact should be generated");
+        let metrics: serde_json::Value =
+            serde_json::from_str(&metrics_json).expect("metrics JSON should parse");
+        let metric_items = metrics["metrics"]
+            .as_array()
+            .expect("metrics document should contain metrics");
+        let metric = |name: &str| {
+            metric_items
+                .iter()
+                .find(|metric| metric["name"] == name)
+                .unwrap_or_else(|| panic!("missing metric `{name}`"))
+        };
+        assert_eq!(metric("total_tenants")["source"]["collection"], "tenants");
+        assert_eq!(metric("total_units")["source"]["collection"], "units");
+        assert_eq!(
+            metric("active_tenancies")["source"]["collection"],
+            "tenancies"
+        );
+        assert_eq!(
+            metric("monthly_tenancy_revenue")["source"]["collection"],
+            "payments"
+        );
+        assert!(
+            metric("active_tenancies")["dimensions"]
+                .as_array()
+                .expect("active_tenancies dimensions")
+                .iter()
+                .any(|dimension| dimension["field"] == "building_id")
+        );
+        assert_eq!(
+            metric("monthly_tenancy_revenue")["time"]["field"],
+            "paid_on"
+        );
+        assert_eq!(
+            metric("monthly_tenancy_revenue")["time"]["grains"][0],
+            "month"
+        );
         assert_eq!(
             inspection
                 .ontology
