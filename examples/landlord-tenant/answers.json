@@ -305,6 +305,14 @@
             }
           },
           {
+            "name": "building_id",
+            "type": "uuid",
+            "references": {
+              "record": "Building",
+              "field": "id"
+            }
+          },
+          {
             "name": "start_date",
             "type": "date"
           },
@@ -314,7 +322,8 @@
           },
           {
             "name": "status",
-            "type": "string"
+            "type": "string",
+            "default": "active"
           }
         ],
         "access": {
@@ -392,11 +401,13 @@
           },
           {
             "name": "paid_on",
-            "type": "date"
+            "type": "date",
+            "required": true
           },
           {
             "name": "status",
-            "type": "string"
+            "type": "string",
+            "default": "settled"
           }
         ],
         "access": {
@@ -917,6 +928,14 @@
           {
             "name": "unit_id",
             "type": "uuid"
+          },
+          {
+            "name": "building_id",
+            "type": "uuid"
+          },
+          {
+            "name": "status",
+            "type": "string"
           }
         ]
       },
@@ -959,6 +978,14 @@
               "precision": 12,
               "scale": 2
             }
+          },
+          {
+            "name": "paid_on",
+            "type": "date"
+          },
+          {
+            "name": "status",
+            "type": "string"
           }
         ]
       },
@@ -1073,6 +1100,9 @@
             "operator": "equals",
             "value": "active"
           }
+        ],
+        "dimensions": [
+          "building_id"
         ]
       },
       {
@@ -1673,6 +1703,11 @@
             "required": true
           },
           {
+            "name": "building_id",
+            "type": "uuid",
+            "required": true
+          },
+          {
             "name": "start_date",
             "type": "date",
             "required": true
@@ -1694,6 +1729,7 @@
             "id": "$generated.tenancy_id",
             "tenant_id": "$input.tenant_id",
             "unit_id": "$input.unit_id",
+            "building_id": "$input.building_id",
             "start_date": "$input.start_date",
             "status": "active"
           }
@@ -1749,6 +1785,11 @@
               "scale": 2
             },
             "required": true
+          },
+          {
+            "name": "paid_on",
+            "type": "date",
+            "required": true
           }
         ],
         "outputs": [
@@ -1766,7 +1807,9 @@
           "payload": {
             "id": "$generated.payment_id",
             "tenancy_id": "$input.tenancy_id",
-            "amount": "$input.amount"
+            "amount": "$input.amount",
+            "paid_on": "$input.paid_on",
+            "status": "settled"
           }
         },
         "risk": "low",

@@ -510,6 +510,13 @@ fn validate_projection_references(projection: &PortfolioProjection) -> Result<()
         if !projection.units.contains_key(&unit_id) {
             return Err(format!("tenancy references unknown unit `{unit_id}`"));
         }
+        if let Some(building_id) = tenancy.get("building_id").and_then(Value::as_str)
+            && !projection.properties.contains_key(building_id)
+        {
+            return Err(format!(
+                "tenancy references unknown building `{building_id}`"
+            ));
+        }
     }
     for payment in projection.payments.values() {
         let tenancy_id = string_field(payment, "tenancy_id")?;
@@ -527,6 +534,7 @@ fn assert_seed_projection(projection: &PortfolioProjection, smoke: bool) -> Resu
     assert_eq!(projection.tenants.len(), 2);
     assert_eq!(active_tenants(projection).len(), 1);
     if !smoke {
+        assert_eq!(landlord_metrics(projection), (2, 2, 1, 1150, 0.5));
         assert_eq!(projection.payments.len(), 1);
         assert_eq!(projection.maintenance_requests.len(), 1);
     }
@@ -568,6 +576,39 @@ fn active_tenants(projection: &PortfolioProjection) -> Vec<Value> {
         .filter_map(|tenant_id| projection.tenants.get(tenant_id))
         .cloned()
         .collect()
+}
+
+fn landlord_metrics(projection: &PortfolioProjection) -> (usize, usize, usize, i64, f64) {
+    let total_tenants = projection.tenants.len();
+    let total_units = projection.units.len();
+    let active_tenancies = projection
+        .tenancies
+        .values()
+        .filter(|tenancy| tenancy["status"] == "active")
+        .count();
+    let monthly_tenancy_revenue = projection
+        .payments
+        .values()
+        .filter(|payment| payment["status"] == "settled")
+        .filter(|payment| {
+            payment["paid_on"]
+                .as_str()
+                .is_some_and(|date| date.starts_with("2026-05"))
+        })
+        .filter_map(|payment| payment["amount"].as_i64())
+        .sum();
+    let occupancy_rate = if total_units == 0 {
+        0.0
+    } else {
+        active_tenancies as f64 / total_units as f64
+    };
+    (
+        total_tenants,
+        total_units,
+        active_tenancies,
+        monthly_tenancy_revenue,
+        occupancy_rate,
+    )
 }
 
 fn apply_v2_migration(
@@ -745,6 +786,7 @@ fn agent_assign_tenant_to_unit(
         "id": "tenancy-sarah-2b",
         "tenant_id": "tenant-sarah-ahmed",
         "unit_id": "unit-2b",
+        "building_id": "property-1",
         "start_date": "2026-06-01",
         "end_date": null,
         "status": "active",
@@ -783,7 +825,7 @@ fn agent_record_rent_payment(
         "tenancy_id": "tenancy-sarah-2b",
         "amount": 1250,
         "paid_on": "2026-06-01",
-        "status": "paid"
+        "status": "settled"
     });
     assert_eq!(number_field(&payload, "amount")?, 1250);
     append_and_apply(
@@ -909,7 +951,10 @@ fn provider_error(err: ProviderError) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{E2eOptions, run_landlord_tenant_foundationdb};
+    use super::{
+        E2eOptions, PortfolioProjection, landlord_metrics, run_landlord_tenant_foundationdb,
+    };
+    use serde_json::json;
 
     #[test]
     fn landlord_tenant_foundationdb() {
@@ -922,5 +967,49 @@ mod tests {
         assert!(report.events_written >= if smoke { 4 } else { 14 });
         assert!(report.active_tenants >= 2);
         assert_ne!(report.schema_v1_hash, report.schema_v2_hash);
+    }
+
+    #[test]
+    fn landlord_metrics_reflect_active_tenancy_and_settled_payment() {
+        let mut projection = PortfolioProjection::default();
+        projection.landlords.insert(
+            "landlord-1".into(),
+            json!({"id": "landlord-1", "full_name": "Metric Landlord", "email": "landlord@example.com"}),
+        );
+        projection.properties.insert(
+            "building-1".into(),
+            json!({"id": "building-1", "landlord_id": "landlord-1"}),
+        );
+        projection.units.insert(
+            "unit-1".into(),
+            json!({"id": "unit-1", "property_id": "building-1", "unit_number": "1", "rent_amount": 1250}),
+        );
+        projection.tenants.insert(
+            "tenant-1".into(),
+            json!({"id": "tenant-1", "full_name": "Metric Tenant", "email": "metric@example.com"}),
+        );
+        projection.tenancies.insert(
+            "tenancy-1".into(),
+            json!({
+                "id": "tenancy-1",
+                "tenant_id": "tenant-1",
+                "unit_id": "unit-1",
+                "building_id": "building-1",
+                "status": "active",
+                "start_date": "2026-05-01"
+            }),
+        );
+        projection.payments.insert(
+            "payment-1".into(),
+            json!({
+                "id": "payment-1",
+                "tenancy_id": "tenancy-1",
+                "amount": 1250,
+                "paid_on": "2026-05-15",
+                "status": "settled"
+            }),
+        );
+
+        assert_eq!(landlord_metrics(&projection), (1, 1, 1, 1250, 1.0));
     }
 }

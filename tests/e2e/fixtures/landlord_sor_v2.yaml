@@ -81,12 +81,18 @@ records:
         references:
           record: Unit
           field: id
+      - name: building_id
+        type: string
+        references:
+          record: Property
+          field: id
       - name: start_date
         type: date
       - name: end_date
         type: date
       - name: status
         type: string
+        default: active
       - name: deposit_amount
         type: decimal
       - name: deposit_scheme_reference
@@ -107,8 +113,10 @@ records:
         type: decimal
       - name: paid_on
         type: date
+        required: true
       - name: status
         type: string
+        default: settled
   - name: MaintenanceRequest
     source: native
     fields:
@@ -164,6 +172,10 @@ events:
         type: string
       - name: unit_id
         type: string
+      - name: building_id
+        type: string
+      - name: status
+        type: string
   - name: PaymentRecorded
     record: Payment
     kind: domain
@@ -174,6 +186,10 @@ events:
         type: string
       - name: amount
         type: decimal
+      - name: paid_on
+        type: date
+      - name: status
+        type: string
   - name: MaintenanceRequestCreated
     record: MaintenanceRequest
     kind: domain
@@ -234,6 +250,9 @@ migrations:
         default: null
       - record: Unit
         field: energy_rating
+        default: null
+      - record: Tenancy
+        field: building_id
         default: null
       - record: Tenancy
         field: deposit_amount
@@ -308,6 +327,9 @@ agent_endpoints:
       - name: unit_id
         type: string
         required: true
+      - name: building_id
+        type: string
+        required: true
       - name: start_date
         type: date
         required: true
@@ -323,6 +345,7 @@ agent_endpoints:
         id: "$generated.tenancy_id"
         tenant_id: "$input.tenant_id"
         unit_id: "$input.unit_id"
+        building_id: "$input.building_id"
         start_date: "$input.start_date"
         status: active
     risk: medium
@@ -338,11 +361,14 @@ agent_endpoints:
     title: Record rent payment
     intent: Record a rent payment against an active tenancy.
     inputs:
-      - name: tenant_id
+      - name: tenancy_id
         type: string
         required: true
       - name: amount
         type: decimal
+        required: true
+      - name: paid_on
+        type: date
         required: true
     outputs:
       - name: payment_id
@@ -351,11 +377,13 @@ agent_endpoints:
       - event.PaymentRecorded
     emits:
       event: PaymentRecorded
-      stream: "landlord-tenant-sor/{tenant_id}"
+      stream: "landlord-tenant-sor/{tenancy_id}"
       payload:
         id: "$generated.payment_id"
-        tenant_id: "$input.tenant_id"
+        tenancy_id: "$input.tenancy_id"
         amount: "$input.amount"
+        paid_on: "$input.paid_on"
+        status: settled
     risk: low
     approval: optional
     backing:

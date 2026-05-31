@@ -286,6 +286,12 @@ records:
         references:
           record: Unit
           field: id
+      - name: building_id
+        i18n_key: examples.landlord_tenant_sor.records.tenancy.fields.building_id
+        type: uuid
+        references:
+          record: Building
+          field: id
       - name: start_date
         i18n_key: examples.landlord_tenant_sor.records.tenancy.fields.start_date
         type: date
@@ -295,6 +301,7 @@ records:
       - name: status
         i18n_key: examples.landlord_tenant_sor.records.tenancy.fields.status
         type: string
+        default: active
   - name: Payment
     i18n_key: examples.landlord_tenant_sor.records.payment
     source: native
@@ -347,9 +354,11 @@ records:
       - name: paid_on
         i18n_key: examples.landlord_tenant_sor.records.payment.fields.paid_on
         type: date
+        required: true
       - name: status
         i18n_key: examples.landlord_tenant_sor.records.payment.fields.status
         type: string
+        default: settled
   - name: MaintenanceRequest
     i18n_key: examples.landlord_tenant_sor.records.maintenancerequest
     source: native
@@ -640,6 +649,10 @@ events:
         type: uuid
       - name: unit_id
         type: uuid
+      - name: building_id
+        type: uuid
+      - name: status
+        type: string
   - name: TenancyContractUpdated
     i18n_key: examples.landlord_tenant_sor.events.tenancycontractupdated
     record: Tenancy
@@ -660,6 +673,10 @@ events:
         type: uuid
       - name: amount
         type: decimal
+      - name: paid_on
+        type: date
+      - name: status
+        type: string
   - name: PaymentUpdated
     i18n_key: examples.landlord_tenant_sor.events.paymentupdated
     record: Payment
@@ -708,15 +725,6 @@ projections:
     source_event: MaintenanceRequestCreated
     mode: current-state
 metrics:
-  - name: total_tenants
-    i18n_key: examples.landlord_tenant_sor.metrics.total_tenants
-    label: "Total Tenants"
-    source:
-      kind: record
-      name: Tenant
-    measure:
-      aggregate: count
-    depends_on: []
   - name: active_tenancies
     i18n_key: examples.landlord_tenant_sor.metrics.active_tenancies
     label: "Active Tenancies"
@@ -729,15 +737,6 @@ metrics:
       - field: status
         operator: equals
         value: active
-    depends_on: []
-  - name: total_units
-    i18n_key: examples.landlord_tenant_sor.metrics.total_units
-    label: "Total Units"
-    source:
-      kind: record
-      name: Unit
-    measure:
-      aggregate: count
     dimensions:
       - building_id
     depends_on: []
@@ -783,6 +782,27 @@ metrics:
       - field: status
         operator: equals
         value: open
+    dimensions:
+      - building_id
+    depends_on: []
+  - name: total_tenants
+    i18n_key: examples.landlord_tenant_sor.metrics.total_tenants
+    label: "Total Tenants"
+    source:
+      kind: record
+      name: Tenant
+    measure:
+      aggregate: count
+    dimensions: []
+    depends_on: []
+  - name: total_units
+    i18n_key: examples.landlord_tenant_sor.metrics.total_units
+    label: "Total Units"
+    source:
+      kind: record
+      name: Unit
+    measure:
+      aggregate: count
     dimensions:
       - building_id
     depends_on: []
@@ -1146,6 +1166,10 @@ agent_endpoints:
         i18n_key: examples.landlord_tenant_sor.agent_endpoints.assign_tenant_to_unit.inputs.unit_id
         type: uuid
         required: true
+      - name: building_id
+        i18n_key: examples.landlord_tenant_sor.agent_endpoints.assign_tenant_to_unit.inputs.building_id
+        type: uuid
+        required: true
       - name: start_date
         i18n_key: examples.landlord_tenant_sor.agent_endpoints.assign_tenant_to_unit.inputs.start_date
         type: date
@@ -1160,6 +1184,7 @@ agent_endpoints:
       event: TenancyCreated
       stream: landlord-tenant-sor/{tenant_id}
       payload:
+        building_id: "$input.building_id"
         id: "$generated.tenancy_id"
         start_date: "$input.start_date"
         status: active
@@ -1202,6 +1227,10 @@ agent_endpoints:
         i18n_key: examples.landlord_tenant_sor.agent_endpoints.record_rent_payment.inputs.amount
         type: decimal
         required: true
+      - name: paid_on
+        i18n_key: examples.landlord_tenant_sor.agent_endpoints.record_rent_payment.inputs.paid_on
+        type: date
+        required: true
     outputs:
       - name: payment_id
         i18n_key: examples.landlord_tenant_sor.agent_endpoints.record_rent_payment.outputs.payment_id
@@ -1214,6 +1243,8 @@ agent_endpoints:
       payload:
         amount: "$input.amount"
         id: "$generated.payment_id"
+        paid_on: "$input.paid_on"
+        status: settled
         tenancy_id: "$input.tenancy_id"
     risk: low
     approval: optional
@@ -1264,8 +1295,8 @@ agent_endpoints:
       event: MaintenanceRequestCreated
       stream: landlord-tenant-sor/{unit_id}
       payload:
-        id: "$generated.maintenance_request_id"
         building_id: "$input.building_id"
+        id: "$generated.maintenance_request_id"
         summary: "$input.summary"
         unit_id: "$input.unit_id"
     risk: low
