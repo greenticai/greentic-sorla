@@ -450,10 +450,17 @@ A good plan:
 - Avoids generic placeholders like case, item, record, action, event unless the customer prompt is genuinely generic.
 - Avoids unrelated domains; do not add landlord, tenant, lease, rent, or maintenance concepts unless the customer asked for them.
 
+Quality bar:
+{quality_rubric}
+
+Use specialist review passes inside the plan before finalizing it: domain modeler for records/relationships, workflow analyst for lifecycle statuses and actions, reporting analyst for metrics and dimensions, policy reviewer for roles/approvals, and data steward for validation/defaults/source authority. Return one consolidated draft, not separate sub-agent transcripts.
+
 Return JSON only using the authoring shape: assistant_message, assumptions, draft, questions. If important scope is still unclear, include targeted questions. Ask only questions whose answers would materially improve the final answers.json. If scope is clear, return an empty questions array and a detailed draft.
 
 The later answers.json must satisfy this wizard --schema:
-{wizard_schema}"#
+{wizard_schema}"#,
+        quality_rubric = sorla_quality_rubric(),
+        wizard_schema = wizard_schema
     )
 }
 
@@ -484,6 +491,9 @@ A good response:
 - Asks only high-value clarifying questions when the scope is ambiguous or a risky business rule is missing.
 - Does not invent unrelated domain concepts.
 
+Quality bar:
+{quality_rubric}
+
 Return JSON only with this exact shape:
 {{
   "assistant_message": "short user-facing message",
@@ -509,7 +519,9 @@ The final answers.json produced from this draft must satisfy this Greentic SoRLa
 
 Ask only questions that are directly relevant to the user's prompt. Do not ask landlord, tenant, lease, rent, or maintenance questions unless the prompt is actually about those concepts.
 For metrics/KPIs, ask targeted questions about the source record/event, amount field, recognized statuses, cadence, dimensions, formula inputs, and targets. Do not propose executable formulas or provider-specific query strings.
-Prefer a small number of high-value follow-up questions. Use empty questions if the prompt is already sufficient."#
+Prefer a small number of high-value follow-up questions. Use empty questions if the prompt is already sufficient."#,
+        quality_rubric = sorla_quality_rubric(),
+        wizard_schema = wizard_schema
     )
 }
 
@@ -553,7 +565,8 @@ where
 
 fn prompt_authoring_repair_system_prompt(wizard_schema: &str) -> String {
     format!(
-        "Objective: repair prompt-authoring JSON so it can still be used to generate answers.json for greentic-sorla wizard. Return JSON only using the exact authoring shape: assistant_message, assumptions, draft, questions. Preserve the customer's business intent and improve domain specificity where possible. The draft must be suitable for producing answers.json that satisfies this wizard --schema:\n{wizard_schema}"
+        "Objective: repair prompt-authoring JSON so it can still be used to generate answers.json for greentic-sorla wizard. Return JSON only using the exact authoring shape: assistant_message, assumptions, draft, questions. Preserve the customer's business intent and improve domain specificity where possible. Apply this quality bar:\n{}\n\nThe draft must be suitable for producing answers.json that satisfies this wizard --schema:\n{wizard_schema}",
+        sorla_quality_rubric()
     )
 }
 
@@ -625,9 +638,18 @@ A high-quality answers.json:
 - Keeps provider requirements abstract and capability-oriented, not hardcoded to a vendor.
 - Avoids empty placeholder names like record, field, action, event whenever the plan contains domain-specific names.
 
+Quality bar:
+{quality_rubric}
+
 The output must validate against this wizard --schema:
-{wizard_schema}"#
+{wizard_schema}"#,
+        quality_rubric = sorla_quality_rubric(),
+        wizard_schema = wizard_schema
     )
+}
+
+fn sorla_quality_rubric() -> &'static str {
+    "- Cover the complete business loop even when the prompt is brief: owned records, relationship keys, lifecycle statuses/defaults, create/update operations, immutable events, read models, metrics, roles, approvals, migrations, provider requirements, and agent endpoints where useful.\n- Make metric filters match records that generated create flows and seed/demo data can actually produce. If a metric filters status=active/open/settled, the corresponding record-create default or emitted output must set that status.\n- Add foreign-key style fields needed by metrics and projections, for example tenant_id, tenancy_id, unit_id, building_id, owner_id, customer_id, campaign_id, or product_id, and mark references when the target record is known.\n- Prefer deterministic conventional lifecycle values when the prompt implies them: active for current memberships/leases/subscriptions, open for work requests/cases/tickets, settled for recorded completed payments, pending for requested-but-not-finalized money movement, cancelled/closed/completed for terminal states.\n- Include seed/demo-compatible required fields and defaults so generated packs can demonstrate non-zero metrics without hidden manual edits.\n- Ask follow-up questions only where a wrong assumption would change ownership, lifecycle, money recognition, permissions, or reporting."
 }
 
 fn answer_generation_user_prompt(
@@ -648,8 +670,13 @@ fn answer_repair_system_prompt(wizard_schema: &str) -> String {
 
 Return JSON only. Keep the customer's business intent, preserve valid domain-specific content, and change only what is necessary to satisfy validation. Prefer fixing structure, missing required fields, invalid enum values, bad references, and schema mismatches over replacing the whole design. Do not wrap the JSON in markdown.
 
+Apply this quality bar when repair requires filling missing business semantics:
+{quality_rubric}
+
 The repaired answers must satisfy this wizard --schema:
-{wizard_schema}"#
+{wizard_schema}"#,
+        quality_rubric = sorla_quality_rubric(),
+        wizard_schema = wizard_schema
     )
 }
 
@@ -995,15 +1022,73 @@ fn fallback_questions_for_prompt(prompt: &str) -> Vec<PromptQuestion> {
             },
         ];
     }
-    vec![PromptQuestion {
-        id: "records.identity".to_string(),
-        text: "Which real-world things need stable records in this system?".to_string(),
-        help: None,
-        answer_kind: PromptAnswerKind::FreeText,
-        required: true,
-        risk: PromptQuestionRisk::Low,
-        depends_on: Vec::new(),
-    }]
+    generic_quality_question_graph()
+}
+
+fn generic_quality_question_graph() -> Vec<PromptQuestion> {
+    vec![
+        PromptQuestion {
+            id: "records.identity".to_string(),
+            text: "Which real-world things need stable records in this system?".to_string(),
+            help: None,
+            answer_kind: PromptAnswerKind::FreeText,
+            required: true,
+            risk: PromptQuestionRisk::Low,
+            depends_on: Vec::new(),
+        },
+        PromptQuestion {
+            id: "workflow.lifecycle".to_string(),
+            text: "Which lifecycle states matter for those records, and what should new records default to?"
+                .to_string(),
+            help: Some(
+                "Examples: active memberships, open requests, pending approvals, settled payments, closed cases."
+                    .to_string(),
+            ),
+            answer_kind: PromptAnswerKind::FreeText,
+            required: true,
+            risk: PromptQuestionRisk::Medium,
+            depends_on: vec!["records.identity".to_string()],
+        },
+        PromptQuestion {
+            id: "users.roles".to_string(),
+            text: "Which user roles should be able to create, update, approve, or view records?"
+                .to_string(),
+            help: None,
+            answer_kind: PromptAnswerKind::FreeText,
+            required: true,
+            risk: PromptQuestionRisk::Medium,
+            depends_on: vec!["records.identity".to_string()],
+        },
+        PromptQuestion {
+            id: "reporting.metrics".to_string(),
+            text: "Which metrics should the generated pack prove with demo data, and which dimensions should they group by?"
+                .to_string(),
+            help: Some(
+                "Include money recognition rules and status filters if revenue, payments, or completion rates matter."
+                    .to_string(),
+            ),
+            answer_kind: PromptAnswerKind::FreeText,
+            required: false,
+            risk: PromptQuestionRisk::Medium,
+            depends_on: vec!["workflow.lifecycle".to_string()],
+        },
+        PromptQuestion {
+            id: "integrations.authority".to_string(),
+            text: "Are any records mastered by external systems, or should this SoR be the source of truth?"
+                .to_string(),
+            help: None,
+            answer_kind: PromptAnswerKind::SingleChoice {
+                choices: vec![
+                    "system of record".to_string(),
+                    "external source".to_string(),
+                    "hybrid".to_string(),
+                ],
+            },
+            required: false,
+            risk: PromptQuestionRisk::Medium,
+            depends_on: vec!["records.identity".to_string()],
+        },
+    ]
 }
 
 fn metric_question_graph(normalized_prompt: &str) -> Vec<PromptQuestion> {
@@ -2989,6 +3074,26 @@ mod tests {
         assert!(answer_generation_system_prompt(schema).contains("high-quality answers.json"));
         assert!(answer_generation_system_prompt(schema).contains("records"));
         assert!(answer_generation_system_prompt(schema).contains("projections"));
+        assert!(planner_system_prompt(schema).contains("specialist review passes"));
+        assert!(answer_generation_system_prompt(schema).contains("metric filters match records"));
+        assert!(answer_generation_system_prompt(schema).contains("seed/demo-compatible"));
+        assert!(prompt_authoring_repair_system_prompt(schema).contains("lifecycle status"));
+    }
+
+    #[test]
+    fn fallback_questions_cover_lifecycle_roles_metrics_and_authority() {
+        let questions =
+            fallback_questions_for_prompt("Build an operations system for a service business");
+        let ids = questions
+            .iter()
+            .map(|question| question.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids[0], "records.identity");
+        assert!(ids.contains(&"workflow.lifecycle"));
+        assert!(ids.contains(&"users.roles"));
+        assert!(ids.contains(&"reporting.metrics"));
+        assert!(ids.contains(&"integrations.authority"));
     }
 
     #[test]

@@ -167,7 +167,8 @@
           },
           {
             "name": "status",
-            "type": "string"
+            "type": "string",
+            "default": "open"
           }
         ],
         "access": {
@@ -1879,7 +1880,8 @@
             "id": "$generated.maintenance_request_id",
             "unit_id": "$input.unit_id",
             "building_id": "$input.building_id",
-            "summary": "$input.summary"
+            "summary": "$input.summary",
+            "status": "open"
           }
         },
         "risk": "low",

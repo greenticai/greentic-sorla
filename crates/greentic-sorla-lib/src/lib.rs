@@ -18,9 +18,10 @@ pub use greentic_sorla_pack::{
     DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypesDocument,
 };
 use greentic_sorla_pack::{
-    DesignerNodeTypeGenerationOptions, PROVIDER_BINDINGS_TEMPLATE_FILENAME,
-    RUNTIME_TEMPLATE_FILENAME, SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA,
-    SORX_VALIDATION_SCHEMA, START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
+    DesignerNodeTypeGenerationOptions, POLICY_RULES_PATH, POLICY_RULES_SCHEMA_PATH,
+    PROVIDER_BINDINGS_TEMPLATE_FILENAME, ROLE_ASSIGNMENTS_PATH, RUNTIME_TEMPLATE_FILENAME,
+    SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA, SORX_VALIDATION_SCHEMA,
+    START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
     agent_endpoint_contract_warnings, build_handoff_artifacts_from_yaml,
     generate_agent_endpoint_action_catalog_from_ir, generate_designer_node_types_from_ir,
     generate_sorx_validation_manifest_from_ir, ontology_schema_json,
@@ -80,6 +81,7 @@ pub struct ApplyAnswersOutput {
     pub locale: String,
     pub written_files: Vec<String>,
     pub pack_path: Option<String>,
+    pub change_history_path: Option<String>,
     pub preserved_user_content: bool,
 }
 
@@ -527,6 +529,7 @@ pub struct ConceptArtifact {
 
 pub const SORLA_PATCH_SCHEMA: &str = "greentic.sorla.patch.v1";
 pub const CONCEPT_DIFF_SCHEMA: &str = "greentic.sorla.concept-diff.v1";
+pub const SORLA_CHANGE_HISTORY_SCHEMA: &str = "greentic.sorla.change-history.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplyPatchInput {
@@ -675,6 +678,26 @@ pub struct ConceptChange {
     pub label: String,
     pub before: Option<serde_json::Value>,
     pub after: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaChangeHistoryEntry {
+    pub schema: String,
+    pub source_path: String,
+    pub mode: String,
+    pub old_hash: String,
+    pub new_hash: String,
+    pub diff: ConceptDiff,
+    pub rollback: SorlaRollbackSnapshot,
+    pub before_yaml: String,
+    pub after_yaml: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaRollbackSnapshot {
+    pub strategy: String,
+    pub restore_hash: String,
+    pub restore_yaml: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1107,6 +1130,8 @@ struct ExecutionSummary {
     written_files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pack_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    change_history_path: Option<String>,
     preserved_user_content: bool,
 }
 
@@ -2289,7 +2314,7 @@ fn design_model_from_package(
     let mut policies = package
         .policies
         .iter()
-        .map(named_view)
+        .map(policy_named_view)
         .collect::<Vec<SorlaNamedView>>();
     policies.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -2578,6 +2603,12 @@ fn metric_view(metric: &sorla_ast::MetricDecl) -> SorlaMetricView {
 }
 
 fn named_view(block: &sorla_ast::NamedBlock) -> SorlaNamedView {
+    SorlaNamedView {
+        name: block.name.clone(),
+    }
+}
+
+fn policy_named_view(block: &sorla_ast::PolicyDecl) -> SorlaNamedView {
     SorlaNamedView {
         name: block.name.clone(),
     }
@@ -3292,7 +3323,7 @@ pub fn propose_patch_from_instruction(
         model: llm_config.model,
         api_key: llm_config.api_key,
         endpoint: llm_config.endpoint,
-        system_prompt: "You propose SoRLa semantic patches only. Return JSON with a `patch` object using schema greentic.sorla.patch.v1, plus optional `explanation`. Do not return raw YAML or credentials.".to_string(),
+        system_prompt: "You propose SoRLa semantic patches only. Return JSON with a `patch` object using schema greentic.sorla.patch.v1, plus optional `explanation`. Use add/update/delete operations instead of raw YAML rewrites so the caller can journal additions, modifications, deletions, and rollback data. Preserve existing domain quality: lifecycle defaults must stay aligned with metric filters and generated create flows; relationship and metric dimension fields must remain on the records that metrics query. Do not return raw YAML or credentials.".to_string(),
         messages: vec![prompt::LlmMessage {
             role: prompt::LlmRole::User,
             content: format!(
@@ -3841,6 +3872,27 @@ pub fn build_gtpack_entries(
             path: "assets/sorla/metrics.json".to_string(),
             bytes: metrics_json.as_bytes().to_vec(),
             sha256: sha256_hex_public(metrics_json.as_bytes()),
+        });
+    }
+    if let Some(role_assignments_json) = &artifacts.role_assignments_json {
+        entries.push(PackEntry {
+            path: ROLE_ASSIGNMENTS_PATH.to_string(),
+            bytes: role_assignments_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(role_assignments_json.as_bytes()),
+        });
+    }
+    if let Some(policy_rules_json) = &artifacts.policy_rules_json {
+        entries.push(PackEntry {
+            path: POLICY_RULES_PATH.to_string(),
+            bytes: policy_rules_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(policy_rules_json.as_bytes()),
+        });
+    }
+    if let Some(policy_rules_schema_json) = &artifacts.policy_rules_schema_json {
+        entries.push(PackEntry {
+            path: POLICY_RULES_SCHEMA_PATH.to_string(),
+            bytes: policy_rules_schema_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(policy_rules_schema_json.as_bytes()),
         });
     }
     if !artifacts.ir.agent_endpoints.is_empty() {
@@ -4566,10 +4618,20 @@ fn run_design_patch(args: DesignPatchArgs) -> Result<(), String> {
     if args.force {
         patch.source.base_hash = current_sorla_source_hash(&source_yaml)?;
     }
+    let original_source_yaml = source_yaml.clone();
     let output = apply_sorla_patch(ApplyPatchInput { source_yaml, patch })?;
     if !args.dry_run {
         fs::write(&args.input, &output.updated_yaml)
             .map_err(|err| format!("failed to write {}: {err}", args.input.display()))?;
+        let output_dir = args.input.parent().unwrap_or_else(|| Path::new("."));
+        write_sorla_change_history(
+            output_dir,
+            &args.input,
+            "design-patch",
+            &original_source_yaml,
+            &output.updated_yaml,
+            Some(output.diff.clone()),
+        )?;
     }
     print_concept_diff(&output.diff);
     print_design_diagnostics(&output.diagnostics);
@@ -5560,10 +5622,44 @@ fn apply_answers_document(
     })?;
 
     let package_path = output_dir.join("sorla.yaml");
+    let previous_package_yaml = if resolved.flow == "update" && package_path.exists() {
+        Some(fs::read_to_string(&package_path).map_err(|err| {
+            format!(
+                "failed to read existing package file {}: {err}",
+                package_path.display()
+            )
+        })?)
+    } else {
+        None
+    };
+    let previous_generated_yaml = previous_package_yaml
+        .as_deref()
+        .and_then(extract_generated_block_yaml);
     let generated_yaml = render_package_yaml(&resolved);
     let preserved_user_content = write_generated_block(&package_path, &generated_yaml)?;
 
     let mut written_files = vec![relative_to_output(&output_dir, &package_path)];
+    let change_history_path = if resolved.flow == "update" {
+        if let Some(previous_yaml) = previous_generated_yaml.as_deref() {
+            write_sorla_change_history(
+                &output_dir,
+                &package_path,
+                "wizard-update",
+                previous_yaml,
+                &generated_yaml,
+                None,
+            )?
+            .map(|path| {
+                let relative = relative_to_output(&output_dir, &path);
+                written_files.push(relative.clone());
+                relative
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let generated_package_path = generated_dir.join(GENERATED_PACKAGE_FILENAME);
     fs::write(&generated_package_path, generated_yaml.as_bytes()).map_err(|err| {
         format!(
@@ -5658,6 +5754,7 @@ fn apply_answers_document(
         locale: resolved.locale.clone(),
         written_files,
         pack_path,
+        change_history_path,
         preserved_user_content,
     })
 }
@@ -5671,6 +5768,7 @@ impl From<ExecutionSummary> for ApplyAnswersOutput {
             locale: summary.locale,
             written_files: summary.written_files,
             pack_path: summary.pack_path,
+            change_history_path: summary.change_history_path,
             preserved_user_content: summary.preserved_user_content,
         }
     }
@@ -7084,8 +7182,40 @@ fn normalize_record_items_for_source(
             if source == "hybrid" {
                 normalize_hybrid_record_fields(&mut record.fields);
             }
+            apply_lifecycle_field_defaults(&mut record);
             record
         })
+        .collect()
+}
+
+fn apply_lifecycle_field_defaults(record: &mut RecordItemAnswer) {
+    let Some(default_status) = lifecycle_status_default(&record.name) else {
+        return;
+    };
+    if let Some(status) = record
+        .fields
+        .iter_mut()
+        .find(|field| field.name == "status")
+        && status.default.is_null()
+    {
+        status.default = serde_json::Value::String(default_status.to_string());
+    }
+}
+
+fn lifecycle_status_default(record_name: &str) -> Option<&'static str> {
+    match normalize_identifier(record_name).as_str() {
+        "tenancy" | "lease" => Some("active"),
+        "maintenancerequest" | "maintenance_request" => Some("open"),
+        "payment" | "rentpayment" | "rent_payment" => Some("settled"),
+        _ => None,
+    }
+}
+
+fn normalize_identifier(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
         .collect()
 }
 
@@ -7282,6 +7412,7 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
             .map(|records| records.items.clone())
             .unwrap_or_default(),
     );
+    apply_lifecycle_endpoint_defaults(&mut agent_endpoint_values.items, &resolved_record_items);
     let (resolved_event_items, resolved_projection_items) = normalize_events_and_projections(
         answers
             .events
@@ -7477,6 +7608,7 @@ fn resolve_update_answers(
             })
             .unwrap_or_else(|| previous.record_items.clone()),
     );
+    apply_lifecycle_endpoint_defaults(&mut agent_endpoint_values.items, &resolved_record_items);
     let event_items = answers
         .events
         .as_ref()
@@ -7629,6 +7761,53 @@ fn resolve_update_answers(
         include_agent_tools,
         artifacts,
     })
+}
+
+fn apply_lifecycle_endpoint_defaults(
+    endpoints: &mut [AgentEndpointItemAnswer],
+    records: &[RecordItemAnswer],
+) {
+    for endpoint in endpoints {
+        let Some(record_name) = endpoint_execution_record(endpoint) else {
+            continue;
+        };
+        let Some(default_status) = record_status_default(records, record_name)
+            .or_else(|| lifecycle_status_default(record_name))
+        else {
+            continue;
+        };
+        let Some(emits) = endpoint.emits.as_mut() else {
+            continue;
+        };
+        let serde_json::Value::Object(payload) = &mut emits.payload else {
+            continue;
+        };
+        payload
+            .entry("status".to_string())
+            .or_insert_with(|| serde_json::Value::String(default_status.to_string()));
+    }
+}
+
+fn endpoint_execution_record(endpoint: &AgentEndpointItemAnswer) -> Option<&str> {
+    endpoint
+        .execution
+        .as_ref()
+        .filter(|execution| {
+            execution.get("kind").and_then(serde_json::Value::as_str) == Some("record-create")
+        })
+        .and_then(|execution| execution.get("record"))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn record_status_default<'a>(
+    records: &'a [RecordItemAnswer],
+    record_name: &str,
+) -> Option<&'a str> {
+    records
+        .iter()
+        .find(|record| record.name == record_name)
+        .and_then(|record| record.fields.iter().find(|field| field.name == "status"))
+        .and_then(|field| field.default.as_str())
 }
 
 struct ResolvedAgentEndpointAnswers {
@@ -8099,6 +8278,310 @@ fn write_generated_block(path: &Path, generated_yaml: &str) -> Result<bool, Stri
     fs::write(path, contents)
         .map_err(|err| format!("failed to write package file {}: {err}", path.display()))?;
     Ok(preserved_user_content)
+}
+
+fn extract_generated_block_yaml(contents: &str) -> Option<String> {
+    let start = contents.find(GENERATED_BEGIN)? + GENERATED_BEGIN.len();
+    let end = contents.find(GENERATED_END)?;
+    if end <= start {
+        return None;
+    }
+    Some(
+        contents[start..end]
+            .strip_prefix('\n')
+            .unwrap_or(&contents[start..end])
+            .to_string(),
+    )
+}
+
+fn write_sorla_change_history(
+    output_dir: &Path,
+    sorla_path: &Path,
+    mode: &str,
+    before_yaml: &str,
+    after_yaml: &str,
+    diff: Option<ConceptDiff>,
+) -> Result<Option<PathBuf>, String> {
+    if before_yaml == after_yaml {
+        return Ok(None);
+    }
+    let old_hash = format!("sha256:{}", sha256_hex_public(before_yaml.as_bytes()));
+    let new_hash = format!("sha256:{}", sha256_hex_public(after_yaml.as_bytes()));
+    let diff = diff.unwrap_or_else(|| summarize_sorla_yaml_changes(before_yaml, after_yaml));
+    let entry = SorlaChangeHistoryEntry {
+        schema: SORLA_CHANGE_HISTORY_SCHEMA.to_string(),
+        source_path: sorla_path.display().to_string(),
+        mode: mode.to_string(),
+        old_hash: old_hash.clone(),
+        new_hash: new_hash.clone(),
+        diff,
+        rollback: SorlaRollbackSnapshot {
+            strategy: "restore_before_yaml".to_string(),
+            restore_hash: old_hash.clone(),
+            restore_yaml: before_yaml.to_string(),
+        },
+        before_yaml: before_yaml.to_string(),
+        after_yaml: after_yaml.to_string(),
+    };
+    let old_short = short_hash_suffix(&old_hash);
+    let new_short = short_hash_suffix(&new_hash);
+    let history_dir = output_dir.join(".greentic-sorla").join("history");
+    fs::create_dir_all(&history_dir).map_err(|err| {
+        format!(
+            "failed to create change history directory {}: {err}",
+            history_dir.display()
+        )
+    })?;
+    let history_path = history_dir.join(format!("sorla-change-{old_short}-{new_short}.json"));
+    let contents = serde_json::to_vec_pretty(&entry).map_err(|err| err.to_string())?;
+    fs::write(&history_path, contents).map_err(|err| {
+        format!(
+            "failed to write change history file {}: {err}",
+            history_path.display()
+        )
+    })?;
+    Ok(Some(history_path))
+}
+
+fn short_hash_suffix(hash: &str) -> String {
+    hash.rsplit_once(':')
+        .map(|(_, value)| value)
+        .unwrap_or(hash)
+        .chars()
+        .take(12)
+        .collect()
+}
+
+fn summarize_sorla_yaml_changes(before_yaml: &str, after_yaml: &str) -> ConceptDiff {
+    let before = parse_package(before_yaml);
+    let after = parse_package(after_yaml);
+    let changes = match (before, after) {
+        (Ok(before), Ok(after)) => {
+            concept_changes_between_packages(&before.package, &after.package)
+        }
+        _ => vec![ConceptChange {
+            kind: ConceptChangeKind::Updated,
+            target: "sorla.yaml".to_string(),
+            label: "Updated SoRLa source".to_string(),
+            before: Some(
+                serde_json::json!({ "hash": format!("sha256:{}", sha256_hex_public(before_yaml.as_bytes())) }),
+            ),
+            after: Some(
+                serde_json::json!({ "hash": format!("sha256:{}", sha256_hex_public(after_yaml.as_bytes())) }),
+            ),
+        }],
+    };
+    ConceptDiff {
+        schema: CONCEPT_DIFF_SCHEMA.to_string(),
+        changes,
+    }
+}
+
+fn concept_changes_between_packages(
+    before: &sorla_ast::Package,
+    after: &sorla_ast::Package,
+) -> Vec<ConceptChange> {
+    let mut changes = Vec::new();
+    if before.package != after.package {
+        changes.push(ConceptChange {
+            kind: ConceptChangeKind::Updated,
+            target: "package".to_string(),
+            label: "Updated package metadata".to_string(),
+            before: Some(serde_json::to_value(&before.package).unwrap_or_default()),
+            after: Some(serde_json::to_value(&after.package).unwrap_or_default()),
+        });
+    }
+    collect_named_changes(
+        "record",
+        before
+            .records
+            .iter()
+            .map(|record| {
+                (
+                    record.name.clone(),
+                    serde_json::to_value(record).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .records
+            .iter()
+            .map(|record| {
+                (
+                    record.name.clone(),
+                    serde_json::to_value(record).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    for record in &before.records {
+        if let Some(after_record) = after
+            .records
+            .iter()
+            .find(|candidate| candidate.name == record.name)
+        {
+            collect_named_changes(
+                &format!("record.{}.field", record.name),
+                record
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.name.clone(),
+                            serde_json::to_value(field).unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
+                after_record
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.name.clone(),
+                            serde_json::to_value(field).unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
+                &mut changes,
+            );
+        }
+    }
+    collect_named_changes(
+        "event",
+        before
+            .events
+            .iter()
+            .map(|event| {
+                (
+                    event.name.clone(),
+                    serde_json::to_value(event).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .events
+            .iter()
+            .map(|event| {
+                (
+                    event.name.clone(),
+                    serde_json::to_value(event).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    collect_named_changes(
+        "projection",
+        before
+            .projections
+            .iter()
+            .map(|projection| {
+                (
+                    projection.name.clone(),
+                    serde_json::to_value(projection).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .projections
+            .iter()
+            .map(|projection| {
+                (
+                    projection.name.clone(),
+                    serde_json::to_value(projection).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    collect_named_changes(
+        "metric",
+        before
+            .metrics
+            .iter()
+            .map(|metric| {
+                (
+                    metric.name.clone(),
+                    serde_json::to_value(metric).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .metrics
+            .iter()
+            .map(|metric| {
+                (
+                    metric.name.clone(),
+                    serde_json::to_value(metric).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    collect_named_changes(
+        "agent_endpoint",
+        before
+            .agent_endpoints
+            .iter()
+            .map(|endpoint| {
+                (
+                    endpoint.id.clone(),
+                    serde_json::to_value(endpoint).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .agent_endpoints
+            .iter()
+            .map(|endpoint| {
+                (
+                    endpoint.id.clone(),
+                    serde_json::to_value(endpoint).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    changes
+}
+
+fn collect_named_changes(
+    kind: &str,
+    before: BTreeMap<String, serde_json::Value>,
+    after: BTreeMap<String, serde_json::Value>,
+    changes: &mut Vec<ConceptChange>,
+) {
+    for (name, before_value) in &before {
+        match after.get(name) {
+            Some(after_value) if after_value != before_value => changes.push(ConceptChange {
+                kind: ConceptChangeKind::Updated,
+                target: format!("{kind}.{name}"),
+                label: format!("Updated {kind} {name}"),
+                before: Some(before_value.clone()),
+                after: Some(after_value.clone()),
+            }),
+            None => changes.push(ConceptChange {
+                kind: ConceptChangeKind::Removed,
+                target: format!("{kind}.{name}"),
+                label: format!("Removed {kind} {name}"),
+                before: Some(before_value.clone()),
+                after: None,
+            }),
+            _ => {}
+        }
+    }
+    for (name, after_value) in &after {
+        if !before.contains_key(name) {
+            changes.push(ConceptChange {
+                kind: ConceptChangeKind::Added,
+                target: format!("{kind}.{name}"),
+                label: format!("Added {kind} {name}"),
+                before: None,
+                after: Some(after_value.clone()),
+            });
+        }
+    }
 }
 
 fn render_package_yaml(resolved: &ResolvedAnswers) -> String {
@@ -11233,6 +11716,55 @@ mod tests {
     }
 
     #[test]
+    fn update_flow_writes_change_history_with_rollback_snapshot() {
+        let output_dir = unique_temp_dir().join("workspace");
+        fs::create_dir_all(&output_dir).unwrap();
+        let create_answers: AnswersDocument = serde_json::from_value(serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": output_dir,
+            "package": { "name": "history-demo", "version": "0.1.0" },
+            "providers": { "storage_category": "storage" },
+            "records": { "default_source": "native" },
+            "events": { "enabled": false },
+            "projections": { "mode": "current-state" },
+            "migrations": { "compatibility": "additive" },
+            "output": { "include_agent_tools": true }
+        }))
+        .unwrap();
+        apply_answers_document(create_answers, None).unwrap();
+
+        let update_answers: AnswersDocument = serde_json::from_value(serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "update",
+            "output_dir": output_dir,
+            "package": { "version": "0.2.0" },
+            "projections": { "mode": "audit-trail" }
+        }))
+        .unwrap();
+        let summary = apply_answers_document(update_answers, None).unwrap();
+        let history_path = summary
+            .change_history_path
+            .expect("update should write change history");
+        let history: SorlaChangeHistoryEntry =
+            serde_json::from_str(&fs::read_to_string(output_dir.join(&history_path)).unwrap())
+                .unwrap();
+
+        assert_eq!(history.schema, SORLA_CHANGE_HISTORY_SCHEMA);
+        assert_eq!(history.mode, "wizard-update");
+        assert_ne!(history.old_hash, history.new_hash);
+        assert_eq!(history.rollback.strategy, "restore_before_yaml");
+        assert_eq!(history.rollback.restore_yaml, history.before_yaml);
+        assert!(
+            history
+                .diff
+                .changes
+                .iter()
+                .any(|change| change.kind == ConceptChangeKind::Updated)
+        );
+    }
+
+    #[test]
     fn prompt_generated_answers_apply_through_public_facade() {
         struct FakeLlm;
 
@@ -12054,6 +12586,64 @@ metrics:
             serde_json::from_slice(&metrics_entry.bytes).expect("metrics JSON decodes");
         assert_eq!(metrics_json["schema"], "greentic.sorla.metrics.v1");
         assert_eq!(metrics_json["metrics"][0]["name"], "monthly_revenue");
+    }
+
+    #[test]
+    fn authorization_yaml_emits_role_and_policy_pack_entries() {
+        let source_yaml = r#"
+package:
+  name: authorization-demo
+  version: 0.2.0
+roles:
+  - id: property_manager
+    grants:
+      - tenancy.manage
+role_assignments:
+  - role: property_manager
+    team: building-ops
+records:
+  - name: Tenancy
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: building_id
+        type: string
+actions:
+  - name: AssignTenantToUnit
+events:
+  - name: TenancyAssigned
+    record: Tenancy
+policies:
+  - name: BuildingManagerTenancyPolicy
+    allow:
+      operations:
+        - AssignTenantToUnit
+      constraints:
+        - field: building_id
+          operator: equals
+          value:
+            context: team.building_ids
+"#
+        .trim_start()
+        .to_string();
+        let model = NormalizedSorlaModel {
+            package_name: "authorization-demo".to_string(),
+            package_version: "0.2.0".to_string(),
+            locale: "en".to_string(),
+            source_yaml,
+            normalized_answers: serde_json::Value::Null,
+        };
+
+        let entries =
+            build_gtpack_entries(&model, PackBuildOptions::default()).expect("entries build");
+        let paths = entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(paths.contains("assets/sorla/role-assignments.json"));
+        assert!(paths.contains("assets/sorla/policy-rules.json"));
+        assert!(paths.contains("assets/sorla/policy-rules.schema.json"));
     }
 
     #[test]
@@ -12978,8 +13568,10 @@ metrics:
         assert!(package_yaml.contains("name: building_id"));
         assert!(package_yaml.contains("default: active"));
         assert!(package_yaml.contains("default: settled"));
+        assert!(package_yaml.contains("default: open"));
         assert!(package_yaml.contains("paid_on: \"$input.paid_on\""));
         assert!(package_yaml.contains("status: settled"));
+        assert!(package_yaml.contains("status: open"));
         assert!(!package_yaml.contains("LandlordTenantSorRecord"));
         let artifacts = build_handoff_artifacts_from_yaml(&package_yaml)
             .expect("generated YAML should build handoff artifacts");
@@ -12995,6 +13587,19 @@ metrics:
         };
         assert_eq!(record_field_default("Tenancy", "status"), "active");
         assert_eq!(record_field_default("Payment", "status"), "settled");
+        assert_eq!(record_field_default("MaintenanceRequest", "status"), "open");
+        assert_eq!(
+            endpoint_emitted_status(&artifacts.ir, "assign_tenant_to_unit"),
+            "active"
+        );
+        assert_eq!(
+            endpoint_emitted_status(&artifacts.ir, "record_rent_payment"),
+            "settled"
+        );
+        assert_eq!(
+            endpoint_emitted_status(&artifacts.ir, "add_maintenance_request"),
+            "open"
+        );
         let metrics_json = artifacts
             .metrics_json
             .expect("metrics artifact should be generated");
@@ -13026,6 +13631,27 @@ metrics:
                 .iter()
                 .any(|dimension| dimension["field"] == "building_id")
         );
+        assert!(
+            metric("total_units")["dimensions"]
+                .as_array()
+                .expect("total_units dimensions")
+                .iter()
+                .any(|dimension| dimension["field"] == "building_id")
+        );
+        assert!(
+            metric("open_maintenance_records_per_building")["dimensions"]
+                .as_array()
+                .expect("open maintenance dimensions")
+                .iter()
+                .any(|dimension| dimension["field"] == "building_id")
+        );
+        assert!(
+            metric("monthly_tenancy_revenue")["dimensions"]
+                .as_array()
+                .expect("monthly revenue dimensions")
+                .iter()
+                .any(|dimension| dimension["field"] == "tenancy_id")
+        );
         assert_eq!(
             metric("monthly_tenancy_revenue")["time"]["field"],
             "paid_on"
@@ -13033,6 +13659,25 @@ metrics:
         assert_eq!(
             metric("monthly_tenancy_revenue")["time"]["grains"][0],
             "month"
+        );
+        let seed_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("tests")
+            .join("e2e")
+            .join("fixtures")
+            .join("landlord_seed_data.json");
+        let seed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(seed_path).expect("seed data reads"))
+                .expect("seed data parses");
+        assert!(evaluate_count_metric(metric("active_tenancies"), &seed) > 0);
+        assert!(evaluate_sum_metric(metric("monthly_tenancy_revenue"), &seed) > 0.0);
+        assert!(evaluate_count_metric(metric("open_maintenance_records_per_building"), &seed) > 0);
+        assert!(evaluate_count_metric(metric("total_tenants"), &seed) > 0);
+        assert!(evaluate_count_metric(metric("total_units"), &seed) > 0);
+        assert!(
+            grouped_occupancy_rates(&seed)
+                .values()
+                .any(|rate| *rate > 0.0)
         );
         assert_eq!(
             inspection
@@ -13048,6 +13693,92 @@ metrics:
                 .get("assets/sorla/mcp-tools.json"),
             Some(&true)
         );
+    }
+
+    fn endpoint_emitted_status(ir: &greentic_sorla_ir::CanonicalIr, endpoint_id: &str) -> String {
+        ir.agent_endpoints
+            .iter()
+            .find(|endpoint| endpoint.id == endpoint_id)
+            .and_then(|endpoint| endpoint.emits.as_ref())
+            .and_then(|emits| emits.payload.get("status"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("missing emitted status for `{endpoint_id}`"))
+            .to_string()
+    }
+
+    fn evaluate_count_metric(metric: &serde_json::Value, seed: &serde_json::Value) -> usize {
+        metric_records(metric, seed)
+            .iter()
+            .filter(|record| metric_filters_match(metric, record))
+            .count()
+    }
+
+    fn evaluate_sum_metric(metric: &serde_json::Value, seed: &serde_json::Value) -> f64 {
+        let Some(field) = metric["measure"]["field"].as_str() else {
+            return 0.0;
+        };
+        metric_records(metric, seed)
+            .iter()
+            .filter(|record| metric_filters_match(metric, record))
+            .filter_map(|record| record.get(field).and_then(serde_json::Value::as_f64))
+            .sum()
+    }
+
+    fn metric_records<'a>(
+        metric: &serde_json::Value,
+        seed: &'a serde_json::Value,
+    ) -> Vec<&'a serde_json::Value> {
+        let collection = metric["source"]["collection"]
+            .as_str()
+            .expect("metric source collection");
+        seed[collection]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing seed collection `{collection}`"))
+            .iter()
+            .collect()
+    }
+
+    fn metric_filters_match(metric: &serde_json::Value, record: &serde_json::Value) -> bool {
+        metric["filters"].as_array().is_none_or(|filters| {
+            filters.iter().all(|filter| {
+                filter["operator"] == "equals"
+                    && filter["field"].as_str().and_then(|field| record.get(field))
+                        == filter.get("value")
+            })
+        })
+    }
+
+    fn grouped_occupancy_rates(seed: &serde_json::Value) -> BTreeMap<String, f64> {
+        let mut active_by_building: BTreeMap<String, usize> = BTreeMap::new();
+        for tenancy in seed["tenancies"].as_array().expect("tenancies seed") {
+            if tenancy["status"] == "active"
+                && let Some(building_id) = tenancy["building_id"].as_str()
+            {
+                *active_by_building
+                    .entry(building_id.to_string())
+                    .or_default() += 1;
+            }
+        }
+
+        let mut units_by_building: BTreeMap<String, usize> = BTreeMap::new();
+        for unit in seed["units"].as_array().expect("units seed") {
+            if let Some(building_id) = unit["building_id"].as_str() {
+                *units_by_building
+                    .entry(building_id.to_string())
+                    .or_default() += 1;
+            }
+        }
+
+        units_by_building
+            .into_iter()
+            .map(|(building_id, units)| {
+                let active = active_by_building
+                    .get(&building_id)
+                    .copied()
+                    .unwrap_or_default();
+                (building_id, active as f64 / units as f64)
+            })
+            .collect()
     }
 
     #[test]
@@ -13595,6 +14326,91 @@ metrics:
                 .and_then(|kind| kind.as_str()),
             Some("record_mutation")
         );
+    }
+
+    #[test]
+    fn create_flow_applies_lifecycle_defaults_to_record_create_endpoints() {
+        let output_dir = unique_temp_dir();
+        let answers = serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": output_dir,
+            "package": {
+                "name": "lifecycle-defaults",
+                "version": "0.1.0"
+            },
+            "records": {
+                "items": [
+                    {
+                        "name": "Tenancy",
+                        "fields": [
+                            {"name": "id", "type": "uuid"},
+                            {"name": "status", "type": "string"}
+                        ]
+                    },
+                    {
+                        "name": "MaintenanceRequest",
+                        "fields": [
+                            {"name": "id", "type": "uuid"},
+                            {"name": "status", "type": "string"}
+                        ]
+                    },
+                    {
+                        "name": "Payment",
+                        "fields": [
+                            {"name": "id", "type": "uuid"},
+                            {"name": "status", "type": "string"}
+                        ]
+                    }
+                ]
+            },
+            "agent_endpoints": {
+                "enabled": true,
+                "items": [
+                    {
+                        "id": "assign_tenant_to_unit",
+                        "title": "Assign tenant to unit",
+                        "intent": "Create an active tenancy.",
+                        "emits": {
+                            "event": "TenancyCreated",
+                            "stream": "tenancies",
+                            "payload": {"id": "$generated.tenancy_id"}
+                        },
+                        "execution": {"kind": "record-create", "record": "Tenancy"}
+                    },
+                    {
+                        "id": "add_maintenance_request",
+                        "title": "Add maintenance request",
+                        "intent": "Create an open maintenance request.",
+                        "emits": {
+                            "event": "MaintenanceRequestCreated",
+                            "stream": "maintenance",
+                            "payload": {"id": "$generated.maintenance_request_id"}
+                        },
+                        "execution": {"kind": "record-create", "record": "MaintenanceRequest"}
+                    },
+                    {
+                        "id": "record_rent_payment",
+                        "title": "Record rent payment",
+                        "intent": "Create a settled payment.",
+                        "emits": {
+                            "event": "PaymentRecorded",
+                            "stream": "payments",
+                            "payload": {"id": "$generated.payment_id"}
+                        },
+                        "execution": {"kind": "record-create", "record": "Payment"}
+                    }
+                ]
+            }
+        });
+
+        let model = normalize_answers(answers, NormalizeOptions).expect("answers normalize");
+        assert!(model.source_yaml.contains("default: active"));
+        assert!(model.source_yaml.contains("default: open"));
+        assert!(model.source_yaml.contains("default: settled"));
+        assert!(model.source_yaml.contains("status: active"));
+        assert!(model.source_yaml.contains("status: open"));
+        assert!(model.source_yaml.contains("status: settled"));
     }
 
     #[test]

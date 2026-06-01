@@ -31,6 +31,8 @@ pub struct Package {
     pub operational_indexes: Option<OperationalIndexes>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleDecl>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub role_assignments: Vec<RoleAssignmentDecl>,
     #[serde(default)]
     pub records: Vec<Record>,
     #[serde(default)]
@@ -38,7 +40,7 @@ pub struct Package {
     #[serde(default)]
     pub actions: Vec<ActionDecl>,
     #[serde(default)]
-    pub policies: Vec<NamedBlock>,
+    pub policies: Vec<PolicyDecl>,
     #[serde(default)]
     pub approvals: Vec<NamedBlock>,
     #[serde(default)]
@@ -468,6 +470,24 @@ pub struct RoleDecl {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grants: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoleAssignmentDecl {
+    pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1022,6 +1042,63 @@ pub struct ActionDecl {
 #[serde(deny_unknown_fields)]
 pub struct NamedBlock {
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyDecl {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow: Option<PolicyAllow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyAllow {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub operations: Vec<String>,
+    #[serde(default, skip_serializing_if = "PolicyEventPermissions::is_empty")]
+    pub events: PolicyEventPermissions,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<PolicyConstraint>,
+}
+
+impl PolicyAllow {
+    pub fn is_empty(&self) -> bool {
+        self.operations.is_empty() && self.events.is_empty() && self.constraints.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyEventPermissions {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subscribe: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub publish: Vec<String>,
+}
+
+impl PolicyEventPermissions {
+    pub fn is_empty(&self) -> bool {
+        self.subscribe.is_empty() && self.publish.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PolicyConstraint {
+    pub field: String,
+    pub operator: String,
+    pub value: PolicyConstraintValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PolicyConstraintValue {
+    Context { context: String },
+    Literal(serde_json::Value),
 }
 
 fn default_true() -> bool {

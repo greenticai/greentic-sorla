@@ -421,6 +421,7 @@ records:
       - name: status
         i18n_key: examples.landlord_tenant_sor.records.maintenancerequest.fields.status
         type: string
+        default: open
 ontology:
   schema: greentic.sorla.ontology.v1
   concepts:
@@ -1298,6 +1299,7 @@ agent_endpoints:
         building_id: "$input.building_id"
         id: "$generated.maintenance_request_id"
         summary: "$input.summary"
+        status: open
         unit_id: "$input.unit_id"
     risk: low
     approval: optional

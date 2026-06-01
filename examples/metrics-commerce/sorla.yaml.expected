@@ -295,6 +295,7 @@ records:
         type: string
         required: true
         sensitive: false
+        default: settled
       - name: paid_at
         i18n_key: examples.metrics_commerce.records.payment.fields.paid_at
         type: datetime
