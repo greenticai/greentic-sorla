@@ -14,7 +14,7 @@ readme = "README.md"
 
 [features]
 default = ["pack-zip"]
-pack-zip = ["dep:greentic-pack", "dep:greentic-types", "dep:zip"]
+pack-zip = ["dep:zip"]
 
 [dependencies]
 ciborium.workspace = true
