@@ -18,9 +18,10 @@ pub use greentic_sorla_pack::{
     DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypesDocument,
 };
 use greentic_sorla_pack::{
-    DesignerNodeTypeGenerationOptions, PROVIDER_BINDINGS_TEMPLATE_FILENAME,
-    RUNTIME_TEMPLATE_FILENAME, SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA,
-    SORX_VALIDATION_SCHEMA, START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
+    DesignerNodeTypeGenerationOptions, POLICY_RULES_PATH, POLICY_RULES_SCHEMA_PATH,
+    PROVIDER_BINDINGS_TEMPLATE_FILENAME, ROLE_ASSIGNMENTS_PATH, RUNTIME_TEMPLATE_FILENAME,
+    SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA, SORX_VALIDATION_SCHEMA,
+    START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
     agent_endpoint_contract_warnings, build_handoff_artifacts_from_yaml,
     generate_agent_endpoint_action_catalog_from_ir, generate_designer_node_types_from_ir,
     generate_sorx_validation_manifest_from_ir, ontology_schema_json,
@@ -2313,7 +2314,7 @@ fn design_model_from_package(
     let mut policies = package
         .policies
         .iter()
-        .map(named_view)
+        .map(policy_named_view)
         .collect::<Vec<SorlaNamedView>>();
     policies.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -2602,6 +2603,12 @@ fn metric_view(metric: &sorla_ast::MetricDecl) -> SorlaMetricView {
 }
 
 fn named_view(block: &sorla_ast::NamedBlock) -> SorlaNamedView {
+    SorlaNamedView {
+        name: block.name.clone(),
+    }
+}
+
+fn policy_named_view(block: &sorla_ast::PolicyDecl) -> SorlaNamedView {
     SorlaNamedView {
         name: block.name.clone(),
     }
@@ -3865,6 +3872,27 @@ pub fn build_gtpack_entries(
             path: "assets/sorla/metrics.json".to_string(),
             bytes: metrics_json.as_bytes().to_vec(),
             sha256: sha256_hex_public(metrics_json.as_bytes()),
+        });
+    }
+    if let Some(role_assignments_json) = &artifacts.role_assignments_json {
+        entries.push(PackEntry {
+            path: ROLE_ASSIGNMENTS_PATH.to_string(),
+            bytes: role_assignments_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(role_assignments_json.as_bytes()),
+        });
+    }
+    if let Some(policy_rules_json) = &artifacts.policy_rules_json {
+        entries.push(PackEntry {
+            path: POLICY_RULES_PATH.to_string(),
+            bytes: policy_rules_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(policy_rules_json.as_bytes()),
+        });
+    }
+    if let Some(policy_rules_schema_json) = &artifacts.policy_rules_schema_json {
+        entries.push(PackEntry {
+            path: POLICY_RULES_SCHEMA_PATH.to_string(),
+            bytes: policy_rules_schema_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(policy_rules_schema_json.as_bytes()),
         });
     }
     if !artifacts.ir.agent_endpoints.is_empty() {
@@ -12558,6 +12586,64 @@ metrics:
             serde_json::from_slice(&metrics_entry.bytes).expect("metrics JSON decodes");
         assert_eq!(metrics_json["schema"], "greentic.sorla.metrics.v1");
         assert_eq!(metrics_json["metrics"][0]["name"], "monthly_revenue");
+    }
+
+    #[test]
+    fn authorization_yaml_emits_role_and_policy_pack_entries() {
+        let source_yaml = r#"
+package:
+  name: authorization-demo
+  version: 0.2.0
+roles:
+  - id: property_manager
+    grants:
+      - tenancy.manage
+role_assignments:
+  - role: property_manager
+    team: building-ops
+records:
+  - name: Tenancy
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: building_id
+        type: string
+actions:
+  - name: AssignTenantToUnit
+events:
+  - name: TenancyAssigned
+    record: Tenancy
+policies:
+  - name: BuildingManagerTenancyPolicy
+    allow:
+      operations:
+        - AssignTenantToUnit
+      constraints:
+        - field: building_id
+          operator: equals
+          value:
+            context: team.building_ids
+"#
+        .trim_start()
+        .to_string();
+        let model = NormalizedSorlaModel {
+            package_name: "authorization-demo".to_string(),
+            package_version: "0.2.0".to_string(),
+            locale: "en".to_string(),
+            source_yaml,
+            normalized_answers: serde_json::Value::Null,
+        };
+
+        let entries =
+            build_gtpack_entries(&model, PackBuildOptions::default()).expect("entries build");
+        let paths = entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(paths.contains("assets/sorla/role-assignments.json"));
+        assert!(paths.contains("assets/sorla/policy-rules.json"));
+        assert!(paths.contains("assets/sorla/policy-rules.schema.json"));
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use crate::ast::{
     AgentEndpointApprovalMode, AgentEndpointDecl, AgentEndpointRisk, FieldAuthority,
     FieldValidationRules, MigrationOperationDecl, OntologyBacking, OntologyProviderRequirement,
-    Package, ParseWarning, ParsedPackage, ProviderRequirement, Record, RecordAccess, RecordSource,
-    ViewMode,
+    Package, ParseWarning, ParsedPackage, PolicyConstraintValue, ProviderRequirement, Record,
+    RecordAccess, RecordSource, ViewMode,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -35,6 +35,8 @@ fn apply_v0_1_compatibility(package: &mut Package) -> Vec<ParseWarning> {
 
 fn validate_package(package: &Package) -> Result<Vec<ParseWarning>, String> {
     validate_roles(package)?;
+    validate_role_assignments(package)?;
+    validate_policies(package)?;
     for record in &package.records {
         validate_record(record, package)?;
     }
@@ -71,6 +73,146 @@ fn validate_roles(package: &Package) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn validate_role_assignments(package: &Package) -> Result<(), String> {
+    let role_ids = declared_names(package.roles.iter().map(|role| role.id.as_str()));
+    for (index, assignment) in package.role_assignments.iter().enumerate() {
+        let path = format!("role_assignments[{index}]");
+        require_non_empty(
+            &assignment.role,
+            &format!("{path}.role"),
+            "role assignment role",
+        )?;
+        if !role_ids.contains(&assignment.role) {
+            return Err(format!(
+                "{path}.role: unknown role assignment role `{}`",
+                assignment.role
+            ));
+        }
+        let principals = [
+            ("tenant", assignment.tenant.as_deref()),
+            ("team", assignment.team.as_deref()),
+            ("user", assignment.user.as_deref()),
+            ("service", assignment.service.as_deref()),
+            ("component", assignment.component.as_deref()),
+            ("workflow", assignment.workflow.as_deref()),
+        ];
+        let mut has_principal = false;
+        for (field, value) in principals {
+            if let Some(value) = value {
+                require_non_empty(
+                    value,
+                    &format!("{path}.{field}"),
+                    "role assignment principal",
+                )?;
+                has_principal = true;
+            }
+        }
+        if !has_principal {
+            return Err(format!("{path}: declare at least one assignment principal"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_policies(package: &Package) -> Result<(), String> {
+    let mut names = BTreeSet::new();
+    let operations = declared_names(
+        package
+            .actions
+            .iter()
+            .map(|action| action.name.as_str())
+            .chain(
+                package
+                    .agent_endpoints
+                    .iter()
+                    .map(|endpoint| endpoint.id.as_str()),
+            ),
+    );
+    let events = declared_names(package.events.iter().map(|event| event.name.as_str()));
+    let fields = package
+        .records
+        .iter()
+        .flat_map(|record| record.fields.iter().map(|field| field.name.as_str()))
+        .collect::<BTreeSet<_>>();
+
+    for (index, policy) in package.policies.iter().enumerate() {
+        let path = format!("policies[{index}]");
+        require_non_empty(&policy.name, &format!("{path}.name"), "policy name")?;
+        if !names.insert(policy.name.clone()) {
+            return Err(format!("{path}.name: duplicate policy `{}`", policy.name));
+        }
+        let Some(allow) = &policy.allow else {
+            continue;
+        };
+        if allow.is_empty() {
+            return Err(format!(
+                "{path}.allow: declare at least one policy allow rule"
+            ));
+        }
+        validate_named_refs(
+            &allow.operations,
+            &operations,
+            &format!("{path}.allow.operations"),
+            "operation",
+        )?;
+        validate_named_refs(
+            &allow.events.subscribe,
+            &events,
+            &format!("{path}.allow.events.subscribe"),
+            "event",
+        )?;
+        validate_named_refs(
+            &allow.events.publish,
+            &events,
+            &format!("{path}.allow.events.publish"),
+            "event",
+        )?;
+        for (constraint_index, constraint) in allow.constraints.iter().enumerate() {
+            let constraint_path = format!("{path}.allow.constraints[{constraint_index}]");
+            require_non_empty(
+                &constraint.field,
+                &format!("{constraint_path}.field"),
+                "policy constraint field",
+            )?;
+            if !fields.contains(constraint.field.as_str()) {
+                return Err(format!(
+                    "{constraint_path}.field: unknown policy constraint field `{}`",
+                    constraint.field
+                ));
+            }
+            require_non_empty(
+                &constraint.operator,
+                &format!("{constraint_path}.operator"),
+                "policy constraint operator",
+            )?;
+            if constraint.operator != "equals" {
+                return Err(format!(
+                    "{constraint_path}.operator: unsupported policy constraint operator `{}`; expected `equals`",
+                    constraint.operator
+                ));
+            }
+            if let PolicyConstraintValue::Context { context } = &constraint.value {
+                validate_policy_context(context, &format!("{constraint_path}.value.context"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_policy_context(context: &str, path: &str) -> Result<(), String> {
+    require_non_empty(context, path, "policy context variable")?;
+    let root = context.split('.').next().unwrap_or(context);
+    if matches!(
+        root,
+        "tenant" | "team" | "user_id" | "user" | "service" | "component" | "workflow"
+    ) {
+        return Ok(());
+    }
+    Err(format!(
+        "{path}: unsupported policy context variable `{context}`; expected tenant, team, user_id, service, component, or workflow"
+    ))
 }
 
 fn validate_record(record: &Record, package: &Package) -> Result<(), String> {
@@ -1933,6 +2075,70 @@ fn declared_names<'a>(names: impl Iterator<Item = &'a str>) -> BTreeSet<String> 
 mod tests {
     use super::parse_package;
 
+    fn authorization_fixture_yaml() -> &'static str {
+        r#"
+package:
+  name: authorization-demo
+  version: 0.2.0
+roles:
+  - id: property_manager
+    grants:
+      - tenancy.manage
+role_assignments:
+  - role: property_manager
+    team: building-ops
+records:
+  - name: Tenancy
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: building_id
+        type: string
+      - name: status
+        type: string
+actions:
+  - name: AssignTenantToUnit
+events:
+  - name: TenancyAssigned
+    record: Tenancy
+policies:
+  - name: BuildingManagerTenancyPolicy
+    description: Let building managers operate tenancies for their buildings.
+    allow:
+      operations:
+        - AssignTenantToUnit
+        - assign_tenant_to_unit
+      events:
+        subscribe:
+          - TenancyAssigned
+        publish:
+          - TenancyAssigned
+      constraints:
+        - field: building_id
+          operator: equals
+          value:
+            context: team.building_ids
+agent_endpoints:
+  - id: assign_tenant_to_unit
+    title: Assign tenant to unit
+    intent: Create an active tenancy for a tenant and unit.
+    authorization:
+      roles:
+        any_of:
+          - property_manager
+      policies:
+        - BuildingManagerTenancyPolicy
+    inputs:
+      - name: tenant_id
+        type: string
+    outputs:
+      - name: tenancy_id
+        type: string
+"#
+        .trim_start()
+    }
+
     #[test]
     fn parses_scalar_record_field_types_and_rules() {
         let parsed = parse_package(
@@ -2012,5 +2218,47 @@ records:
         .expect_err("string rule on decimal should fail");
 
         assert!(err.contains("string-like field type"));
+    }
+
+    #[test]
+    fn parses_role_assignments_and_structured_policy_rules() {
+        let parsed =
+            parse_package(authorization_fixture_yaml()).expect("authorization fixture parses");
+
+        assert_eq!(parsed.package.role_assignments.len(), 1);
+        assert_eq!(parsed.package.role_assignments[0].role, "property_manager");
+        assert_eq!(
+            parsed.package.role_assignments[0].team.as_deref(),
+            Some("building-ops")
+        );
+        let policy = &parsed.package.policies[0];
+        let allow = policy.allow.as_ref().expect("policy allow rules parsed");
+        assert_eq!(allow.operations.len(), 2);
+        assert_eq!(allow.events.subscribe, vec!["TenancyAssigned"]);
+        assert_eq!(allow.events.publish, vec!["TenancyAssigned"]);
+        assert_eq!(allow.constraints[0].field, "building_id");
+    }
+
+    #[test]
+    fn rejects_unknown_role_assignment_roles() {
+        let err = parse_package(
+            &authorization_fixture_yaml().replace("role: property_manager", "role: billing_admin"),
+        )
+        .expect_err("unknown role assignment role should fail");
+
+        assert!(err.contains("role_assignments[0].role"));
+        assert!(err.contains("billing_admin"));
+    }
+
+    #[test]
+    fn rejects_unknown_policy_targets() {
+        let err = parse_package(&authorization_fixture_yaml().replace(
+            "operations:\n        - AssignTenantToUnit\n        - assign_tenant_to_unit",
+            "operations:\n        - ApproveLeaseTransfer",
+        ))
+        .expect_err("unknown policy operation should fail");
+
+        assert!(err.contains("policies[0].allow.operations"));
+        assert!(err.contains("ApproveLeaseTransfer"));
     }
 }
