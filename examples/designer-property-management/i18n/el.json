@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Το ακίνητο άλλαξε",
+  "examples.designer_property_management.package.label": "Διαχείριση ακινήτων σχεδιαστή",
+  "examples.designer_property_management.projections.property_list.label": "Λίστα ακινήτων",
+  "examples.designer_property_management.records.property.fields.address.label": "Διεύθυνση",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Ταχυδρομικός κώδικας",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Αναγνωριστικό ακινήτου",
+  "examples.designer_property_management.records.property.label": "Ακίνητο"
+}

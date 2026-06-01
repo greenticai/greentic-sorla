@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Eigenschap gewijzigd",
+  "examples.designer_property_management.package.label": "Designer Eigendomsbeheer",
+  "examples.designer_property_management.projections.property_list.label": "Eigenschappenlijst",
+  "examples.designer_property_management.records.property.fields.address.label": "Adres",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Postcode",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Eigenschap-ID",
+  "examples.designer_property_management.records.property.label": "Eigenschap"
+}

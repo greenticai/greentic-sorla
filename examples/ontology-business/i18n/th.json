@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "สินทรัพย์",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "สัญญา",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "ลูกค้า",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "เอกสารหลักฐาน",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "ภาระผูกพัน",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "คู่สัญญา",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "ซัพพลายเออร์",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "ปฏิบัติตามภาระผูกพัน",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "กำกับดูแล",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "มีสัญญา",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "สนับสนุน",
+  "examples.ontology_business_sor.package.label": "Ontology Business SoR",
+  "examples.ontology_business_sor.roles.admin.label": "ผู้ดูแลระบบ",
+  "examples.ontology_business_sor.roles.customer_ops.label": "ฝ่ายปฏิบัติการลูกค้า",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "ผู้จัดการหลักฐาน",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "ผู้ตรวจสอบความเสี่ยง"
+}

@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Властивість змінено",
+  "examples.designer_property_management.package.label": "Керування властивостями дизайнера",
+  "examples.designer_property_management.projections.property_list.label": "Список властивостей",
+  "examples.designer_property_management.records.property.fields.address.label": "Адреса",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Поштовий індекс",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID властивості",
+  "examples.designer_property_management.records.property.label": "Властивість"
+}

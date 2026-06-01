@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "ਪ੍ਰਾਪਰਟੀ ਬਦਲੀ ਗਈ",
+  "examples.designer_property_management.package.label": "ਡਿਜ਼ਾਈਨਰ ਪ੍ਰਾਪਰਟੀ ਪ੍ਰਬੰਧਨ",
+  "examples.designer_property_management.projections.property_list.label": "ਪ੍ਰਾਪਰਟੀ ਸੂਚੀ",
+  "examples.designer_property_management.records.property.fields.address.label": "ਪਤਾ",
+  "examples.designer_property_management.records.property.fields.postcode.label": "ਪੋਸਟਕੋਡ",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ਪ੍ਰਾਪਰਟੀ ID",
+  "examples.designer_property_management.records.property.label": "ਪ੍ਰਾਪਰਟੀ"
+}

@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS кампании",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Выполненные заказы",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Коэффициент конверсии",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Ежедневные клики",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Валовая маржа",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Ежемесячные затраты",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Ежемесячная выручка",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Сеансы посетителей",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Кампания",
+  "examples.metrics_commerce.records.click.label": "Клик",
+  "examples.metrics_commerce.records.cost_entry.label": "Запись затрат",
+  "examples.metrics_commerce.records.order.label": "Заказ",
+  "examples.metrics_commerce.records.payment.label": "Платеж",
+  "examples.metrics_commerce.records.visitor.label": "Посетитель",
+  "examples.metrics_commerce.roles.admin.label": "Администрирование",
+  "examples.metrics_commerce.roles.analytics.label": "Аналитика",
+  "examples.metrics_commerce.roles.finance.label": "Финансы",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Маркетинговые операции"
+}

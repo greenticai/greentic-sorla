@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ප්‍රචාරණ ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "සම්පූර්ණ කළ ඇණවුම්",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "පරිවර්තන අනුපාතය",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "දෛනික ක්ලික් කිරීම්",
+  "examples.metrics_commerce.metrics.gross_margin.label": "මුළු ලාභ මායිම",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "මාසික පිරිවැය",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "මාසික ආදායම",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "නරඹන්නන්ගේ සැසි",
+  "examples.metrics_commerce.package.label": "මිතික වාණිජය",
+  "examples.metrics_commerce.records.campaign.label": "ප්‍රචාරණ ව්‍යාපාරය",
+  "examples.metrics_commerce.records.click.label": "ක්ලික් කිරීම",
+  "examples.metrics_commerce.records.cost_entry.label": "පිරිවැය ඇතුළත් කිරීම",
+  "examples.metrics_commerce.records.order.label": "ඇණවුම",
+  "examples.metrics_commerce.records.payment.label": "ගෙවීම",
+  "examples.metrics_commerce.records.visitor.label": "නරඹන්නා",
+  "examples.metrics_commerce.roles.admin.label": "පරිපාලක",
+  "examples.metrics_commerce.roles.analytics.label": "විශ්ලේෂණ",
+  "examples.metrics_commerce.roles.finance.label": "මූල්‍ය",
+  "examples.metrics_commerce.roles.marketing_ops.label": "අලෙවිකරණ මෙහෙයුම්"
+}

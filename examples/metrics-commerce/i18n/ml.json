@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ക്യാമ്പെയിൻ ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "പൂർത്തിയാക്കിയ ഓർഡറുകൾ",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "പരിവർത്തന നിരക്ക്",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "ദൈനംദിന ക്ലിക്കുകൾ",
+  "examples.metrics_commerce.metrics.gross_margin.label": "മൊത്ത മാർജിൻ",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "പ്രതിമാസ ചെലവ്",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "പ്രതിമാസ വരുമാനം",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "സന്ദർശക സെഷനുകൾ",
+  "examples.metrics_commerce.package.label": "മെട്രിക്സ് കൊമേഴ്‌സ്",
+  "examples.metrics_commerce.records.campaign.label": "ക്യാമ്പെയിൻ",
+  "examples.metrics_commerce.records.click.label": "ക്ലിക്ക്",
+  "examples.metrics_commerce.records.cost_entry.label": "ചെലവ് എൻട്രി",
+  "examples.metrics_commerce.records.order.label": "ഓർഡർ",
+  "examples.metrics_commerce.records.payment.label": "പേയ്‌മെന്റ്",
+  "examples.metrics_commerce.records.visitor.label": "സന്ദർശകൻ",
+  "examples.metrics_commerce.roles.admin.label": "അഡ്മിൻ",
+  "examples.metrics_commerce.roles.analytics.label": "അനലിറ്റിക്സ്",
+  "examples.metrics_commerce.roles.finance.label": "ധനകാര്യം",
+  "examples.metrics_commerce.roles.marketing_ops.label": "മാർക്കറ്റിംഗ് പ്രവർത്തനങ്ങൾ"
+}

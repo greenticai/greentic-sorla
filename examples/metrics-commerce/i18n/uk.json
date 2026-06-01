@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS кампанії",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Виконані замовлення",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Коефіцієнт конверсії",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Щоденні кліки",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Валова маржа",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Щомісячні витрати",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Щомісячний дохід",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Сеанси відвідувачів",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Кампанія",
+  "examples.metrics_commerce.records.click.label": "Клік",
+  "examples.metrics_commerce.records.cost_entry.label": "Запис витрат",
+  "examples.metrics_commerce.records.order.label": "Замовлення",
+  "examples.metrics_commerce.records.payment.label": "Платіж",
+  "examples.metrics_commerce.records.visitor.label": "Відвідувач",
+  "examples.metrics_commerce.roles.admin.label": "Адміністрування",
+  "examples.metrics_commerce.roles.analytics.label": "Аналітика",
+  "examples.metrics_commerce.roles.finance.label": "Фінанси",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Маркетингові операції"
+}

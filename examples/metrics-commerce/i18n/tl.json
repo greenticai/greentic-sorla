@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS ng Kampanya",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Nakumpletong mga Order",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Rate ng Conversion",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Araw-araw na mga Click",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Kabuuang Margin",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Buwanang Gastos",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Buwanang Kita",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Mga Session ng Bisita",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Kampanya",
+  "examples.metrics_commerce.records.click.label": "Click",
+  "examples.metrics_commerce.records.cost_entry.label": "Entry ng Gastos",
+  "examples.metrics_commerce.records.order.label": "Order",
+  "examples.metrics_commerce.records.payment.label": "Bayad",
+  "examples.metrics_commerce.records.visitor.label": "Bisita",
+  "examples.metrics_commerce.roles.admin.label": "Admin",
+  "examples.metrics_commerce.roles.analytics.label": "Analytics",
+  "examples.metrics_commerce.roles.finance.label": "Pananalapi",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Mga Operasyon sa Marketing"
+}

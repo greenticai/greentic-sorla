@@ -43,6 +43,8 @@ pub struct DraftField {
     pub required: bool,
     pub sensitive: bool,
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<serde_json::Value>,
 }
 
 impl<'de> Deserialize<'de> for DraftField {
@@ -64,6 +66,8 @@ impl<'de> Deserialize<'de> for DraftField {
             sensitive: bool,
             #[serde(default)]
             description: Option<String>,
+            #[serde(default)]
+            rules: Option<serde_json::Value>,
         }
 
         let raw = RawDraftField::deserialize(deserializer)?;
@@ -76,6 +80,7 @@ impl<'de> Deserialize<'de> for DraftField {
             required: raw.required,
             sensitive: raw.sensitive,
             description: raw.description,
+            rules: raw.rules,
         })
     }
 }
@@ -276,6 +281,7 @@ mod tests {
                     required: true,
                     sensitive: false,
                     description: None,
+                    rules: None,
                 }],
             }],
             actions: vec![DraftAction {

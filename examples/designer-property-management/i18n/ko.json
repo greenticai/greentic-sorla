@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "속성이 변경됨",
+  "examples.designer_property_management.package.label": "디자이너 속성 관리",
+  "examples.designer_property_management.projections.property_list.label": "속성 목록",
+  "examples.designer_property_management.records.property.fields.address.label": "주소",
+  "examples.designer_property_management.records.property.fields.postcode.label": "우편번호",
+  "examples.designer_property_management.records.property.fields.property_id.label": "속성 ID",
+  "examples.designer_property_management.records.property.label": "속성"
+}

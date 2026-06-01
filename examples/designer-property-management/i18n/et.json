@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Omadus muudetud",
+  "examples.designer_property_management.package.label": "Disaineri kinnisvarahaldus",
+  "examples.designer_property_management.projections.property_list.label": "Kinnisvara loend",
+  "examples.designer_property_management.records.property.fields.address.label": "Aadress",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Postiindeks",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Kinnisvara ID",
+  "examples.designer_property_management.records.property.label": "Kinnisvara"
+}

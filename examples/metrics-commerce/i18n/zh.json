@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "营销活动 ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "已完成订单",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "转化率",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "每日点击量",
+  "examples.metrics_commerce.metrics.gross_margin.label": "毛利率",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "月度成本",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "月度收入",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "访客会话",
+  "examples.metrics_commerce.package.label": "指标电商",
+  "examples.metrics_commerce.records.campaign.label": "营销活动",
+  "examples.metrics_commerce.records.click.label": "点击",
+  "examples.metrics_commerce.records.cost_entry.label": "成本条目",
+  "examples.metrics_commerce.records.order.label": "订单",
+  "examples.metrics_commerce.records.payment.label": "付款",
+  "examples.metrics_commerce.records.visitor.label": "访客",
+  "examples.metrics_commerce.roles.admin.label": "管理",
+  "examples.metrics_commerce.roles.analytics.label": "分析",
+  "examples.metrics_commerce.roles.finance.label": "财务",
+  "examples.metrics_commerce.roles.marketing_ops.label": "营销运营"
+}

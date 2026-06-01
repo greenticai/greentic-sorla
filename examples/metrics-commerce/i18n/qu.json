@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Campaña ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Tukusqa mañakuykuna",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Tikray tupu",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Punchawpi ñitiykuna",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Llapa margen",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Killa qullqi chanikuy",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Killa haykuq qullqi",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Watukuqkunap tiyakuykuna",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Campaña",
+  "examples.metrics_commerce.records.click.label": "Ñitiy",
+  "examples.metrics_commerce.records.cost_entry.label": "Qullqi chanikuy yaykuchiy",
+  "examples.metrics_commerce.records.order.label": "Mañakuy",
+  "examples.metrics_commerce.records.payment.label": "Qullqi quy",
+  "examples.metrics_commerce.records.visitor.label": "Watukuq",
+  "examples.metrics_commerce.roles.admin.label": "Kamachiq",
+  "examples.metrics_commerce.roles.analytics.label": "Analytics",
+  "examples.metrics_commerce.roles.finance.label": "Qullqi kamachiy",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Marketing llamkaykuna"
+}

@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "ആസ്തി",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "കരാർ",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "ഉപഭോക്താവ്",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "തെളിവ് രേഖ",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "ബാധ്യത",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "കക്ഷി",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "വിതരണക്കാരൻ",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "ബാധ്യത നിറവേറ്റുന്നു",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "നിയന്ത്രിക്കുന്നു",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "കരാർ ഉണ്ട്",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "പിന്തുണയ്ക്കുന്നു",
+  "examples.ontology_business_sor.package.label": "ഓണ്ടോളജി ബിസിനസ് SoR",
+  "examples.ontology_business_sor.roles.admin.label": "അഡ്മിൻ",
+  "examples.ontology_business_sor.roles.customer_ops.label": "ഉപഭോക്തൃ പ്രവർത്തനങ്ങൾ",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "തെളിവ് മാനേജർ",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "അപകടസാധ്യത നിരൂപകൻ"
+}

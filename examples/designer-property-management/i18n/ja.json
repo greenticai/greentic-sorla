@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "物件が変更されました",
+  "examples.designer_property_management.package.label": "デザイナー物件管理",
+  "examples.designer_property_management.projections.property_list.label": "物件リスト",
+  "examples.designer_property_management.records.property.fields.address.label": "住所",
+  "examples.designer_property_management.records.property.fields.postcode.label": "郵便番号",
+  "examples.designer_property_management.records.property.fields.property_id.label": "物件ID",
+  "examples.designer_property_management.records.property.label": "物件"
+}

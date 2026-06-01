@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "キャンペーンROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "完了した注文",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "コンバージョン率",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "日次クリック数",
+  "examples.metrics_commerce.metrics.gross_margin.label": "粗利益率",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "月間コスト",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "月間収益",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "訪問者セッション",
+  "examples.metrics_commerce.package.label": "メトリクスコマース",
+  "examples.metrics_commerce.records.campaign.label": "キャンペーン",
+  "examples.metrics_commerce.records.click.label": "クリック",
+  "examples.metrics_commerce.records.cost_entry.label": "コスト入力",
+  "examples.metrics_commerce.records.order.label": "注文",
+  "examples.metrics_commerce.records.payment.label": "支払い",
+  "examples.metrics_commerce.records.visitor.label": "訪問者",
+  "examples.metrics_commerce.roles.admin.label": "管理",
+  "examples.metrics_commerce.roles.analytics.label": "分析",
+  "examples.metrics_commerce.roles.finance.label": "財務",
+  "examples.metrics_commerce.roles.marketing_ops.label": "マーケティング運用"
+}

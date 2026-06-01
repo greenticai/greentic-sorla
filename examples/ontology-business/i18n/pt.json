@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "Ativo",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "Contrato",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "Cliente",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "Documento de evidência",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "Obrigação",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "Parte",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "Fornecedor",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "Cumpre obrigação",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "Regula",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "Tem contrato",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "Apoia",
+  "examples.ontology_business_sor.package.label": "Ontologia Business SoR",
+  "examples.ontology_business_sor.roles.admin.label": "Administração",
+  "examples.ontology_business_sor.roles.customer_ops.label": "Operações de clientes",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "Gerente de evidências",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "Revisor de riscos"
+}

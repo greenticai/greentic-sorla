@@ -29,6 +29,8 @@ pub struct Package {
     pub retrieval_bindings: Option<RetrievalBindings>,
     #[serde(default)]
     pub operational_indexes: Option<OperationalIndexes>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<RoleDecl>,
     #[serde(default)]
     pub records: Vec<Record>,
     #[serde(default)]
@@ -83,6 +85,8 @@ pub enum ConceptKind {
 pub struct ConceptDefinition {
     pub id: String,
     pub kind: ConceptKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_string_or_vec")]
@@ -105,6 +109,8 @@ pub struct RelationshipId(pub String);
 #[serde(deny_unknown_fields)]
 pub struct RelationshipDefinition {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(default)]
     pub label: Option<String>,
     pub from: String,
@@ -446,18 +452,69 @@ where
 pub struct PackageMeta {
     pub name: String,
     pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoleDecl {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Record {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(default)]
     pub source: Option<RecordSource>,
     #[serde(default)]
     pub external_ref: Option<ExternalRef>,
+    #[serde(default, skip_serializing_if = "RecordAccess::is_empty")]
+    pub access: RecordAccess,
     #[serde(default)]
     pub fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RecordAccess {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<AccessRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create: Option<AccessRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update: Option<AccessRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delete: Option<AccessRule>,
+}
+
+impl RecordAccess {
+    pub fn is_empty(&self) -> bool {
+        self.read.is_none()
+            && self.create.is_none()
+            && self.update.is_none()
+            && self.delete.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessRule {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policies: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -481,6 +538,8 @@ pub struct ExternalRef {
 #[serde(deny_unknown_fields)]
 pub struct Field {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -489,10 +548,54 @@ pub struct Field {
     pub sensitive: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enum_values: Vec<String>,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub default: serde_json::Value,
+    #[serde(default, skip_serializing_if = "FieldValidationRules::is_empty")]
+    pub rules: FieldValidationRules,
     #[serde(default)]
     pub authority: Option<FieldAuthority>,
     #[serde(default)]
     pub references: Option<FieldReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct FieldValidationRules {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub precision: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unique: bool,
+}
+
+impl FieldValidationRules {
+    pub fn is_empty(&self) -> bool {
+        self.min.is_none()
+            && self.max.is_none()
+            && self.min_length.is_none()
+            && self.max_length.is_none()
+            && self.pattern.is_none()
+            && self.precision.is_none()
+            && self.scale.is_none()
+            && self.before.is_none()
+            && self.after.is_none()
+            && !self.unique
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -513,6 +616,8 @@ pub struct FieldReference {
 #[serde(deny_unknown_fields)]
 pub struct EventDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub record: String,
     #[serde(default)]
     pub kind: EventKind,
@@ -540,6 +645,8 @@ pub struct EventField {
 #[serde(deny_unknown_fields)]
 pub struct ProjectionDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub record: String,
     pub source_event: String,
     #[serde(default)]
@@ -558,6 +665,8 @@ pub enum ProjectionMode {
 #[serde(deny_unknown_fields)]
 pub struct MetricDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(default)]
     pub label: Option<String>,
     #[serde(default)]
@@ -644,6 +753,8 @@ pub struct ProviderRequirement {
 #[serde(deny_unknown_fields)]
 pub struct AgentEndpointDecl {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     pub title: String,
     pub intent: String,
     #[serde(default)]
@@ -663,6 +774,8 @@ pub struct AgentEndpointDecl {
     #[serde(default)]
     pub backing: AgentEndpointBackingDecl,
     #[serde(default)]
+    pub authorization: EndpointAuthorization,
+    #[serde(default)]
     pub agent_visibility: AgentEndpointVisibility,
     #[serde(default)]
     pub examples: Vec<AgentEndpointExampleDecl>,
@@ -672,10 +785,38 @@ pub struct AgentEndpointDecl {
     pub execution: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointAuthorization {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roles: Option<EndpointRoleRequirement>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policies: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditions: Vec<serde_json::Value>,
+}
+
+impl EndpointAuthorization {
+    pub fn is_empty(&self) -> bool {
+        self.roles.is_none() && self.policies.is_empty() && self.conditions.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EndpointRoleRequirement {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub any_of: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub all_of: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentEndpointInputDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     #[serde(default)]
@@ -692,6 +833,8 @@ pub struct AgentEndpointInputDecl {
 #[serde(deny_unknown_fields)]
 pub struct AgentEndpointOutputDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub i18n_key: Option<String>,
     #[serde(rename = "type")]
     pub type_name: String,
     #[serde(default)]

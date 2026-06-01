@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS នៃយុទ្ធនាការ",
+  "examples.metrics_commerce.metrics.completed_orders.label": "ការបញ្ជាទិញដែលបានបញ្ចប់",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "អត្រាបម្លែង",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "ការចុចប្រចាំថ្ងៃ",
+  "examples.metrics_commerce.metrics.gross_margin.label": "រឹមចំណេញសរុប",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "ចំណាយប្រចាំខែ",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "ចំណូលប្រចាំខែ",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "សម័យចូលមើលរបស់អ្នកទស្សនា",
+  "examples.metrics_commerce.package.label": "ពាណិជ្ជកម្មម៉ែត្រិក",
+  "examples.metrics_commerce.records.campaign.label": "យុទ្ធនាការ",
+  "examples.metrics_commerce.records.click.label": "ការចុច",
+  "examples.metrics_commerce.records.cost_entry.label": "ធាតុចំណាយ",
+  "examples.metrics_commerce.records.order.label": "ការបញ្ជាទិញ",
+  "examples.metrics_commerce.records.payment.label": "ការទូទាត់",
+  "examples.metrics_commerce.records.visitor.label": "អ្នកទស្សនា",
+  "examples.metrics_commerce.roles.admin.label": "អ្នកគ្រប់គ្រង",
+  "examples.metrics_commerce.roles.analytics.label": "វិភាគទិន្នន័យ",
+  "examples.metrics_commerce.roles.finance.label": "ហិរញ្ញវត្ថុ",
+  "examples.metrics_commerce.roles.marketing_ops.label": "ប្រតិបត្តិការទីផ្សារ"
+}

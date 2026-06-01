@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampanjan ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Valmiit tilaukset",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Konversioprosentti",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Päivittäiset klikkaukset",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Myyntikate",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Kuukausikustannus",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Kuukausituotto",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Vierailijaistunnot",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Kampanja",
+  "examples.metrics_commerce.records.click.label": "Klikkaus",
+  "examples.metrics_commerce.records.cost_entry.label": "Kustannusmerkintä",
+  "examples.metrics_commerce.records.order.label": "Tilaus",
+  "examples.metrics_commerce.records.payment.label": "Maksu",
+  "examples.metrics_commerce.records.visitor.label": "Vierailija",
+  "examples.metrics_commerce.roles.admin.label": "Ylläpito",
+  "examples.metrics_commerce.roles.analytics.label": "Analytiikka",
+  "examples.metrics_commerce.roles.finance.label": "Talous",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Markkinointitoiminnot"
+}

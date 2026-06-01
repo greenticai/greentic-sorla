@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Rekvizīts mainīts",
+  "examples.designer_property_management.package.label": "Noformētāja rekvizītu pārvaldība",
+  "examples.designer_property_management.projections.property_list.label": "Rekvizītu saraksts",
+  "examples.designer_property_management.records.property.fields.address.label": "Adrese",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Pasta indekss",
+  "examples.designer_property_management.records.property.fields.property_id.label": "Rekvizīta ID",
+  "examples.designer_property_management.records.property.label": "Rekvizīts"
+}

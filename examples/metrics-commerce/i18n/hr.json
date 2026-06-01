@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "ROAS kampanje",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Dovršene narudžbe",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Stopa konverzije",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Dnevni klikovi",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Bruto marža",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Mjesečni trošak",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Mjesečni prihod",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Sesije posjetitelja",
+  "examples.metrics_commerce.package.label": "Metrics Commerce",
+  "examples.metrics_commerce.records.campaign.label": "Kampanja",
+  "examples.metrics_commerce.records.click.label": "Klik",
+  "examples.metrics_commerce.records.cost_entry.label": "Unos troška",
+  "examples.metrics_commerce.records.order.label": "Narudžba",
+  "examples.metrics_commerce.records.payment.label": "Plaćanje",
+  "examples.metrics_commerce.records.visitor.label": "Posjetitelj",
+  "examples.metrics_commerce.roles.admin.label": "Administracija",
+  "examples.metrics_commerce.roles.analytics.label": "Analitika",
+  "examples.metrics_commerce.roles.finance.label": "Financije",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Marketinške operacije"
+}

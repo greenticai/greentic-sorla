@@ -1,0 +1,741 @@
+# --- BEGIN GREENTIC-SORLA GENERATED ---
+package:
+  name: ontology-business-sor
+  version: 0.1.0
+  i18n_key: examples.ontology_business_sor.package
+roles:
+  - id: admin
+    i18n_key: examples.ontology_business_sor.roles.admin
+    label: Admin
+    description: "Full administrative access to ontology business records and endpoints."
+    grants:
+      - "records.*"
+      - "agent_endpoints.*"
+  - id: customer_ops
+    i18n_key: examples.ontology_business_sor.roles.customer_ops
+    label: "Customer operations"
+    description: "Create customers and view customer contract relationships."
+    grants:
+      - records.customer.read
+      - records.customer.create
+      - records.contract.read
+  - id: evidence_manager
+    i18n_key: examples.ontology_business_sor.roles.evidence_manager
+    label: "Evidence manager"
+    description: "Attach and query evidence documents for contracts."
+    grants:
+      - records.contract.read
+      - records.evidence_document.read
+      - records.evidence_document.create
+  - id: risk_reviewer
+    i18n_key: examples.ontology_business_sor.roles.risk_reviewer
+    label: "Risk reviewer"
+    description: "Assess obligation risk and read supporting business context."
+    grants:
+      - records.obligation.read
+      - records.obligation.update
+      - records.supplier.read
+records:
+  - name: Customer
+    i18n_key: examples.ontology_business_sor.records.customer
+    source: native
+    access:
+      read:
+        roles:
+          - admin
+          - customer_ops
+          - evidence_manager
+        policies: []
+      create:
+        roles:
+          - admin
+          - customer_ops
+        policies: []
+      update:
+        roles:
+          - admin
+          - customer_ops
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
+    fields:
+      - name: id
+        i18n_key: examples.ontology_business_sor.records.customer.fields.id
+        type: uuid
+        required: true
+        rules:
+          unique: true
+      - name: display_name
+        i18n_key: examples.ontology_business_sor.records.customer.fields.display_name
+        type: string
+        required: true
+      - name: email
+        i18n_key: examples.ontology_business_sor.records.customer.fields.email
+        type: email
+        sensitive: true
+        rules:
+          max_length: 320
+  - name: Supplier
+    i18n_key: examples.ontology_business_sor.records.supplier
+    source: native
+    access:
+      read:
+        roles:
+          - admin
+          - risk_reviewer
+        policies: []
+      create:
+        roles:
+          - admin
+        policies: []
+      update:
+        roles:
+          - admin
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
+    fields:
+      - name: id
+        i18n_key: examples.ontology_business_sor.records.supplier.fields.id
+        type: uuid
+        required: true
+        rules:
+          unique: true
+      - name: display_name
+        i18n_key: examples.ontology_business_sor.records.supplier.fields.display_name
+        type: string
+        required: true
+  - name: Contract
+    i18n_key: examples.ontology_business_sor.records.contract
+    source: native
+    access:
+      read:
+        roles:
+          - admin
+          - customer_ops
+          - evidence_manager
+          - risk_reviewer
+        policies: []
+      create:
+        roles:
+          - admin
+          - customer_ops
+        policies: []
+      update:
+        roles:
+          - admin
+          - customer_ops
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
+    fields:
+      - name: id
+        i18n_key: examples.ontology_business_sor.records.contract.fields.id
+        type: uuid
+        required: true
+        rules:
+          unique: true
+      - name: customer_id
+        i18n_key: examples.ontology_business_sor.records.contract.fields.customer_id
+        type: string
+        references:
+          record: Customer
+          field: id
+      - name: status
+        i18n_key: examples.ontology_business_sor.records.contract.fields.status
+        type: string
+        enum_values:
+          - draft
+          - active
+          - closed
+  - name: Asset
+    i18n_key: examples.ontology_business_sor.records.asset
+    source: native
+    access:
+      read:
+        roles:
+          - admin
+          - customer_ops
+          - evidence_manager
+        policies: []
+      create:
+        roles:
+          - admin
+          - customer_ops
+        policies: []
+      update:
+        roles:
+          - admin
+          - customer_ops
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
+    fields:
+      - name: id
+        i18n_key: examples.ontology_business_sor.records.asset.fields.id
+        type: uuid
+        required: true
+        rules:
+          unique: true
+      - name: contract_id
+        i18n_key: examples.ontology_business_sor.records.asset.fields.contract_id
+        type: string
+        references:
+          record: Contract
+          field: id
+      - name: label
+        i18n_key: examples.ontology_business_sor.records.asset.fields.label
+        type: string
+  - name: Obligation
+    i18n_key: examples.ontology_business_sor.records.obligation
+    source: native
+    access:
+      read:
+        roles:
+          - admin
+          - risk_reviewer
+        policies: []
+      create:
+        roles:
+          - admin
+        policies: []
+      update:
+        roles:
+          - admin
+          - risk_reviewer
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
+    fields:
+      - name: id
+        i18n_key: examples.ontology_business_sor.records.obligation.fields.id
+        type: uuid
+        required: true
+        rules:
+          unique: true
+      - name: supplier_id
+        i18n_key: examples.ontology_business_sor.records.obligation.fields.supplier_id
+        type: string
+        references:
+          record: Supplier
+          field: id
+      - name: risk_level
+        i18n_key: examples.ontology_business_sor.records.obligation.fields.risk_level
+        type: string
+        enum_values:
+          - low
+          - medium
+          - high
+  - name: EvidenceDocument
+    i18n_key: examples.ontology_business_sor.records.evidencedocument
+    source: native
+    access:
+      read:
+        roles:
+          - admin
+          - evidence_manager
+          - risk_reviewer
+        policies: []
+      create:
+        roles:
+          - admin
+          - evidence_manager
+        policies: []
+      update:
+        roles:
+          - admin
+          - evidence_manager
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
+    fields:
+      - name: id
+        i18n_key: examples.ontology_business_sor.records.evidencedocument.fields.id
+        type: uuid
+        required: true
+        rules:
+          unique: true
+      - name: contract_id
+        i18n_key: examples.ontology_business_sor.records.evidencedocument.fields.contract_id
+        type: string
+        references:
+          record: Contract
+          field: id
+      - name: document_ref
+        i18n_key: examples.ontology_business_sor.records.evidencedocument.fields.document_ref
+        type: string
+        required: true
+  - name: CustomerContract
+    i18n_key: examples.ontology_business_sor.records.customercontract
+    source: native
+    access:
+      read:
+        roles:
+          - admin
+          - customer_ops
+          - evidence_manager
+        policies: []
+      create:
+        roles:
+          - admin
+          - customer_ops
+        policies: []
+      update:
+        roles:
+          - admin
+          - customer_ops
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
+    fields:
+      - name: customer_id
+        i18n_key: examples.ontology_business_sor.records.customercontract.fields.customer_id
+        type: string
+        references:
+          record: Customer
+          field: id
+      - name: contract_id
+        i18n_key: examples.ontology_business_sor.records.customercontract.fields.contract_id
+        type: string
+        references:
+          record: Contract
+          field: id
+  - name: SupplierObligation
+    i18n_key: examples.ontology_business_sor.records.supplierobligation
+    source: native
+    access:
+      read:
+        roles:
+          - admin
+          - risk_reviewer
+        policies: []
+      create:
+        roles:
+          - admin
+        policies: []
+      update:
+        roles:
+          - admin
+          - risk_reviewer
+        policies: []
+      delete:
+        roles:
+          - admin
+        policies: []
+    fields:
+      - name: supplier_id
+        i18n_key: examples.ontology_business_sor.records.supplierobligation.fields.supplier_id
+        type: string
+        references:
+          record: Supplier
+          field: id
+      - name: obligation_id
+        i18n_key: examples.ontology_business_sor.records.supplierobligation.fields.obligation_id
+        type: string
+        references:
+          record: Obligation
+          field: id
+ontology:
+  schema: greentic.sorla.ontology.v1
+  concepts:
+    - id: Party
+      i18n_key: examples.ontology_business_sor.ontology.concepts.party
+      kind: abstract
+      description: "A business actor."
+    - id: Customer
+      i18n_key: examples.ontology_business_sor.ontology.concepts.customer
+      kind: entity
+      extends:
+        - Party
+      backed_by:
+        record: Customer
+      sensitivity:
+        classification: confidential
+        pii: true
+    - id: Supplier
+      i18n_key: examples.ontology_business_sor.ontology.concepts.supplier
+      kind: entity
+      extends:
+        - Party
+      backed_by:
+        record: Supplier
+    - id: Contract
+      i18n_key: examples.ontology_business_sor.ontology.concepts.contract
+      kind: entity
+      backed_by:
+        record: Contract
+    - id: Asset
+      i18n_key: examples.ontology_business_sor.ontology.concepts.asset
+      kind: entity
+      backed_by:
+        record: Asset
+    - id: Obligation
+      i18n_key: examples.ontology_business_sor.ontology.concepts.obligation
+      kind: entity
+      backed_by:
+        record: Obligation
+      policy_hooks:
+        - policy: obligation_risk_policy
+          reason: "risk assessment requires policy review"
+    - id: EvidenceDocument
+      i18n_key: examples.ontology_business_sor.ontology.concepts.evidencedocument
+      kind: entity
+      backed_by:
+        record: EvidenceDocument
+  relationships:
+    - id: has_contract
+      i18n_key: examples.ontology_business_sor.ontology.relationships.has_contract
+      label: "has contract"
+      from: Customer
+      to: Contract
+      cardinality:
+        from: one
+        to: many
+      backed_by:
+        record: CustomerContract
+        from_field: customer_id
+        to_field: contract_id
+    - id: fulfills_obligation
+      i18n_key: examples.ontology_business_sor.ontology.relationships.fulfills_obligation
+      label: "fulfills obligation"
+      from: Supplier
+      to: Obligation
+      cardinality:
+        from: one
+        to: many
+      backed_by:
+        record: SupplierObligation
+        from_field: supplier_id
+        to_field: obligation_id
+    - id: governs
+      i18n_key: examples.ontology_business_sor.ontology.relationships.governs
+      label: governs
+      from: Contract
+      to: Asset
+      cardinality:
+        from: one
+        to: many
+      backed_by:
+        record: Asset
+        from_field: contract_id
+        to_field: id
+    - id: supports
+      i18n_key: examples.ontology_business_sor.ontology.relationships.supports
+      label: supports
+      from: EvidenceDocument
+      to: Contract
+      cardinality:
+        from: many
+        to: one
+      backed_by:
+        record: EvidenceDocument
+        from_field: id
+        to_field: contract_id
+  constraints:
+    - id: obligation_risk_policy
+      applies_to:
+        concept: Obligation
+      requires_policy: obligation_risk_policy
+semantic_aliases:
+  concepts:
+    Customer:
+      - account
+      - client
+    EvidenceDocument:
+      - evidence
+      - "supporting document"
+    Supplier:
+      - vendor
+  relationships:
+    has_contract:
+      - "covered by"
+    supports:
+      - substantiates
+entity_linking:
+  strategies:
+    - id: customer_email_match
+      applies_to: Customer
+      match:
+        source_field: email
+        target_field: email
+      confidence: 0.95
+      sensitivity:
+        pii: true
+    - id: evidence_document_ref_match
+      applies_to: EvidenceDocument
+      match:
+        source_field: document_ref
+        target_field: document_ref
+      confidence: 0.9
+retrieval_bindings:
+  schema: greentic.sorla.retrieval-bindings.v1
+  providers:
+    - id: evidence_index
+      category: evidence-store
+      required_capabilities:
+        - evidence.query
+        - entity.link
+  scopes:
+    - id: customer_contract_evidence
+      applies_to:
+        concept: Customer
+      provider: evidence_index
+      filters:
+        entity_scope:
+          include_self: true
+          include_related:
+            - relationship: has_contract
+              direction: outgoing
+              max_depth: 1
+            - relationship: supports
+              direction: incoming
+              max_depth: 2
+      permission: requires-policy
+    - id: contract_support_documents
+      applies_to:
+        relationship: supports
+      provider: evidence_index
+      permission: inherit
+actions:
+  - name: CreateCustomer
+  - name: AttachEvidenceToContract
+  - name: ListContractsForCustomer
+  - name: AssessObligationRisk
+events:
+  - name: CustomerCreated
+    i18n_key: examples.ontology_business_sor.events.customercreated
+    record: Customer
+    kind: domain
+    emits:
+      - name: customer_id
+        type: string
+  - name: EvidenceAttached
+    i18n_key: examples.ontology_business_sor.events.evidenceattached
+    record: EvidenceDocument
+    kind: domain
+    emits:
+      - name: document_id
+        type: string
+      - name: contract_id
+        type: string
+  - name: ObligationRiskAssessed
+    i18n_key: examples.ontology_business_sor.events.obligationriskassessed
+    record: Obligation
+    kind: domain
+    emits:
+      - name: obligation_id
+        type: string
+      - name: risk_level
+        type: string
+projections:
+  - name: customer_contract_index
+    i18n_key: examples.ontology_business_sor.projections.customer_contract_index
+    record: Customer
+    source_event: CustomerCreated
+    mode: current-state
+  - name: contract_evidence_index
+    i18n_key: examples.ontology_business_sor.projections.contract_evidence_index
+    record: EvidenceDocument
+    source_event: EvidenceAttached
+    mode: current-state
+provider_requirements:
+  - category: storage
+    capabilities:
+      - event-log
+      - projections
+  - category: evidence-store
+    capabilities:
+      - evidence.query
+      - entity.link
+policies:
+  - name: obligation_risk_policy
+  - name: evidence_access_policy
+approvals:
+  - name: risk_review
+migrations:
+  - name: add_obligation_risk_projection
+    compatibility: additive
+    projection_updates:
+      - customer_contract_index
+    backfills:
+      - record: Obligation
+        field: risk_level
+        default:
+          medium
+    idempotence_key: obligation-risk-projection-v1
+agent_endpoints:
+  - id: create_customer
+    i18n_key: examples.ontology_business_sor.agent_endpoints.create_customer
+    title: "Create customer"
+    intent: "Create a customer record."
+    inputs:
+      - name: display_name
+        i18n_key: examples.ontology_business_sor.agent_endpoints.create_customer.inputs.display_name
+        type: string
+        required: true
+      - name: email
+        i18n_key: examples.ontology_business_sor.agent_endpoints.create_customer.inputs.email
+        type: email
+        sensitive: true
+    outputs:
+      - name: customer_id
+        i18n_key: examples.ontology_business_sor.agent_endpoints.create_customer.outputs.customer_id
+        type: string
+    side_effects:
+      - customer.create
+    emits:
+      event: CustomerCreated
+      stream: "customer.$input.display_name"
+      payload:
+        customer_id: "$input.display_name"
+    risk: medium
+    approval: policy-driven
+    backing:
+      actions:
+        - CreateCustomer
+      events:
+        - CustomerCreated
+      policies:
+        - evidence_access_policy
+      approvals: []
+    authorization:
+      roles:
+        any_of:
+          - admin
+          - customer_ops
+        all_of: []
+      policies: []
+  - id: attach_evidence_to_contract
+    i18n_key: examples.ontology_business_sor.agent_endpoints.attach_evidence_to_contract
+    title: "Attach evidence to contract"
+    intent: "Attach evidence metadata to a contract."
+    inputs:
+      - name: contract_id
+        i18n_key: examples.ontology_business_sor.agent_endpoints.attach_evidence_to_contract.inputs.contract_id
+        type: string
+        required: true
+      - name: document_ref
+        i18n_key: examples.ontology_business_sor.agent_endpoints.attach_evidence_to_contract.inputs.document_ref
+        type: string
+        required: true
+    outputs:
+      - name: document_id
+        i18n_key: examples.ontology_business_sor.agent_endpoints.attach_evidence_to_contract.outputs.document_id
+        type: string
+    side_effects:
+      - evidence.attach
+    emits:
+      event: EvidenceAttached
+      stream: "contract.$input.contract_id"
+      payload:
+        contract_id: "$input.contract_id"
+        document_id: "$input.document_ref"
+    risk: medium
+    approval: policy-driven
+    provider_requirements:
+      - category: evidence-store
+        capabilities:
+          - evidence.write
+    backing:
+      actions:
+        - AttachEvidenceToContract
+      events:
+        - EvidenceAttached
+      policies:
+        - evidence_access_policy
+      approvals: []
+    authorization:
+      roles:
+        any_of:
+          - admin
+          - evidence_manager
+        all_of: []
+      policies: []
+  - id: list_contracts_for_customer
+    i18n_key: examples.ontology_business_sor.agent_endpoints.list_contracts_for_customer
+    title: "List contracts for customer"
+    intent: "List contracts associated with a customer."
+    inputs:
+      - name: customer_id
+        i18n_key: examples.ontology_business_sor.agent_endpoints.list_contracts_for_customer.inputs.customer_id
+        type: string
+        required: true
+    outputs:
+      - name: contract_count
+        i18n_key: examples.ontology_business_sor.agent_endpoints.list_contracts_for_customer.outputs.contract_count
+        type: u32
+    side_effects: []
+    risk: low
+    approval: none
+    backing:
+      actions:
+        - ListContractsForCustomer
+      events: []
+      policies: []
+      approvals: []
+    authorization:
+      roles:
+        any_of:
+          - admin
+          - customer_ops
+          - evidence_manager
+        all_of: []
+      policies: []
+  - id: assess_obligation_risk
+    i18n_key: examples.ontology_business_sor.agent_endpoints.assess_obligation_risk
+    title: "Assess obligation risk"
+    intent: "Assess obligation risk from business metadata and evidence."
+    inputs:
+      - name: obligation_id
+        i18n_key: examples.ontology_business_sor.agent_endpoints.assess_obligation_risk.inputs.obligation_id
+        type: string
+        required: true
+    outputs:
+      - name: risk_level
+        i18n_key: examples.ontology_business_sor.agent_endpoints.assess_obligation_risk.outputs.risk_level
+        type: string
+    side_effects:
+      - obligation.risk.assess
+    emits:
+      event: ObligationRiskAssessed
+      stream: "obligation.$input.obligation_id"
+      payload:
+        obligation_id: "$input.obligation_id"
+        risk_level: medium
+    risk: high
+    approval: policy-driven
+    provider_requirements:
+      - category: evidence-store
+        capabilities:
+          - evidence.query
+    backing:
+      actions:
+        - AssessObligationRisk
+      events:
+        - ObligationRiskAssessed
+      policies:
+        - obligation_risk_policy
+      approvals:
+        - risk_review
+    authorization:
+      roles:
+        any_of:
+          - admin
+          - risk_reviewer
+        all_of: []
+      policies: []
+# --- END GREENTIC-SORLA GENERATED ---

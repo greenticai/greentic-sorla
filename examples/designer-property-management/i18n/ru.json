@@ -1,0 +1,9 @@
+{
+  "examples.designer_property_management.events.property_changed.label": "Объект недвижимости изменен",
+  "examples.designer_property_management.package.label": "Управление объектами недвижимости в дизайнере",
+  "examples.designer_property_management.projections.property_list.label": "Список объектов недвижимости",
+  "examples.designer_property_management.records.property.fields.address.label": "Адрес",
+  "examples.designer_property_management.records.property.fields.postcode.label": "Почтовый индекс",
+  "examples.designer_property_management.records.property.fields.property_id.label": "ID объекта недвижимости",
+  "examples.designer_property_management.records.property.label": "Объект недвижимости"
+}

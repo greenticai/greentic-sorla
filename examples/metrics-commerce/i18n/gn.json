@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "Kampáña ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "Jerure oñemohu'ãva",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "Ñemoambue tasa",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "Klik ára rehegua",
+  "examples.metrics_commerce.metrics.gross_margin.label": "Márhen bruto",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "Kosto jasýpe",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "Virupyty jasýpe",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "Visitante rembiapo aty",
+  "examples.metrics_commerce.package.label": "Métrica Ñemu rehegua",
+  "examples.metrics_commerce.records.campaign.label": "Kampáña",
+  "examples.metrics_commerce.records.click.label": "Klik",
+  "examples.metrics_commerce.records.cost_entry.label": "Kosto jeike",
+  "examples.metrics_commerce.records.order.label": "Jerure",
+  "examples.metrics_commerce.records.payment.label": "Jehepyme'ẽ",
+  "examples.metrics_commerce.records.visitor.label": "Visitante",
+  "examples.metrics_commerce.roles.admin.label": "Mboguataha",
+  "examples.metrics_commerce.roles.analytics.label": "Tesa'ỹijo",
+  "examples.metrics_commerce.roles.finance.label": "Viru ñangareko",
+  "examples.metrics_commerce.roles.marketing_ops.label": "Marketing rembiapo"
+}

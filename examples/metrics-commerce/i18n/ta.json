@@ -1,0 +1,21 @@
+{
+  "examples.metrics_commerce.metrics.campaign_roas.label": "பிரச்சார ROAS",
+  "examples.metrics_commerce.metrics.completed_orders.label": "நிறைவு செய்யப்பட்ட ஆர்டர்கள்",
+  "examples.metrics_commerce.metrics.conversion_rate.label": "மாற்று விகிதம்",
+  "examples.metrics_commerce.metrics.daily_clicks.label": "தினசரி கிளிக்குகள்",
+  "examples.metrics_commerce.metrics.gross_margin.label": "மொத்த லாப விகிதம்",
+  "examples.metrics_commerce.metrics.monthly_cost.label": "மாதாந்திர செலவு",
+  "examples.metrics_commerce.metrics.monthly_revenue.label": "மாதாந்திர வருவாய்",
+  "examples.metrics_commerce.metrics.visitor_sessions.label": "பார்வையாளர் அமர்வுகள்",
+  "examples.metrics_commerce.package.label": "மெட்ரிக்ஸ் காமர்ஸ்",
+  "examples.metrics_commerce.records.campaign.label": "பிரச்சாரம்",
+  "examples.metrics_commerce.records.click.label": "கிளிக்",
+  "examples.metrics_commerce.records.cost_entry.label": "செலவு பதிவு",
+  "examples.metrics_commerce.records.order.label": "ஆர்டர்",
+  "examples.metrics_commerce.records.payment.label": "கட்டணம்",
+  "examples.metrics_commerce.records.visitor.label": "பார்வையாளர்",
+  "examples.metrics_commerce.roles.admin.label": "நிர்வாகம்",
+  "examples.metrics_commerce.roles.analytics.label": "பகுப்பாய்வு",
+  "examples.metrics_commerce.roles.finance.label": "நிதி",
+  "examples.metrics_commerce.roles.marketing_ops.label": "சந்தைப்படுத்தல் செயல்பாடுகள்"
+}

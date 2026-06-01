@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "Eszköz",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "Szerződés",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "Ügyfél",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "Bizonyítékdokumentum",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "Kötelezettség",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "Fél",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "Beszállító",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "Teljesíti a kötelezettséget",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "Szabályozza",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "Szerződéssel rendelkezik",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "Támogatja",
+  "examples.ontology_business_sor.package.label": "Ontology Business SoR",
+  "examples.ontology_business_sor.roles.admin.label": "Adminisztráció",
+  "examples.ontology_business_sor.roles.customer_ops.label": "Ügyfélszolgálati műveletek",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "Bizonyítékkezelő",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "Kockázat-felülvizsgáló"
+}

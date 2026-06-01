@@ -77,6 +77,7 @@ emission from the same source package.
 
 Optional handoff data may include:
 
+- `record_hierarchy` for top-level versus dependent record navigation
 - endpoint examples
 - input enum values
 - input sensitivity markers

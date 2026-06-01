@@ -48,6 +48,7 @@
       "id": "tenancy-active-1",
       "tenant_id": "tenant-alice",
       "unit_id": "unit-1a",
+      "building_id": "property-1",
       "start_date": "2025-09-01",
       "end_date": null,
       "status": "active"
@@ -56,6 +57,7 @@
       "id": "tenancy-previous-1",
       "tenant_id": "tenant-omar",
       "unit_id": "unit-2b",
+      "building_id": "property-1",
       "start_date": "2024-04-01",
       "end_date": "2025-03-31",
       "status": "ended"
@@ -67,7 +69,7 @@
       "tenancy_id": "tenancy-active-1",
       "amount": 1150,
       "paid_on": "2026-05-01",
-      "status": "paid"
+      "status": "settled"
     }
   ],
   "maintenance_requests": [

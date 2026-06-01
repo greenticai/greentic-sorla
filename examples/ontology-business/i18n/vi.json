@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "Tài sản",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "Hợp đồng",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "Khách hàng",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "Tài liệu bằng chứng",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "Nghĩa vụ",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "Bên",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "Nhà cung cấp",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "Thực hiện nghĩa vụ",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "Điều chỉnh",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "Có hợp đồng",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "Hỗ trợ",
+  "examples.ontology_business_sor.package.label": "Bản ghi nguồn nghiệp vụ Ontology",
+  "examples.ontology_business_sor.roles.admin.label": "Quản trị",
+  "examples.ontology_business_sor.roles.customer_ops.label": "Vận hành khách hàng",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "Quản lý bằng chứng",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "Người đánh giá rủi ro"
+}

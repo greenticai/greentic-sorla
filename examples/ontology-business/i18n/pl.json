@@ -1,0 +1,18 @@
+{
+  "examples.ontology_business_sor.ontology.concepts.asset.label": "Aktywo",
+  "examples.ontology_business_sor.ontology.concepts.contract.label": "Umowa",
+  "examples.ontology_business_sor.ontology.concepts.customer.label": "Klient",
+  "examples.ontology_business_sor.ontology.concepts.evidencedocument.label": "Dokument dowodowy",
+  "examples.ontology_business_sor.ontology.concepts.obligation.label": "Zobowiązanie",
+  "examples.ontology_business_sor.ontology.concepts.party.label": "Strona",
+  "examples.ontology_business_sor.ontology.concepts.supplier.label": "Dostawca",
+  "examples.ontology_business_sor.ontology.relationships.fulfills_obligation.label": "Wypełnia zobowiązanie",
+  "examples.ontology_business_sor.ontology.relationships.governs.label": "Reguluje",
+  "examples.ontology_business_sor.ontology.relationships.has_contract.label": "Ma umowę",
+  "examples.ontology_business_sor.ontology.relationships.supports.label": "Wspiera",
+  "examples.ontology_business_sor.package.label": "Ontologia biznesowa SoR",
+  "examples.ontology_business_sor.roles.admin.label": "Administracja",
+  "examples.ontology_business_sor.roles.customer_ops.label": "Obsługa klienta",
+  "examples.ontology_business_sor.roles.evidence_manager.label": "Menedżer dowodów",
+  "examples.ontology_business_sor.roles.risk_reviewer.label": "Recenzent ryzyka"
+}
