@@ -17,6 +17,7 @@
     {
       "id": "unit-1a",
       "property_id": "property-1",
+      "building_id": "property-1",
       "unit_number": "1A",
       "rent_amount": 1150,
       "status": "occupied"
@@ -24,6 +25,7 @@
     {
       "id": "unit-2b",
       "property_id": "property-1",
+      "building_id": "property-1",
       "unit_number": "2B",
       "rent_amount": 1250,
       "status": "vacant"
@@ -76,6 +78,7 @@
     {
       "id": "maintenance-1",
       "unit_id": "unit-1a",
+      "building_id": "property-1",
       "tenant_id": "tenant-alice",
       "summary": "Kitchen tap leaking",
       "status": "open"

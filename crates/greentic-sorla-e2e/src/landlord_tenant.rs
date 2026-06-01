@@ -500,6 +500,11 @@ fn validate_projection_references(projection: &PortfolioProjection) -> Result<()
         if !projection.properties.contains_key(&property_id) {
             return Err(format!("unit references unknown property `{property_id}`"));
         }
+        if let Some(building_id) = unit.get("building_id").and_then(Value::as_str)
+            && !projection.properties.contains_key(building_id)
+        {
+            return Err(format!("unit references unknown building `{building_id}`"));
+        }
     }
     for tenancy in projection.tenancies.values() {
         let tenant_id = string_field(tenancy, "tenant_id")?;
@@ -522,6 +527,23 @@ fn validate_projection_references(projection: &PortfolioProjection) -> Result<()
         let tenancy_id = string_field(payment, "tenancy_id")?;
         if !projection.tenancies.contains_key(&tenancy_id) {
             return Err(format!("payment references unknown tenancy `{tenancy_id}`"));
+        }
+    }
+    for maintenance_request in projection.maintenance_requests.values() {
+        let unit_id = string_field(maintenance_request, "unit_id")?;
+        if !projection.units.contains_key(&unit_id) {
+            return Err(format!(
+                "maintenance request references unknown unit `{unit_id}`"
+            ));
+        }
+        if let Some(building_id) = maintenance_request
+            .get("building_id")
+            .and_then(Value::as_str)
+            && !projection.properties.contains_key(building_id)
+        {
+            return Err(format!(
+                "maintenance request references unknown building `{building_id}`"
+            ));
         }
     }
     Ok(())
@@ -855,6 +877,7 @@ fn agent_add_maintenance_request(
     let payload = json!({
         "id": "maintenance-heating-2b",
         "unit_id": "unit-2b",
+        "building_id": "property-1",
         "tenant_id": "tenant-sarah-ahmed",
         "summary": "heating not working",
         "status": "open"
