@@ -326,6 +326,7 @@ where
             Some(answers) => answers,
             None => serde_json::Value::String(generation_response.content),
         };
+        normalize_answers_json_for_validation(&mut answers);
         let mut validation_error = match validate_answers_document(&answers) {
             Ok(()) => return Ok(answers),
             Err(error) => error,
@@ -355,6 +356,7 @@ where
             answers = parse_json_value_response(&repair_response.content).ok_or_else(|| {
                 "prompt LLM returned repair output that was not valid JSON".to_string()
             })?;
+            normalize_answers_json_for_validation(&mut answers);
             match validate_answers_document(&answers) {
                 Ok(()) => return Ok(answers),
                 Err(error) => validation_error = error,
@@ -585,7 +587,14 @@ fn parse_json_value_response(content: &str) -> Option<serde_json::Value> {
 }
 
 fn validate_answers_document(answers: &serde_json::Value) -> Result<(), String> {
-    let model = crate::normalize_answers(answers.clone(), NormalizeOptions)?;
+    let shape_errors = answer_shape_validation_errors(answers);
+    let model = match crate::normalize_answers(answers.clone(), NormalizeOptions) {
+        Ok(model) => model,
+        Err(error) if shape_errors.is_empty() => return Err(error),
+        Err(error) => {
+            return Err(format!("{}; {error}", shape_errors.join("; ")));
+        }
+    };
     let report = crate::validate_model(&model, ValidateOptions);
     let messages = report
         .diagnostics
@@ -604,10 +613,539 @@ fn validate_answers_document(answers: &serde_json::Value) -> Result<(), String> 
         })
         .collect::<Vec<_>>()
         .join("; ");
+    let messages = if shape_errors.is_empty() {
+        messages
+    } else if messages.is_empty() {
+        shape_errors.join("; ")
+    } else {
+        format!("{}; {messages}", shape_errors.join("; "))
+    };
     if !messages.is_empty() {
         return Err(messages);
     }
     Ok(())
+}
+
+fn answer_shape_validation_errors(answers: &serde_json::Value) -> Vec<String> {
+    let mut errors = Vec::new();
+    require_string(answers, &["schema_version"], &mut errors);
+    require_string(answers, &["flow"], &mut errors);
+    require_string(answers, &["output_dir"], &mut errors);
+    require_object(answers, &["package"], &mut errors);
+    require_object(answers, &["providers"], &mut errors);
+    require_object(answers, &["records"], &mut errors);
+    require_array(answers, &["actions"], &mut errors);
+    require_object(answers, &["events"], &mut errors);
+    require_object(answers, &["projections"], &mut errors);
+    require_array(answers, &["policies"], &mut errors);
+    require_array(answers, &["approvals"], &mut errors);
+    require_object(answers, &["migrations"], &mut errors);
+    require_object(answers, &["agent_endpoints"], &mut errors);
+    require_object(answers, &["output"], &mut errors);
+
+    if let Some(package) = answers.get("package") {
+        require_string(package, &["name"], &mut errors);
+        require_string(package, &["version"], &mut errors);
+    }
+
+    if let Some(concepts) = answers
+        .pointer("/ontology/concepts")
+        .and_then(serde_json::Value::as_array)
+    {
+        for (index, concept) in concepts.iter().enumerate() {
+            require_object_item(concept, &format!("ontology.concepts[{index}]"), &mut errors);
+            require_string_at(
+                concept,
+                &["id"],
+                &format!("ontology.concepts[{index}].id"),
+                &mut errors,
+            );
+            require_string_at(
+                concept,
+                &["kind"],
+                &format!("ontology.concepts[{index}].kind"),
+                &mut errors,
+            );
+        }
+    }
+    if let Some(relationships) = answers
+        .pointer("/ontology/relationships")
+        .and_then(serde_json::Value::as_array)
+    {
+        for (index, relationship) in relationships.iter().enumerate() {
+            require_object_item(
+                relationship,
+                &format!("ontology.relationships[{index}]"),
+                &mut errors,
+            );
+            require_string_at(
+                relationship,
+                &["id"],
+                &format!("ontology.relationships[{index}].id"),
+                &mut errors,
+            );
+            require_string_at(
+                relationship,
+                &["from"],
+                &format!("ontology.relationships[{index}].from"),
+                &mut errors,
+            );
+            require_string_at(
+                relationship,
+                &["to"],
+                &format!("ontology.relationships[{index}].to"),
+                &mut errors,
+            );
+        }
+    }
+
+    for (index, endpoint) in answers
+        .pointer("/agent_endpoints/items")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        require_string_at(
+            endpoint,
+            &["id"],
+            &format!("agent_endpoints.items[{index}].id"),
+            &mut errors,
+        );
+        require_string_at(
+            endpoint,
+            &["title"],
+            &format!("agent_endpoints.items[{index}].title"),
+            &mut errors,
+        );
+        require_string_at(
+            endpoint,
+            &["intent"],
+            &format!("agent_endpoints.items[{index}].intent"),
+            &mut errors,
+        );
+        if let Some(inputs) = endpoint.get("inputs").and_then(serde_json::Value::as_array) {
+            for (input_index, input) in inputs.iter().enumerate() {
+                require_string_at(
+                    input,
+                    &["name"],
+                    &format!("agent_endpoints.items[{index}].inputs[{input_index}].name"),
+                    &mut errors,
+                );
+                require_string_at(
+                    input,
+                    &["type"],
+                    &format!("agent_endpoints.items[{index}].inputs[{input_index}].type"),
+                    &mut errors,
+                );
+            }
+        }
+        if let Some(outputs) = endpoint
+            .get("outputs")
+            .and_then(serde_json::Value::as_array)
+        {
+            for (output_index, output) in outputs.iter().enumerate() {
+                require_string_at(
+                    output,
+                    &["name"],
+                    &format!("agent_endpoints.items[{index}].outputs[{output_index}].name"),
+                    &mut errors,
+                );
+                require_string_at(
+                    output,
+                    &["type"],
+                    &format!("agent_endpoints.items[{index}].outputs[{output_index}].type"),
+                    &mut errors,
+                );
+            }
+        }
+        if let Some(roles) = endpoint.pointer("/authorization/roles") {
+            require_array_at(
+                roles,
+                &["any_of"],
+                &format!("agent_endpoints.items[{index}].authorization.roles.any_of"),
+                &mut errors,
+            );
+            require_array_at(
+                roles,
+                &["all_of"],
+                &format!("agent_endpoints.items[{index}].authorization.roles.all_of"),
+                &mut errors,
+            );
+        }
+    }
+
+    errors
+}
+
+fn require_string(value: &serde_json::Value, path: &[&str], errors: &mut Vec<String>) {
+    require_string_at(value, path, &path.join("."), errors);
+}
+
+fn require_string_at(
+    value: &serde_json::Value,
+    path: &[&str],
+    display_path: &str,
+    errors: &mut Vec<String>,
+) {
+    if !path.is_empty() && !value.is_object() {
+        return;
+    }
+    match value_at_path(value, path) {
+        Some(serde_json::Value::String(text)) if !text.trim().is_empty() => {}
+        Some(other) => errors.push(format!(
+            "{display_path}: expected non-empty string, got {}",
+            json_type_name(other)
+        )),
+        None => errors.push(format!("{display_path}: missing required string")),
+    }
+}
+
+fn require_array(value: &serde_json::Value, path: &[&str], errors: &mut Vec<String>) {
+    require_array_at(value, path, &path.join("."), errors);
+}
+
+fn require_array_at(
+    value: &serde_json::Value,
+    path: &[&str],
+    display_path: &str,
+    errors: &mut Vec<String>,
+) {
+    match value_at_path(value, path) {
+        Some(serde_json::Value::Array(_)) | None => {}
+        Some(other) => errors.push(format!(
+            "{display_path}: expected array, got {}",
+            json_type_name(other)
+        )),
+    }
+}
+
+fn require_object(value: &serde_json::Value, path: &[&str], errors: &mut Vec<String>) {
+    match value_at_path(value, path) {
+        Some(serde_json::Value::Object(_)) => {}
+        Some(other) => errors.push(format!(
+            "{}: expected object, got {}",
+            path.join("."),
+            json_type_name(other)
+        )),
+        None => errors.push(format!("{}: missing required object", path.join("."))),
+    }
+}
+
+fn require_object_item(value: &serde_json::Value, display_path: &str, errors: &mut Vec<String>) {
+    if !value.is_object() {
+        errors.push(format!(
+            "{display_path}: expected object, got {}",
+            json_type_name(value)
+        ));
+    }
+}
+
+fn value_at_path<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a serde_json::Value> {
+    let mut current = value;
+    for segment in path {
+        current = current.get(*segment)?;
+    }
+    Some(current)
+}
+
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
+fn normalize_answers_json_for_validation(answers: &mut serde_json::Value) {
+    normalize_answers_json_value(answers, &mut Vec::new());
+}
+
+fn normalize_answers_json_value(value: &mut serde_json::Value, path: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                path.push(key.clone());
+                normalize_answers_json_value(child, path);
+                path.pop();
+            }
+            if answer_path_expects_string(path)
+                && let Some(text) = localized_or_named_string(value)
+            {
+                *value = serde_json::Value::String(text);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            let expects_string_items = answer_path_expects_string_array(path);
+            let object_array_kind = answer_path_expects_object_array(path);
+            path.push("[]".to_string());
+            for item in items.iter_mut() {
+                if let Some(kind) = object_array_kind
+                    && let Some(text) = stringish_json_value(item)
+                {
+                    *item = object_array_item_from_string(kind, &text);
+                }
+                normalize_answers_json_value(item, path);
+                if expects_string_items && let Some(text) = localized_or_named_string(item) {
+                    *item = serde_json::Value::String(text);
+                }
+            }
+            path.pop();
+        }
+        serde_json::Value::String(text) if answer_path_expects_string_array(path) => {
+            let text = text.trim();
+            if !text.is_empty() {
+                *value =
+                    serde_json::Value::Array(vec![serde_json::Value::String(text.to_string())]);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn answer_path_expects_string(path: &[String]) -> bool {
+    let Some(key) = path.last().map(String::as_str) else {
+        return false;
+    };
+
+    if matches!(
+        key,
+        "source" | "target" | "time" | "window" | "measure" | "match"
+    ) {
+        return false;
+    }
+
+    if matches!(
+        key,
+        "schema_version"
+            | "flow"
+            | "output_dir"
+            | "locale"
+            | "storage_category"
+            | "external_ref_category"
+            | "default_source"
+            | "external_ref_system"
+            | "provider_category"
+            | "default_risk"
+            | "default_approval"
+            | "schema"
+            | "name"
+            | "version"
+            | "i18n_key"
+            | "id"
+            | "label"
+            | "description"
+            | "type"
+            | "type_name"
+            | "authority"
+            | "system"
+            | "key"
+            | "record"
+            | "field"
+            | "kind"
+            | "from"
+            | "to"
+            | "concept"
+            | "relationship"
+            | "provider"
+            | "permission"
+            | "direction"
+            | "event"
+            | "stream"
+            | "title"
+            | "intent"
+            | "risk"
+            | "approval"
+            | "category"
+            | "operator"
+            | "grain"
+            | "mode"
+            | "unit"
+            | "formula"
+            | "aggregate"
+            | "compatibility"
+            | "idempotence_key"
+            | "notes"
+            | "reason"
+    ) {
+        return true;
+    }
+
+    key == "source" && path_matches(path, &["records", "items", "[]", "source"])
+}
+
+fn answer_path_expects_string_array(path: &[String]) -> bool {
+    let Some(key) = path.last().map(String::as_str) else {
+        return false;
+    };
+    matches!(
+        key,
+        "hints"
+            | "enum_values"
+            | "extends"
+            | "required_capabilities"
+            | "capabilities"
+            | "ids"
+            | "exports"
+            | "side_effects"
+            | "dimensions"
+            | "depends_on"
+            | "projection_updates"
+            | "artifacts"
+            | "any_of"
+            | "all_of"
+    ) || path_ends_with(path, &["grants"])
+        || path_ends_with(path, &["access", "read", "roles"])
+        || path_ends_with(path, &["access", "create", "roles"])
+        || path_ends_with(path, &["access", "update", "roles"])
+        || path_ends_with(path, &["access", "delete", "roles"])
+        || path_ends_with(path, &["authorization", "policies"])
+        || path_ends_with(path, &["backing", "actions"])
+        || path_ends_with(path, &["backing", "events"])
+        || path_ends_with(path, &["backing", "flows"])
+        || path_ends_with(path, &["backing", "policies"])
+        || path_ends_with(path, &["backing", "approvals"])
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ObjectArrayKind {
+    OntologyConcept,
+    OntologyRelationship,
+    OntologyConstraint,
+    ProviderRequirement,
+    PolicyHook,
+}
+
+fn answer_path_expects_object_array(path: &[String]) -> Option<ObjectArrayKind> {
+    if path_matches(path, &["ontology", "concepts"]) {
+        Some(ObjectArrayKind::OntologyConcept)
+    } else if path_matches(path, &["ontology", "relationships"]) {
+        Some(ObjectArrayKind::OntologyRelationship)
+    } else if path_matches(path, &["ontology", "constraints"]) {
+        Some(ObjectArrayKind::OntologyConstraint)
+    } else if path_ends_with(path, &["provider_requirements"]) {
+        Some(ObjectArrayKind::ProviderRequirement)
+    } else if path_ends_with(path, &["policy_hooks"]) {
+        Some(ObjectArrayKind::PolicyHook)
+    } else {
+        None
+    }
+}
+
+fn object_array_item_from_string(kind: ObjectArrayKind, text: &str) -> serde_json::Value {
+    match kind {
+        ObjectArrayKind::OntologyConcept => serde_json::json!({
+            "id": slug_identifier(text),
+            "kind": "entity",
+            "description": text
+        }),
+        ObjectArrayKind::OntologyRelationship => serde_json::json!({
+            "id": slug_identifier(text),
+            "from": "source",
+            "to": "target",
+            "label": text
+        }),
+        ObjectArrayKind::OntologyConstraint => serde_json::json!({
+            "id": slug_identifier(text),
+            "applies_to": {
+                "concept": slug_identifier(text)
+            }
+        }),
+        ObjectArrayKind::ProviderRequirement => serde_json::json!({
+            "category": slug_identifier(text),
+            "capabilities": []
+        }),
+        ObjectArrayKind::PolicyHook => serde_json::json!({
+            "policy": slug_identifier(text),
+            "reason": text
+        }),
+    }
+}
+
+fn path_matches(path: &[String], pattern: &[&str]) -> bool {
+    path.len() == pattern.len()
+        && path
+            .iter()
+            .map(String::as_str)
+            .zip(pattern.iter().copied())
+            .all(|(left, right)| left == right)
+}
+
+fn path_ends_with(path: &[String], suffix: &[&str]) -> bool {
+    path.len() >= suffix.len()
+        && path[path.len() - suffix.len()..]
+            .iter()
+            .map(String::as_str)
+            .zip(suffix.iter().copied())
+            .all(|(left, right)| left == right)
+}
+
+fn stringish_json_value(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => {
+            let text = text.trim();
+            (!text.is_empty()).then(|| text.to_string())
+        }
+        serde_json::Value::Object(_) => localized_or_named_string(value),
+        _ => None,
+    }
+}
+
+fn localized_or_named_string(value: &serde_json::Value) -> Option<String> {
+    let map = value.as_object()?;
+    for key in [
+        "en",
+        "default",
+        "value",
+        "text",
+        "label",
+        "name",
+        "title",
+        "description",
+        "id",
+    ] {
+        if let Some(text) = map.get(key).and_then(serde_json::Value::as_str) {
+            let text = text.trim();
+            if !text.is_empty() {
+                return Some(text.to_string());
+            }
+        }
+    }
+    let mut string_values = map
+        .values()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    let only = string_values.next()?;
+    if string_values.next().is_none() {
+        return Some(only.to_string());
+    }
+    None
+}
+
+fn slug_identifier(value: &str) -> String {
+    let mut slug = String::new();
+    let mut previous_underscore = false;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            previous_underscore = false;
+        } else if !previous_underscore && !slug.is_empty() {
+            slug.push('_');
+            previous_underscore = true;
+        }
+    }
+    while slug.ends_with('_') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        "item".to_string()
+    } else {
+        slug
+    }
 }
 
 fn answer_generation_system_prompt(wizard_schema: &str) -> String {
@@ -615,6 +1153,8 @@ fn answer_generation_system_prompt(wizard_schema: &str) -> String {
         r#"Objective: generate the final answers.json that greentic-sorla wizard will consume to create a System of Record package.
 
 Use the completed plan/draft and follow-up answers. Return JSON only.
+
+Where the schema expects a string, return a plain string, not a localized object such as {{"en":"Label"}}. Keep localized text in i18n catalogs, not inside answers.json scalar fields.
 
 A high-quality answers.json:
 - Satisfies the wizard --schema exactly.
@@ -669,6 +1209,8 @@ fn answer_repair_system_prompt(wizard_schema: &str) -> String {
         r#"Objective: repair answers.json so greentic-sorla wizard can use it to create the intended System of Record package.
 
 Return JSON only. Keep the customer's business intent, preserve valid domain-specific content, and change only what is necessary to satisfy validation. Prefer fixing structure, missing required fields, invalid enum values, bad references, and schema mismatches over replacing the whole design. Do not wrap the JSON in markdown.
+
+Where the schema expects a string, return a plain string, not a localized object such as {{"en":"Label"}}. Keep localized text in i18n catalogs, not inside answers.json scalar fields.
 
 Apply this quality bar when repair requires filling missing business semantics:
 {quality_rubric}
@@ -965,7 +1507,79 @@ fn answers_response_schema_json() -> serde_json::Value {
     "policies": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "approvals": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "migrations": { "type": "object", "additionalProperties": true },
-    "agent_endpoints": { "type": "object", "additionalProperties": true },
+    "agent_endpoints": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ids": { "type": "array", "items": { "type": "string" } },
+        "default_risk": { "type": "string" },
+        "default_approval": { "type": "string" },
+        "exports": { "type": "array", "items": { "type": "string" } },
+        "provider_category": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string" },
+              "i18n_key": { "type": ["string", "null"] },
+              "title": { "type": "string" },
+              "intent": { "type": "string" },
+              "description": { "type": ["string", "null"] },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "name": { "type": "string" },
+                    "type": { "type": "string" },
+                    "required": { "type": "boolean" },
+                    "sensitive": { "type": "boolean" },
+                    "description": { "type": ["string", "null"] }
+                  },
+                  "required": ["name", "type"]
+                }
+              },
+              "outputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "name": { "type": "string" },
+                    "type": { "type": "string" },
+                    "required": { "type": "boolean" },
+                    "sensitive": { "type": "boolean" },
+                    "description": { "type": ["string", "null"] }
+                  },
+                  "required": ["name", "type"]
+                }
+              },
+              "side_effects": { "type": "array", "items": { "type": "string" } },
+              "authorization": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "roles": {
+                    "type": ["object", "null"],
+                    "additionalProperties": true,
+                    "properties": {
+                      "any_of": { "type": "array", "items": { "type": "string" } },
+                      "all_of": { "type": "array", "items": { "type": "string" } }
+                    }
+                  },
+                  "policies": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            },
+            "required": ["id", "title", "intent"]
+          }
+        }
+      }
+    },
     "output": { "type": "object", "additionalProperties": true }
   },
   "required": ["schema_version", "flow", "output_dir", "package", "providers", "records", "actions", "events", "projections", "policies", "approvals", "migrations", "agent_endpoints", "output"]
@@ -3077,6 +3691,8 @@ mod tests {
         assert!(planner_system_prompt(schema).contains("specialist review passes"));
         assert!(answer_generation_system_prompt(schema).contains("metric filters match records"));
         assert!(answer_generation_system_prompt(schema).contains("seed/demo-compatible"));
+        assert!(answer_generation_system_prompt(schema).contains("return a plain string"));
+        assert!(answer_repair_system_prompt(schema).contains("return a plain string"));
         assert!(prompt_authoring_repair_system_prompt(schema).contains("lifecycle status"));
     }
 
@@ -3108,6 +3724,12 @@ mod tests {
         assert_eq!(
             schema["properties"]["agent_endpoints"]["additionalProperties"],
             true
+        );
+        assert!(
+            schema["properties"]["agent_endpoints"]["properties"]["items"]["items"]["required"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("intent"))
         );
         assert_eq!(
             schema["properties"]["metrics"]["properties"]["items"]["items"]["properties"]["measure"]
@@ -3165,5 +3787,104 @@ mod tests {
         crate::normalize_answers(answers.clone(), NormalizeOptions)
             .expect("repaired answers normalize");
         assert_eq!(answers["package"]["name"], "repaired-sor");
+    }
+
+    #[test]
+    fn generated_answers_normalizer_flattens_localized_string_maps() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["package"]["name"] = serde_json::json!({ "en": "waiting-list" });
+        answers["actions"][0]["description"] =
+            serde_json::json!({ "en": "Add a user to the waiting list." });
+        answers["metrics"]["items"][0]["label"] = serde_json::json!({ "en": "Waiting list size" });
+        answers["records"]["items"][0]["fields"][0]["description"] =
+            serde_json::json!({ "en": "Stable entry identifier." });
+        answers["agent_endpoints"]["items"][0]["side_effects"][0] =
+            serde_json::json!({ "en": "action.join_waiting_list" });
+        answers["agent_endpoints"]["items"][0]["authorization"] = serde_json::json!({
+            "roles": {
+                "any_of": "admin"
+            }
+        });
+        answers["ontology"] = serde_json::json!({
+            "concepts": ["Organization"],
+            "relationships": [],
+            "constraints": []
+        });
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["package"]["name"], "waiting-list");
+        assert_eq!(
+            answers["actions"][0]["description"],
+            "Add a user to the waiting list."
+        );
+        assert_eq!(answers["metrics"]["items"][0]["label"], "Waiting list size");
+        assert_eq!(
+            answers["records"]["items"][0]["fields"][0]["description"],
+            "Stable entry identifier."
+        );
+        assert_eq!(
+            answers["agent_endpoints"]["items"][0]["side_effects"][0],
+            "action.join_waiting_list"
+        );
+        assert_eq!(
+            answers["agent_endpoints"]["items"][0]["authorization"]["roles"]["any_of"],
+            serde_json::json!(["admin"])
+        );
+        assert_eq!(answers["ontology"]["concepts"][0]["id"], "organization");
+        assert_eq!(answers["ontology"]["concepts"][0]["kind"], "entity");
+        crate::normalize_answers(answers, NormalizeOptions)
+            .expect("normalized answers should deserialize and validate");
+    }
+
+    #[test]
+    fn answer_validation_reports_shape_errors_before_serde_stops() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["agent_endpoints"]["items"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("intent");
+        answers["agent_endpoints"]["items"][0]["inputs"][0]["name"] = serde_json::Value::Null;
+
+        let error = validate_answers_document(&answers).expect_err("answers should be invalid");
+
+        assert!(error.contains("agent_endpoints.items[0].intent: missing required string"));
+        assert!(error.contains(
+            "agent_endpoints.items[0].inputs[0].name: expected non-empty string, got null"
+        ));
+        assert!(error.contains("failed to parse answers document"));
+    }
+
+    #[test]
+    fn answer_validation_reports_ontology_object_array_shape_errors() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["ontology"] = serde_json::json!({
+            "concepts": [
+                { "id": "organization" },
+                42
+            ],
+            "relationships": [
+                { "id": "owns", "from": "organization" }
+            ],
+            "constraints": []
+        });
+
+        let error = validate_answers_document(&answers).expect_err("answers should be invalid");
+
+        assert!(error.contains("ontology.concepts[0].kind: missing required string"));
+        assert!(error.contains("ontology.concepts[1]: expected object, got number"));
+        assert!(error.contains("ontology.relationships[0].to: missing required string"));
+    }
+
+    #[test]
+    fn generated_answers_normalizer_preserves_metric_source_objects() {
+        let mut answers = answers_from_draft(&metrics_draft("track revenue metrics", &[]));
+        let source_before = answers["metrics"]["items"][0]["source"].clone();
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["metrics"]["items"][0]["source"], source_before);
+        assert!(answers["metrics"]["items"][0]["source"]["kind"].is_string());
+        assert!(answers["metrics"]["items"][0]["source"]["name"].is_string());
     }
 }
