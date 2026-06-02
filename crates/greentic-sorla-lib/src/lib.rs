@@ -34,7 +34,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 mod embedded_i18n {
@@ -928,6 +928,12 @@ struct DesignValidateArgs {
 
 #[derive(Args)]
 struct PromptArgs {
+    /// Business prompt to use instead of asking interactively.
+    #[arg(value_name = "PROMPT", conflicts_with = "prompt_file")]
+    prompt_text: Option<String>,
+    /// File to read the initial business prompt from.
+    #[arg(long = "prompt", value_name = "FILE", conflicts_with = "prompt_text")]
+    prompt_file: Option<PathBuf>,
     /// File to write generated answers JSON to.
     #[arg(long, value_name = "FILE", default_value = "answers.json")]
     answers_out: PathBuf,
@@ -964,6 +970,8 @@ impl std::fmt::Debug for PromptArgs {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("PromptArgs")
+            .field("prompt_text", &self.prompt_text)
+            .field("prompt_file", &self.prompt_file)
             .field("answers_out", &self.answers_out)
             .field("sorla_yaml", &self.sorla_yaml)
             .field("resume", &self.resume)
@@ -4218,7 +4226,7 @@ fn render_prompt_help(
         localized_options_placeholder(catalog, fallback, "cli.options.placeholder", options);
 
     format!(
-        "{description}\n\n{usage}: greentic-sorla prompt [{options_placeholder}]\n\n{options}:\n      --answers-out <FILE>       {answers_out_description}\n      --sorla-yaml <FILE>        {sorla_yaml_description}\n      --resume <FILE>            {resume_description}\n      --session-out <FILE>       {session_out_description}\n      --locale <LOCALE>          {locale_description}\n      --llm-provider <PROVIDER>  {llm_provider_description}\n      --llm-model <MODEL>        {llm_model_description}\n      --llm-api-key <KEY>        {llm_api_key_description}\n      --llm-endpoint <URL>       {llm_endpoint_description}\n      --llm-capability-id <ID>   {llm_capability_id_description}\n  -h, --help                     {help_option}",
+        "{description}\n\n{usage}: greentic-sorla prompt [PROMPT] [{options_placeholder}]\n\n{arguments}:\n  PROMPT                         {prompt_description}\n\n{options}:\n      --prompt <FILE>            {prompt_file_description}\n      --answers-out <FILE>       {answers_out_description}\n      --sorla-yaml <FILE>        {sorla_yaml_description}\n      --resume <FILE>            {resume_description}\n      --session-out <FILE>       {session_out_description}\n      --locale <LOCALE>          {locale_description}\n      --llm-provider <PROVIDER>  {llm_provider_description}\n      --llm-model <MODEL>        {llm_model_description}\n      --llm-api-key <KEY>        {llm_api_key_description}\n      --llm-endpoint <URL>       {llm_endpoint_description}\n      --llm-capability-id <ID>   {llm_capability_id_description}\n  -h, --help                     {help_option}",
         description = catalog_text(
             catalog,
             fallback,
@@ -4227,6 +4235,19 @@ fn render_prompt_help(
         ),
         usage = catalog_text(catalog, fallback, "cli.usage", "Usage"),
         options_placeholder = options_placeholder,
+        arguments = catalog_text(catalog, fallback, "cli.arguments", "Arguments"),
+        prompt_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.arguments.prompt.description",
+            "Business prompt to use instead of asking interactively."
+        ),
+        prompt_file_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.prompt.description",
+            "File to read the initial business prompt from."
+        ),
         options = options,
         answers_out_description = catalog_text(
             catalog,
@@ -4857,16 +4878,47 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
     };
     session.llm = Some(current_llm_config);
 
-    if session.phase == prompt::PromptPhase::AwaitingBusinessPrompt {
-        println!(
-            "{}",
-            catalog_text(
+    let mut initial_user_message = args.prompt_text;
+    if initial_user_message.is_none()
+        && session.phase == prompt::PromptPhase::AwaitingBusinessPrompt
+        && let Some(path) = &args.prompt_file
+    {
+        initial_user_message = Some(read_prompt_file(
+            path,
+            &catalog,
+            &fallback,
+            &catalog_string(
                 &catalog,
                 &fallback,
-                "cli.prompt.responses.describe_system",
-                "Describe the System of Record you want to create."
-            )
-        );
+                "cli.prompt.errors.empty_business_prompt",
+                "business prompt must not be empty",
+            ),
+        )?);
+    }
+    if initial_user_message.is_none()
+        && session.phase == prompt::PromptPhase::AwaitingBusinessPrompt
+        && !io::stdin().is_terminal()
+    {
+        initial_user_message = Some(read_stdin_to_prompt(&catalog_string(
+            &catalog,
+            &fallback,
+            "cli.prompt.errors.input_ended",
+            "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
+        ))?);
+    }
+
+    if session.phase == prompt::PromptPhase::AwaitingBusinessPrompt {
+        if initial_user_message.is_none() {
+            println!(
+                "{}",
+                catalog_text(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.responses.describe_system",
+                    "Describe the System of Record you want to create."
+                )
+            );
+        }
     }
 
     loop {
@@ -4875,6 +4927,10 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
             prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers
         ) {
             "generate answers".to_string()
+        } else if matches!(session.phase, prompt::PromptPhase::AwaitingBusinessPrompt)
+            && let Some(message) = initial_user_message.take()
+        {
+            message
         } else {
             print!("> ");
             io::stdout().flush().map_err(|err| {
@@ -5262,6 +5318,43 @@ fn read_stdin_line(eof_message: &str) -> Result<String, String> {
         return Err(eof_message.to_string());
     }
     Ok(line.trim_end().to_string())
+}
+
+fn read_stdin_to_prompt(eof_message: &str) -> Result<String, String> {
+    let mut prompt = String::new();
+    io::stdin()
+        .read_to_string(&mut prompt)
+        .map_err(|err| format!("failed to read prompt input: {err}"))?;
+    let prompt = prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Err(eof_message.to_string());
+    }
+    Ok(prompt)
+}
+
+fn read_prompt_file(
+    path: &Path,
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+    empty_message: &str,
+) -> Result<String, String> {
+    let prompt = fs::read_to_string(path).map_err(|err| {
+        render_catalog_template(
+            catalog,
+            fallback,
+            "cli.prompt.errors.prompt_read",
+            "failed to read prompt file {path}: {error}",
+            &[
+                ("path", path.display().to_string()),
+                ("error", err.to_string()),
+            ],
+        )
+    })?;
+    let prompt = prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Err(empty_message.to_string());
+    }
+    Ok(prompt)
 }
 
 fn write_json_file<T>(
@@ -11641,6 +11734,7 @@ mod tests {
         let cli = Cli::try_parse_from([
             "greentic-sorla",
             "prompt",
+            "Build a landlord tenant system",
             "--answers-out",
             "answers.json",
             "--llm-provider",
@@ -11652,13 +11746,78 @@ mod tests {
         let Commands::Prompt(args) = cli.command else {
             panic!("expected prompt command");
         };
+        assert_eq!(
+            args.prompt_text.as_deref(),
+            Some("Build a landlord tenant system")
+        );
+        assert!(args.prompt_file.is_none());
         assert_eq!(args.answers_out, PathBuf::from("answers.json"));
         assert_eq!(args.llm_provider.as_deref(), Some("fake"));
         assert!(args.sorla_yaml.is_none());
 
+        let cli = Cli::try_parse_from([
+            "greentic-sorla",
+            "prompt",
+            "--prompt",
+            "prompt.txt",
+            "--llm-provider",
+            "fake",
+        ])
+        .expect("prompt file command parses");
+        let Commands::Prompt(args) = cli.command else {
+            panic!("expected prompt command");
+        };
+        assert!(args.prompt_text.is_none());
+        assert_eq!(args.prompt_file, Some(PathBuf::from("prompt.txt")));
+
+        let err = Cli::try_parse_from([
+            "greentic-sorla",
+            "prompt",
+            "inline prompt",
+            "--prompt",
+            "prompt.txt",
+            "--llm-provider",
+            "fake",
+        ])
+        .expect_err("prompt text and prompt file should conflict");
+        assert!(err.to_string().contains("cannot be used with"));
+
         let err = Cli::try_parse_from(["greentic-sorla", "prompt", "--no-llm"])
             .expect_err("prompt command should not accept --no-llm");
         assert!(err.to_string().contains("unexpected argument"));
+    }
+
+    #[test]
+    fn prompt_cli_reads_prompt_file() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let prompt_path = dir.join("prompt.txt");
+        fs::write(&prompt_path, "\nBuild a customer support SoR\n").unwrap();
+        let catalog = locale_catalog("en").unwrap_or_default();
+        let fallback = locale_catalog("en").unwrap_or_default();
+
+        assert_eq!(
+            read_prompt_file(
+                &prompt_path,
+                &catalog,
+                &fallback,
+                "business prompt must not be empty"
+            )
+            .unwrap(),
+            "Build a customer support SoR"
+        );
+
+        fs::write(&prompt_path, "   \n").unwrap();
+        assert_eq!(
+            read_prompt_file(
+                &prompt_path,
+                &catalog,
+                &fallback,
+                "business prompt must not be empty"
+            )
+            .unwrap_err(),
+            "business prompt must not be empty"
+        );
     }
 
     #[test]
@@ -13232,6 +13391,7 @@ metrics:
         ])
         .expect("prompt help should localize");
         assert!(prompt_help.contains("Zet interactief een zakelijke prompt"));
+        assert!(prompt_help.contains("--prompt <FILE>"));
         assert!(prompt_help.contains("Bestand waar de gegenereerde JSON-antwoorden"));
         assert!(prompt_help.contains("LLM-provider-ID"));
     }
