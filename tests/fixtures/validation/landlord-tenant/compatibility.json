@@ -3,7 +3,7 @@
   "package": {
     "name": "landlord-tenant-sor",
     "version": "0.1.0",
-    "ir_hash": "3d5ce80652f87ff34cc563b553e9c83ccd37e6b6d3a159f10872e01f2b9a3ea6"
+    "ir_hash": "3e6f535e29fe44ef969a77eea75d804d38024864063d42ad550ed333ca6f899c"
   },
   "api_compatibility": "unknown",
   "state_compatibility": "isolated_required",
