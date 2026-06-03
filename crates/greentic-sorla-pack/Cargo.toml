@@ -14,10 +14,12 @@ readme = "README.md"
 
 [features]
 default = ["pack-zip"]
-pack-zip = ["dep:zip"]
+pack-zip = ["dep:greentic-pack", "dep:greentic-types", "dep:zip"]
 
 [dependencies]
 ciborium.workspace = true
+greentic-pack = { workspace = true, optional = true }
+greentic-types = { workspace = true, optional = true }
 greentic-sorla-lang.workspace = true
 greentic-sorla-ir.workspace = true
 semver.workspace = true
