@@ -8,6 +8,7 @@ use super::{
 use crate::{NormalizeOptions, SorlaError, ValidateOptions};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_PROMPT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
@@ -135,6 +136,7 @@ where
             questions: Vec::new(),
             assumptions: Vec::new(),
             draft_model: None,
+            staged_answers: false,
         })
     }
 
@@ -187,8 +189,8 @@ where
                     session.phase = PromptPhase::AskingQuestions;
                 }
                 let next_questions = next_questions_for_session(&session);
-                if next_questions.is_empty() {
-                    apply_planner_output_if_needed(&self.llm, &llm_config, &mut session)?;
+                if next_questions.is_empty() && !session_has_substantial_draft(&session) {
+                    apply_planner_output_if_needed(&self.llm, &llm_config, &mut session, true)?;
                 }
                 let next_questions = next_questions_for_session(&session);
                 let design_plan = if next_questions.is_empty() {
@@ -245,10 +247,19 @@ where
                 }
                 let next_questions = next_questions_for_session(&session);
                 if next_questions.is_empty() {
-                    let llm_config = session.llm.clone().unwrap_or_else(default_llm_config);
-                    apply_planner_output_if_needed(&self.llm, &llm_config, &mut session)?;
-                    if next_questions_for_session(&session).is_empty() {
+                    if session_has_substantial_draft(&session) {
                         session.phase = PromptPhase::ReviewingDesignPlan;
+                    } else {
+                        let llm_config = session.llm.clone().unwrap_or_else(default_llm_config);
+                        apply_planner_output_if_needed(
+                            &self.llm,
+                            &llm_config,
+                            &mut session,
+                            false,
+                        )?;
+                        if next_questions_for_session(&session).is_empty() {
+                            session.phase = PromptPhase::ReviewingDesignPlan;
+                        }
                     }
                 }
                 let next_questions = next_questions_for_session(&session);
@@ -295,78 +306,129 @@ where
         &self,
         session: PromptSessionState,
     ) -> Result<serde_json::Value, SorlaError> {
+        let mut session = session;
         let business_prompt = session.business_prompt.clone().unwrap_or_default();
         let llm_config = session.llm.clone().unwrap_or_else(default_llm_config);
         let draft = session
             .draft_model
+            .clone()
             .unwrap_or_else(|| draft_for_prompt(&business_prompt, &[]));
+        if session.staged_answers
+            && let Ok(answers) = generate_staged_answers_from_draft(&draft)
+        {
+            return Ok(answers);
+        }
         if llm_config.provider == "fake" {
             let answers = answers_from_draft(&draft);
             validate_answers_document(&answers)?;
             return Ok(answers);
         }
 
-        let generation_response = self.llm.complete(LlmRequest {
+        match generate_answers_with_repair(
+            &self.llm,
+            &llm_config,
+            &business_prompt,
+            &session.answers_so_far,
+            &draft,
+        ) {
+            Ok(answers) => Ok(answers),
+            Err(validation_error) => {
+                apply_planner_output_if_needed(&self.llm, &llm_config, &mut session, false)?;
+                let refreshed_draft = session
+                    .draft_model
+                    .clone()
+                    .unwrap_or_else(|| draft_for_prompt(&business_prompt, &session.answers_so_far));
+                generate_answers_with_repair(
+                    &self.llm,
+                    &llm_config,
+                    &business_prompt,
+                    &session.answers_so_far,
+                    &refreshed_draft,
+                )
+                .map_err(|redraft_error| {
+                    format!(
+                        "generated answers failed validation after LLM repair and draft refresh: {redraft_error}; before draft refresh: {validation_error}"
+                    )
+                })
+            }
+        }
+    }
+}
+
+fn generate_staged_answers_from_draft(
+    draft: &SorDesignDraft,
+) -> Result<serde_json::Value, SorlaError> {
+    let mut answers = answers_from_draft(draft);
+    normalize_answers_json_for_validation(&mut answers);
+    validate_answers_document(&answers)?;
+    Ok(answers)
+}
+
+fn generate_answers_with_repair<Llm>(
+    llm: &Llm,
+    llm_config: &LlmCapabilityConfig,
+    business_prompt: &str,
+    answers_so_far: &[PromptAnswer],
+    draft: &SorDesignDraft,
+) -> Result<serde_json::Value, SorlaError>
+where
+    Llm: LlmCapability,
+{
+    let generation_response = llm.complete(LlmRequest {
+        provider: llm_config.provider.clone(),
+        model: llm_config.model.clone(),
+        api_key: llm_config.api_key.clone(),
+        endpoint: llm_config.endpoint.clone(),
+        system_prompt: answer_generation_system_prompt(&wizard_answers_schema_json()),
+        messages: vec![LlmMessage {
+            role: LlmRole::User,
+            content: answer_generation_user_prompt(business_prompt, answers_so_far, draft),
+        }],
+        response_format: Some(answer_response_format()),
+    })?;
+    let mut answers = match parse_json_value_response(&generation_response.content) {
+        Some(answers) => answers,
+        None => serde_json::Value::String(generation_response.content),
+    };
+    normalize_answers_json_for_validation(&mut answers);
+    let mut validation_error = match validate_answers_document(&answers) {
+        Ok(()) => return Ok(answers),
+        Err(error) => error,
+    };
+
+    if matches!(answers, serde_json::Value::String(_)) {
+        validation_error = format!("answer JSON parse failed: {validation_error}");
+    }
+
+    for _ in 0..2 {
+        let repair_response = llm.complete(LlmRequest {
             provider: llm_config.provider.clone(),
             model: llm_config.model.clone(),
             api_key: llm_config.api_key.clone(),
             endpoint: llm_config.endpoint.clone(),
-            system_prompt: answer_generation_system_prompt(&wizard_answers_schema_json()),
+            system_prompt: answer_repair_system_prompt(&wizard_answers_schema_json()),
             messages: vec![LlmMessage {
                 role: LlmRole::User,
-                content: answer_generation_user_prompt(
-                    &business_prompt,
-                    &session.answers_so_far,
-                    &draft,
+                content: answer_repair_user_prompt(
+                    business_prompt,
+                    answers_so_far,
+                    draft,
+                    &validation_error,
                 ),
             }],
             response_format: Some(answer_response_format()),
         })?;
-        let mut answers = match parse_json_value_response(&generation_response.content) {
-            Some(answers) => answers,
-            None => serde_json::Value::String(generation_response.content),
-        };
+        answers = parse_json_value_response(&repair_response.content).ok_or_else(|| {
+            "prompt LLM returned repair output that was not valid JSON".to_string()
+        })?;
         normalize_answers_json_for_validation(&mut answers);
-        let mut validation_error = match validate_answers_document(&answers) {
+        match validate_answers_document(&answers) {
             Ok(()) => return Ok(answers),
-            Err(error) => error,
-        };
-
-        if matches!(answers, serde_json::Value::String(_)) {
-            validation_error = format!("answer JSON parse failed: {validation_error}");
+            Err(error) => validation_error = error,
         }
-
-        for _ in 0..2 {
-            let repair_response = self.llm.complete(LlmRequest {
-                provider: llm_config.provider.clone(),
-                model: llm_config.model.clone(),
-                api_key: llm_config.api_key.clone(),
-                endpoint: llm_config.endpoint.clone(),
-                system_prompt: answer_repair_system_prompt(&wizard_answers_schema_json()),
-                messages: vec![LlmMessage {
-                    role: LlmRole::User,
-                    content: answer_repair_user_prompt(
-                        &business_prompt,
-                        &validation_error,
-                        &answers,
-                    ),
-                }],
-                response_format: Some(answer_response_format()),
-            })?;
-            answers = parse_json_value_response(&repair_response.content).ok_or_else(|| {
-                "prompt LLM returned repair output that was not valid JSON".to_string()
-            })?;
-            normalize_answers_json_for_validation(&mut answers);
-            match validate_answers_document(&answers) {
-                Ok(()) => return Ok(answers),
-                Err(error) => validation_error = error,
-            }
-        }
-
-        Err(format!(
-            "generated answers failed validation after LLM repair: {validation_error}"
-        ))
     }
+
+    Err(validation_error)
 }
 
 fn default_llm_config() -> LlmCapabilityConfig {
@@ -382,16 +444,16 @@ fn default_llm_config() -> LlmCapabilityConfig {
 fn authoring_response_format() -> LlmResponseFormat {
     LlmResponseFormat::JsonSchema {
         name: "greentic_sorla_prompt_authoring".to_string(),
-        schema: authoring_output_schema_json(),
-        strict: false,
+        schema: openai_strict_json_schema(authoring_output_schema_json()),
+        strict: true,
     }
 }
 
 fn answer_response_format() -> LlmResponseFormat {
     LlmResponseFormat::JsonSchema {
         name: "greentic_sorla_answers".to_string(),
-        schema: answers_response_schema_json(),
-        strict: false,
+        schema: openai_strict_json_schema(answers_response_schema_json()),
+        strict: true,
     }
 }
 
@@ -399,6 +461,7 @@ fn apply_planner_output_if_needed<Llm>(
     llm: &Llm,
     llm_config: &LlmCapabilityConfig,
     session: &mut PromptSessionState,
+    allow_follow_up_questions: bool,
 ) -> Result<(), SorlaError>
 where
     Llm: LlmCapability,
@@ -428,11 +491,39 @@ where
         session.assumptions = planner_output.assumptions;
     }
     session.draft_model = Some(planner_output.draft);
-    session.questions = planner_output.questions;
+    session.questions = if allow_follow_up_questions {
+        planner_output.questions
+    } else {
+        Vec::new()
+    };
     Ok(())
 }
 
-fn planner_system_prompt(wizard_schema: &str) -> String {
+fn session_has_substantial_draft(session: &PromptSessionState) -> bool {
+    session
+        .draft_model
+        .as_ref()
+        .is_some_and(sor_design_draft_is_substantial)
+}
+
+fn sor_design_draft_is_substantial(draft: &SorDesignDraft) -> bool {
+    let record_fields = draft
+        .records
+        .iter()
+        .map(|record| record.fields.len())
+        .sum::<usize>();
+    draft.records.len() >= 2
+        || record_fields >= 4
+        || draft.actions.len() >= 2
+        || draft.events.len() >= 2
+        || draft.projections.len() >= 1
+        || draft.metrics.len() >= 1
+        || draft.policies.len() >= 1
+        || draft.approvals.len() >= 1
+        || draft.provider_requirements.len() >= 1
+}
+
+fn planner_system_prompt(_wizard_schema: &str) -> String {
     format!(
         r#"Objective: convert a customer's natural-language prompt into a high-quality answers.json file that greentic-sorla wizard will use to create a System of Record package.
 
@@ -457,12 +548,10 @@ Quality bar:
 
 Use specialist review passes inside the plan before finalizing it: domain modeler for records/relationships, workflow analyst for lifecycle statuses and actions, reporting analyst for metrics and dimensions, policy reviewer for roles/approvals, and data steward for validation/defaults/source authority. Return one consolidated draft, not separate sub-agent transcripts.
 
-Return JSON only using the authoring shape: assistant_message, assumptions, draft, questions. If important scope is still unclear, include targeted questions. Ask only questions whose answers would materially improve the final answers.json. If scope is clear, return an empty questions array and a detailed draft.
+Return JSON only using the authoring shape enforced by the API response_format: assistant_message, assumptions, draft, questions. If important scope is still unclear, include targeted questions. Ask only questions whose answers would materially improve the final answers.json. If scope is clear, return an empty questions array and a detailed draft.
 
-The later answers.json must satisfy this wizard --schema:
-{wizard_schema}"#,
-        quality_rubric = sorla_quality_rubric(),
-        wizard_schema = wizard_schema
+The later answers.json must satisfy the Greentic SoRLa wizard schema enforced by structured output validation."#,
+        quality_rubric = sorla_quality_rubric()
     )
 }
 
@@ -473,12 +562,12 @@ fn planner_user_prompt(
 ) -> String {
     format!(
         "Customer prompt:\n{business_prompt}\n\nFollow-up answers:\n{}\n\nCurrent draft:\n{}",
-        serde_json::to_string_pretty(answers).unwrap_or_else(|_| "[]".to_string()),
-        serde_json::to_string_pretty(&session.draft_model).unwrap_or_else(|_| "null".to_string())
+        serde_json::to_string(answers).unwrap_or_else(|_| "[]".to_string()),
+        serde_json::to_string(&session.draft_model).unwrap_or_else(|_| "null".to_string())
     )
 }
 
-fn prompt_authoring_system_prompt(wizard_schema: &str) -> String {
+fn prompt_authoring_system_prompt(_wizard_schema: &str) -> String {
     format!(
         r#"Objective: convert a customer's natural-language prompt into an answers.json file that greentic-sorla wizard will use to create a System of Record package.
 
@@ -516,14 +605,12 @@ Return JSON only with this exact shape:
   "questions": [{{"id":"domain.question","text":"question relevant to the user's domain","help":null,"answer_kind":{{"kind":"boolean"}},"required":true,"risk":"low","depends_on":[]}}]
 }}
 
-The final answers.json produced from this draft must satisfy this Greentic SoRLa wizard --schema:
-{wizard_schema}
+The final answers.json produced from this draft must satisfy the Greentic SoRLa wizard schema enforced by structured output validation.
 
 Ask only questions that are directly relevant to the user's prompt. Do not ask landlord, tenant, lease, rent, or maintenance questions unless the prompt is actually about those concepts.
 For metrics/KPIs, ask targeted questions about the source record/event, amount field, recognized statuses, cadence, dimensions, formula inputs, and targets. Do not propose executable formulas or provider-specific query strings.
 Prefer a small number of high-value follow-up questions. Use empty questions if the prompt is already sufficient."#,
-        quality_rubric = sorla_quality_rubric(),
-        wizard_schema = wizard_schema
+        quality_rubric = sorla_quality_rubric()
     )
 }
 
@@ -565,9 +652,9 @@ where
     })
 }
 
-fn prompt_authoring_repair_system_prompt(wizard_schema: &str) -> String {
+fn prompt_authoring_repair_system_prompt(_wizard_schema: &str) -> String {
     format!(
-        "Objective: repair prompt-authoring JSON so it can still be used to generate answers.json for greentic-sorla wizard. Return JSON only using the exact authoring shape: assistant_message, assumptions, draft, questions. Preserve the customer's business intent and improve domain specificity where possible. Apply this quality bar:\n{}\n\nThe draft must be suitable for producing answers.json that satisfies this wizard --schema:\n{wizard_schema}",
+        "Objective: repair prompt-authoring JSON so it can still be used to generate answers.json for greentic-sorla wizard. Return JSON only using the exact authoring shape enforced by the API response_format: assistant_message, assumptions, draft, questions. Preserve the customer's business intent and improve domain specificity where possible. Apply this quality bar:\n{}\n\nThe draft must be suitable for producing answers.json that satisfies the Greentic SoRLa wizard schema enforced by structured output validation.",
         sorla_quality_rubric()
     )
 }
@@ -862,6 +949,7 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
 
 fn normalize_answers_json_for_validation(answers: &mut serde_json::Value) {
     normalize_answers_json_value(answers, &mut Vec::new());
+    normalize_answers_document_defaults(answers);
 }
 
 fn normalize_answers_json_value(value: &mut serde_json::Value, path: &mut Vec<String>) {
@@ -904,6 +992,673 @@ fn normalize_answers_json_value(value: &mut serde_json::Value, path: &mut Vec<St
         }
         _ => {}
     }
+}
+
+#[derive(Debug, Clone, Default)]
+struct RecordFieldCatalog {
+    fields_by_record: BTreeMap<String, Vec<RecordFieldInfo>>,
+}
+
+#[derive(Debug, Clone)]
+struct RecordFieldInfo {
+    name: String,
+    type_name: Option<String>,
+}
+
+impl RecordFieldCatalog {
+    fn record_names(&self) -> Vec<String> {
+        self.fields_by_record.keys().cloned().collect()
+    }
+
+    fn primary_field(&self, record: &str) -> Option<String> {
+        let fields = self.fields_by_record.get(record)?;
+        fields
+            .iter()
+            .find(|field| field.name == "id" || field.name == format!("{record}_id"))
+            .or_else(|| fields.iter().find(|field| field.name.ends_with("_id")))
+            .or_else(|| fields.first())
+            .map(|field| field.name.clone())
+    }
+
+    fn time_field(&self, record: &str) -> Option<String> {
+        let fields = self.fields_by_record.get(record)?;
+        fields
+            .iter()
+            .find(|field| {
+                matches!(
+                    field.type_name.as_deref(),
+                    Some("datetime" | "date" | "time" | "timestamp")
+                )
+            })
+            .or_else(|| {
+                fields.iter().find(|field| {
+                    field.name.ends_with("_at")
+                        || field.name.ends_with("_date")
+                        || field.name.contains("time")
+                })
+            })
+            .map(|field| field.name.clone())
+    }
+
+    fn status_or_primary_field(&self, record: &str) -> Option<String> {
+        let fields = self.fields_by_record.get(record)?;
+        fields
+            .iter()
+            .find(|field| field.name == "status")
+            .map(|field| field.name.clone())
+            .or_else(|| self.primary_field(record))
+    }
+}
+
+fn normalize_answers_document_defaults(answers: &mut serde_json::Value) {
+    let record_fields = collect_record_field_catalog(answers);
+    let record_names = record_fields.record_names();
+    normalize_package_defaults(answers);
+    normalize_missing_names(answers);
+    normalize_named_collection_shape(answers, "policies");
+    normalize_operational_indexes_defaults(answers);
+    normalize_record_field_references(answers, &record_fields);
+    normalize_metric_items(answers, &record_names, &record_fields);
+    normalize_metric_dependencies(answers);
+    normalize_declared_policy_references(answers);
+    normalize_migration_backfills(answers, &record_fields);
+}
+
+fn collect_record_field_catalog(answers: &serde_json::Value) -> RecordFieldCatalog {
+    let mut catalog = RecordFieldCatalog::default();
+    let Some(records) = answers
+        .pointer("/records/items")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return catalog;
+    };
+
+    for record in records {
+        let Some(record_name) = record
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
+            continue;
+        };
+        let fields = record
+            .get("fields")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|field| {
+                let name = field
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())?
+                    .to_string();
+                let type_name = field
+                    .get("type")
+                    .or_else(|| field.get("type_name"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|type_name| !type_name.is_empty())
+                    .map(str::to_string);
+                Some(RecordFieldInfo { name, type_name })
+            })
+            .collect::<Vec<_>>();
+        catalog
+            .fields_by_record
+            .insert(record_name.to_string(), fields);
+    }
+    catalog
+}
+
+fn normalize_package_defaults(answers: &mut serde_json::Value) {
+    let Some(package) = answers
+        .get_mut("package")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    if !package
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty())
+    {
+        package.insert(
+            "name".to_string(),
+            serde_json::Value::String("prompt-generated-sor".to_string()),
+        );
+    }
+    if !package
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|version| !version.trim().is_empty())
+    {
+        package.insert(
+            "version".to_string(),
+            serde_json::Value::String("0.1.0".to_string()),
+        );
+    }
+}
+
+fn normalize_missing_names(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let missing_name = !map
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|name| !name.trim().is_empty());
+            if missing_name && let Some(name) = inferred_object_name(map) {
+                map.insert("name".to_string(), serde_json::Value::String(name));
+            }
+            for child in map.values_mut() {
+                normalize_missing_names(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for (index, item) in items.iter_mut().enumerate() {
+                if let serde_json::Value::Object(map) = item {
+                    let missing_name = !map
+                        .get("name")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|name| !name.trim().is_empty());
+                    if missing_name {
+                        let name = inferred_object_name(map)
+                            .unwrap_or_else(|| format!("item_{}", index + 1));
+                        map.insert("name".to_string(), serde_json::Value::String(name));
+                    }
+                }
+                normalize_missing_names(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn inferred_object_name(map: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    for key in ["id", "title", "label", "description", "intent"] {
+        if let Some(text) = map.get(key).and_then(serde_json::Value::as_str) {
+            let name = slug_identifier(text);
+            if name != "item" {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+fn normalize_record_field_references(
+    answers: &mut serde_json::Value,
+    record_fields: &RecordFieldCatalog,
+) {
+    let Some(records) = answers
+        .pointer_mut("/records/items")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for field in records
+        .iter_mut()
+        .filter_map(|record| record.get_mut("fields"))
+        .filter_map(serde_json::Value::as_array_mut)
+        .flat_map(|fields| fields.iter_mut())
+    {
+        let Some(field_map) = field.as_object_mut() else {
+            continue;
+        };
+        let Some(reference) = field_map
+            .get_mut("references")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            continue;
+        };
+        let Some(record) = reference
+            .get("record")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|record| !record.is_empty())
+        else {
+            field_map.remove("references");
+            continue;
+        };
+        let has_field = reference
+            .get("field")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|field| !field.trim().is_empty());
+        if has_field {
+            continue;
+        }
+        let field = record_fields
+            .primary_field(record)
+            .unwrap_or_else(|| "id".to_string());
+        reference.insert("field".to_string(), serde_json::Value::String(field));
+    }
+}
+
+fn normalize_metric_items(
+    answers: &mut serde_json::Value,
+    record_names: &[String],
+    record_fields: &RecordFieldCatalog,
+) {
+    let Some(items) = answers
+        .pointer_mut("/metrics/items")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+
+    for metric in items {
+        let Some(map) = metric.as_object_mut() else {
+            continue;
+        };
+
+        let explicit_source_record = string_field(map, "source_record")
+            .or_else(|| string_field(map, "record"))
+            .or_else(|| {
+                map.get("source")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
+        let source_record = explicit_source_record.clone().or_else(|| {
+            let source = map.get("source")?.as_object()?;
+            let kind = source.get("kind").and_then(serde_json::Value::as_str)?;
+            if kind == "record" {
+                return source
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string);
+            }
+            None
+        });
+        let inferred_source_record = source_record.clone().or_else(|| {
+            map.get("source")
+                .is_none()
+                .then(|| record_names.first().cloned())
+                .flatten()
+        });
+
+        let needs_source_object = !map
+            .get("source")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|source| source.get("name"))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|name| !name.trim().is_empty());
+        if needs_source_object && let Some(source_record) = &inferred_source_record {
+            map.insert(
+                "source".to_string(),
+                serde_json::json!({ "kind": "record", "name": source_record }),
+            );
+        }
+
+        let aggregate = string_field(map, "aggregate")
+            .or_else(|| string_field(map, "aggregation"))
+            .or_else(|| string_field(map, "measure"));
+        let measure_missing = !map
+            .get("measure")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|measure| measure.get("aggregate"))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|aggregate| !aggregate.trim().is_empty());
+        if measure_missing && let Some(aggregate) = aggregate {
+            let field = string_field(map, "field");
+            map.insert(
+                "measure".to_string(),
+                serde_json::json!({ "aggregate": aggregate, "field": field }),
+            );
+        }
+
+        let time_field = string_field(map, "time_field")
+            .or_else(|| string_field(map, "date_field"))
+            .or_else(|| string_field(map, "timestamp_field"))
+            .or_else(|| {
+                source_record
+                    .as_deref()
+                    .and_then(|record| record_fields.time_field(record))
+            })
+            .unwrap_or_else(|| "occurred_at".to_string());
+        let grain = string_field(map, "grain").unwrap_or_else(|| "month".to_string());
+        match map.get_mut("time") {
+            Some(serde_json::Value::Object(time)) => {
+                let has_grain = time
+                    .get("grain")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|grain| !grain.trim().is_empty());
+                if !has_grain {
+                    time.insert("grain".to_string(), serde_json::Value::String(grain));
+                }
+                if !time
+                    .get("field")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|field| !field.trim().is_empty())
+                {
+                    time.insert("field".to_string(), serde_json::Value::String(time_field));
+                }
+            }
+            Some(serde_json::Value::String(field)) if !field.trim().is_empty() => {
+                let field = field.clone();
+                map.insert(
+                    "time".to_string(),
+                    serde_json::json!({ "field": field, "grain": grain }),
+                );
+            }
+            Some(_) => {}
+            None => {
+                map.insert(
+                    "time".to_string(),
+                    serde_json::json!({ "field": time_field, "grain": grain }),
+                );
+            }
+        }
+        normalize_metric_filters(map, source_record.as_deref(), record_fields);
+    }
+}
+
+fn normalize_metric_filters(
+    metric: &mut serde_json::Map<String, serde_json::Value>,
+    source_record: Option<&str>,
+    record_fields: &RecordFieldCatalog,
+) {
+    let Some(filters) = metric
+        .get_mut("filters")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    let inferred_field = source_record
+        .and_then(|record| record_fields.status_or_primary_field(record))
+        .unwrap_or_else(|| "status".to_string());
+    for filter in filters {
+        let Some(filter) = filter.as_object_mut() else {
+            continue;
+        };
+        if !filter
+            .get("field")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|field| !field.trim().is_empty())
+        {
+            filter.insert(
+                "field".to_string(),
+                serde_json::Value::String(inferred_field.clone()),
+            );
+        }
+        if !filter
+            .get("operator")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|operator| !operator.trim().is_empty())
+        {
+            filter.insert(
+                "operator".to_string(),
+                serde_json::Value::String("equals".to_string()),
+            );
+        }
+    }
+}
+
+fn normalize_metric_dependencies(answers: &mut serde_json::Value) {
+    let Some(metrics) = answers
+        .pointer_mut("/metrics/items")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    let metric_names = metrics
+        .iter()
+        .filter_map(|metric| metric.get("name").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    for index in 0..metrics.len() {
+        let Some(metric) = metrics[index].as_object_mut() else {
+            continue;
+        };
+        let metric_name = metric
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let known_dependencies = metric
+            .get("depends_on")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .filter(|dependency| metric_names.iter().any(|name| name == dependency))
+            .filter(|dependency| *dependency != metric_name)
+            .map(|dependency| serde_json::Value::String(dependency.to_string()))
+            .collect::<Vec<_>>();
+        if !known_dependencies.is_empty() {
+            metric.insert(
+                "depends_on".to_string(),
+                serde_json::Value::Array(known_dependencies),
+            );
+            continue;
+        }
+
+        let formula_present = metric
+            .get("formula")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|formula| !formula.trim().is_empty());
+        if !formula_present {
+            metric.insert("depends_on".to_string(), serde_json::json!([]));
+            continue;
+        }
+
+        let fallback_dependencies = metric_names
+            .iter()
+            .take(index)
+            .filter(|name| *name != &metric_name)
+            .rev()
+            .take(3)
+            .cloned()
+            .map(serde_json::Value::String)
+            .collect::<Vec<_>>();
+        metric.insert(
+            "depends_on".to_string(),
+            serde_json::Value::Array(fallback_dependencies),
+        );
+    }
+}
+
+fn normalize_declared_policy_references(answers: &mut serde_json::Value) {
+    let mut policy_names = declared_policy_names(answers);
+
+    for policy in referenced_policy_names(answers) {
+        if policy.trim().is_empty() || policy_names.iter().any(|name| name == &policy) {
+            continue;
+        }
+        policy_names.push(policy.clone());
+        ensure_array_object(answers, "policies").push(serde_json::json!({
+            "name": policy,
+            "description": "Auto-declared policy referenced by generated authorization metadata."
+        }));
+    }
+}
+
+fn declared_policy_names(answers: &serde_json::Value) -> Vec<String> {
+    answers
+        .get("policies")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|policy| match policy {
+            serde_json::Value::String(name) => Some(name.as_str()),
+            serde_json::Value::Object(map) => map.get("name").and_then(serde_json::Value::as_str),
+            _ => None,
+        })
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>()
+}
+
+fn normalize_named_collection_shape(answers: &mut serde_json::Value, key: &str) {
+    let Some(map) = answers.as_object_mut() else {
+        return;
+    };
+    if let Some(items) = map
+        .get(key)
+        .and_then(serde_json::Value::as_object)
+        .and_then(|collection| collection.get("items"))
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+    {
+        map.insert(key.to_string(), serde_json::Value::Array(items));
+    }
+    let Some(items) = map.get_mut(key).and_then(serde_json::Value::as_array_mut) else {
+        return;
+    };
+    for item in items {
+        if let serde_json::Value::String(name) = item {
+            let name = name.clone();
+            *item = serde_json::json!({
+                "name": name,
+                "description": null
+            });
+        }
+    }
+}
+
+fn normalize_operational_indexes_defaults(answers: &mut serde_json::Value) {
+    let Some(indexes) = answers
+        .get_mut("operational_indexes")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let missing_schema = !indexes
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|schema| !schema.trim().is_empty());
+    if missing_schema {
+        indexes.insert(
+            "schema".to_string(),
+            serde_json::Value::String("greentic.sorla.operational-indexes.v1".to_string()),
+        );
+    }
+}
+
+fn referenced_policy_names(answers: &serde_json::Value) -> Vec<String> {
+    let mut names = Vec::new();
+    collect_string_array_at_suffix(answers, &["authorization", "policies"], &mut names);
+    collect_string_array_at_suffix(answers, &["backing", "policies"], &mut names);
+    collect_string_array_at_suffix(answers, &["access", "read", "policies"], &mut names);
+    collect_string_array_at_suffix(answers, &["access", "create", "policies"], &mut names);
+    collect_string_array_at_suffix(answers, &["access", "update", "policies"], &mut names);
+    collect_string_array_at_suffix(answers, &["access", "delete", "policies"], &mut names);
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn collect_string_array_at_suffix(
+    value: &serde_json::Value,
+    suffix: &[&str],
+    names: &mut Vec<String>,
+) {
+    fn visit(
+        value: &serde_json::Value,
+        suffix: &[&str],
+        path: &mut Vec<String>,
+        names: &mut Vec<String>,
+    ) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    path.push(key.clone());
+                    if path_ends_with(path, suffix)
+                        && let Some(items) = child.as_array()
+                    {
+                        names.extend(
+                            items
+                                .iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .map(str::trim)
+                                .filter(|name| !name.is_empty())
+                                .map(str::to_string),
+                        );
+                    }
+                    visit(child, suffix, path, names);
+                    path.pop();
+                }
+            }
+            serde_json::Value::Array(items) => {
+                path.push("[]".to_string());
+                for item in items {
+                    visit(item, suffix, path, names);
+                }
+                path.pop();
+            }
+            _ => {}
+        }
+    }
+
+    visit(value, suffix, &mut Vec::new(), names);
+}
+
+fn ensure_array_object<'a>(
+    value: &'a mut serde_json::Value,
+    key: &str,
+) -> &'a mut Vec<serde_json::Value> {
+    if !value.get(key).is_some_and(serde_json::Value::is_array)
+        && let Some(map) = value.as_object_mut()
+    {
+        map.insert(key.to_string(), serde_json::json!([]));
+    }
+    value
+        .get_mut(key)
+        .and_then(serde_json::Value::as_array_mut)
+        .expect("array should be present after insertion")
+}
+
+fn normalize_migration_backfills(
+    answers: &mut serde_json::Value,
+    record_fields: &RecordFieldCatalog,
+) {
+    let Some(items) = answers
+        .pointer_mut("/migrations/items")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for backfill in items
+        .iter_mut()
+        .filter_map(|item| item.get_mut("backfills"))
+        .filter_map(serde_json::Value::as_array_mut)
+        .flat_map(|backfills| backfills.iter_mut())
+    {
+        let Some(backfill) = backfill.as_object_mut() else {
+            continue;
+        };
+        if backfill
+            .get("field")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|field| !field.trim().is_empty())
+        {
+            continue;
+        }
+        let Some(record) = backfill
+            .get("record")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|record| !record.is_empty())
+        else {
+            backfill.insert(
+                "field".to_string(),
+                serde_json::Value::String("id".to_string()),
+            );
+            continue;
+        };
+        let field = record_fields
+            .status_or_primary_field(record)
+            .unwrap_or_else(|| "id".to_string());
+        backfill.insert("field".to_string(), serde_json::Value::String(field));
+    }
+}
+
+fn string_field(map: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
+    map.get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn answer_path_expects_string(path: &[String]) -> bool {
@@ -1148,7 +1903,7 @@ fn slug_identifier(value: &str) -> String {
     }
 }
 
-fn answer_generation_system_prompt(wizard_schema: &str) -> String {
+fn answer_generation_system_prompt(_wizard_schema: &str) -> String {
     format!(
         r#"Objective: generate the final answers.json that greentic-sorla wizard will consume to create a System of Record package.
 
@@ -1181,10 +1936,8 @@ A high-quality answers.json:
 Quality bar:
 {quality_rubric}
 
-The output must validate against this wizard --schema:
-{wizard_schema}"#,
-        quality_rubric = sorla_quality_rubric(),
-        wizard_schema = wizard_schema
+The output must validate against the Greentic SoRLa wizard schema enforced by the API response_format and local validation."#,
+        quality_rubric = sorla_quality_rubric()
     )
 }
 
@@ -1199,37 +1952,37 @@ fn answer_generation_user_prompt(
 ) -> String {
     format!(
         "Customer prompt:\n{business_prompt}\n\nFollow-up answers:\n{}\n\nDetailed plan/draft:\n{}",
-        serde_json::to_string_pretty(answers).unwrap_or_else(|_| "[]".to_string()),
-        serde_json::to_string_pretty(draft).unwrap_or_else(|_| "{}".to_string())
+        serde_json::to_string(answers).unwrap_or_else(|_| "[]".to_string()),
+        serde_json::to_string(draft).unwrap_or_else(|_| "{}".to_string())
     )
 }
 
-fn answer_repair_system_prompt(wizard_schema: &str) -> String {
+fn answer_repair_system_prompt(_wizard_schema: &str) -> String {
     format!(
-        r#"Objective: repair answers.json so greentic-sorla wizard can use it to create the intended System of Record package.
+        r#"Objective: regenerate answers.json so greentic-sorla wizard can use it to create the intended System of Record package.
 
-Return JSON only. Keep the customer's business intent, preserve valid domain-specific content, and change only what is necessary to satisfy validation. Prefer fixing structure, missing required fields, invalid enum values, bad references, and schema mismatches over replacing the whole design. Do not wrap the JSON in markdown.
+Return JSON only. The previous generated answers failed validation; use the original prompt, follow-up answers, detailed plan/draft, and validation error to produce a complete corrected answers.json. Preserve the customer's business intent and domain-specific content. Prefer fixing structure, missing required fields, invalid enum values, bad references, and schema mismatches. Do not wrap the JSON in markdown.
 
 Where the schema expects a string, return a plain string, not a localized object such as {{"en":"Label"}}. Keep localized text in i18n catalogs, not inside answers.json scalar fields.
 
 Apply this quality bar when repair requires filling missing business semantics:
 {quality_rubric}
 
-The repaired answers must satisfy this wizard --schema:
-{wizard_schema}"#,
-        quality_rubric = sorla_quality_rubric(),
-        wizard_schema = wizard_schema
+The repaired answers must satisfy the Greentic SoRLa wizard schema enforced by the API response_format and local validation."#,
+        quality_rubric = sorla_quality_rubric()
     )
 }
 
 fn answer_repair_user_prompt(
     business_prompt: &str,
+    answers: &[PromptAnswer],
+    draft: &SorDesignDraft,
     validation_error: &str,
-    answers: &serde_json::Value,
 ) -> String {
     format!(
-        "Business prompt:\n{business_prompt}\n\nValidation errors:\n{validation_error}\n\nInvalid answers JSON:\n{}",
-        serde_json::to_string_pretty(answers).unwrap_or_else(|_| answers.to_string())
+        "Customer prompt:\n{business_prompt}\n\nFollow-up answers:\n{}\n\nDetailed plan/draft:\n{}\n\nValidation errors from previous generated answers:\n{validation_error}\n\nRegenerate the complete answers.json from the draft, correcting those errors. Do not copy invalid references or malformed structures from the previous output.",
+        serde_json::to_string(answers).unwrap_or_else(|_| "[]".to_string()),
+        serde_json::to_string(draft).unwrap_or_else(|_| "{}".to_string())
     )
 }
 
@@ -1242,7 +1995,153 @@ fn wizard_answers_schema_value() -> serde_json::Value {
     crate::schema_for_answers().unwrap_or_else(|_| serde_json::json!({ "type": "object" }))
 }
 
+fn openai_strict_json_schema(mut schema: serde_json::Value) -> serde_json::Value {
+    normalize_openai_strict_schema_value(&mut schema);
+    schema
+}
+
+fn normalize_openai_strict_schema_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if schema_type_includes_object(map.get("type")) {
+                map.insert(
+                    "additionalProperties".to_string(),
+                    serde_json::Value::Bool(false),
+                );
+                map.entry("properties".to_string())
+                    .or_insert_with(|| serde_json::json!({}));
+            }
+            let required = map
+                .get("properties")
+                .and_then(serde_json::Value::as_object)
+                .map(|properties| {
+                    properties
+                        .keys()
+                        .cloned()
+                        .map(serde_json::Value::String)
+                        .collect::<Vec<_>>()
+                });
+            if let Some(required) = required {
+                map.insert("required".to_string(), serde_json::Value::Array(required));
+            }
+            if let Some(properties) = map
+                .get_mut("properties")
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                for child in properties.values_mut() {
+                    normalize_openai_strict_schema_value(child);
+                }
+            }
+            if let Some(items) = map.get_mut("items") {
+                normalize_openai_strict_schema_value(items);
+            }
+            for key in ["anyOf", "oneOf", "allOf"] {
+                if let Some(items) = map.get_mut(key).and_then(serde_json::Value::as_array_mut) {
+                    for item in items {
+                        normalize_openai_strict_schema_value(item);
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                normalize_openai_strict_schema_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn schema_type_includes_object(value: Option<&serde_json::Value>) -> bool {
+    match value {
+        Some(serde_json::Value::String(type_name)) => type_name == "object",
+        Some(serde_json::Value::Array(type_names)) => type_names
+            .iter()
+            .any(|type_name| type_name.as_str() == Some("object")),
+        _ => false,
+    }
+}
+
+fn draft_named_item_schema(extra: &[(&str, serde_json::Value)]) -> serde_json::Value {
+    let mut properties = serde_json::Map::from_iter([
+        ("name".to_string(), serde_json::json!({ "type": "string" })),
+        (
+            "description".to_string(),
+            serde_json::json!({ "type": ["string", "null"] }),
+        ),
+    ]);
+    for (key, value) in extra {
+        properties.insert((*key).to_string(), value.clone());
+    }
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": properties
+    })
+}
+
 fn authoring_output_schema_json() -> serde_json::Value {
+    let named_item_schema = draft_named_item_schema(&[]);
+    let relationship_schema = draft_named_item_schema(&[
+        ("from", serde_json::json!({ "type": "string" })),
+        ("to", serde_json::json!({ "type": "string" })),
+    ]);
+    let action_schema = draft_named_item_schema(&[(
+        "risk",
+        serde_json::json!({ "type": "string", "enum": ["low", "medium", "high"] }),
+    )]);
+    let approval_schema =
+        draft_named_item_schema(&[("required", serde_json::json!({ "type": "boolean" }))]);
+    let metric_filter_schema = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "field": { "type": "string" },
+            "operator": { "type": "string" },
+            "value": { "type": ["string", "number", "integer", "boolean", "null"] }
+        }
+    });
+    let metric_schema = draft_named_item_schema(&[
+        ("label", serde_json::json!({ "type": ["string", "null"] })),
+        (
+            "source_record",
+            serde_json::json!({ "type": ["string", "null"] }),
+        ),
+        (
+            "aggregate",
+            serde_json::json!({ "type": ["string", "null"] }),
+        ),
+        ("field", serde_json::json!({ "type": ["string", "null"] })),
+        (
+            "time_field",
+            serde_json::json!({ "type": ["string", "null"] }),
+        ),
+        ("grain", serde_json::json!({ "type": ["string", "null"] })),
+        ("unit", serde_json::json!({ "type": ["string", "null"] })),
+        (
+            "dimensions",
+            serde_json::json!({ "type": "array", "items": { "type": "string" } }),
+        ),
+        ("formula", serde_json::json!({ "type": ["string", "null"] })),
+        (
+            "depends_on",
+            serde_json::json!({ "type": "array", "items": { "type": "string" } }),
+        ),
+        (
+            "filters",
+            serde_json::json!({ "type": "array", "items": metric_filter_schema }),
+        ),
+    ]);
+    let provider_requirement_schema = serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "category": { "type": "string" },
+            "capability": { "type": ["string", "null"] },
+            "description": { "type": ["string", "null"] }
+        }
+    });
+
     serde_json::json!({
         "type": "object",
         "additionalProperties": false,
@@ -1313,15 +2212,15 @@ fn authoring_output_schema_json() -> serde_json::Value {
                             }
                         }
                     },
-                    "relationships": { "type": "array", "items": { "type": "object" } },
-                    "actions": { "type": "array", "items": { "type": "object" } },
-                    "events": { "type": "array", "items": { "type": "object" } },
-                    "projections": { "type": "array", "items": { "type": "object" } },
-                    "metrics": { "type": "array", "items": { "type": "object" } },
-                    "policies": { "type": "array", "items": { "type": "object" } },
-                    "approvals": { "type": "array", "items": { "type": "object" } },
-                    "migrations": { "type": "array", "items": { "type": "object" } },
-                    "provider_requirements": { "type": "array", "items": { "type": "object" } }
+                    "relationships": { "type": "array", "items": relationship_schema },
+                    "actions": { "type": "array", "items": action_schema },
+                    "events": { "type": "array", "items": named_item_schema },
+                    "projections": { "type": "array", "items": named_item_schema },
+                    "metrics": { "type": "array", "items": metric_schema },
+                    "policies": { "type": "array", "items": named_item_schema },
+                    "approvals": { "type": "array", "items": approval_schema },
+                    "migrations": { "type": "array", "items": named_item_schema },
+                    "provider_requirements": { "type": "array", "items": provider_requirement_schema }
                 }
             },
             "questions": {
@@ -3043,8 +3942,9 @@ mod tests {
 
     fn assert_schema_response_format(format: Option<LlmResponseFormat>) {
         match format {
-            Some(LlmResponseFormat::JsonSchema { schema, .. }) => {
+            Some(LlmResponseFormat::JsonSchema { schema, strict, .. }) => {
                 assert!(schema.is_object());
+                assert!(strict);
             }
             other => panic!("expected JSON schema response format, got {other:?}"),
         }
@@ -3055,6 +3955,7 @@ mod tests {
             assert_schema_response_format(request.response_format);
             Ok(LlmResponse {
                 content: "{}".to_string(),
+                usage: None,
             })
         }
     }
@@ -3099,6 +4000,7 @@ mod tests {
                     "output": { "include_agent_tools": true }
                 })
                 .to_string(),
+                usage: None,
             })
         }
     }
@@ -3139,7 +4041,10 @@ mod tests {
                 })
                 .to_string()
             };
-            Ok(LlmResponse { content })
+            Ok(LlmResponse {
+                content,
+                usage: None,
+            })
         }
     }
 
@@ -3196,6 +4101,117 @@ mod tests {
                     "questions": [question]
                 })
                 .to_string(),
+                usage: None,
+            })
+        }
+    }
+
+    struct RedraftAfterAnswerFailureLlm {
+        calls: Cell<usize>,
+    }
+
+    impl LlmCapability for RedraftAfterAnswerFailureLlm {
+        fn complete(&self, request: LlmRequest) -> Result<LlmResponse, SorlaError> {
+            assert_schema_response_format(request.response_format);
+            self.calls.set(self.calls.get() + 1);
+            let content = match self.calls.get() {
+                1..=3 => serde_json::json!({
+                    "schema_version": "0.5",
+                    "flow": "create",
+                    "output_dir": "target/invalid",
+                    "package": { "name": "invalid-sor", "version": "0.1.0" },
+                    "providers": { "storage_category": "storage", "hints": [] },
+                    "records": {
+                        "default_source": "native",
+                        "items": [{
+                            "name": "case",
+                            "source": "native",
+                            "fields": [{ "name": "id", "type": "string", "required": true, "sensitive": false }]
+                        }]
+                    },
+                    "actions": [],
+                    "events": { "enabled": false, "items": [] },
+                    "projections": { "mode": "current-state", "items": [] },
+                    "metrics": {
+                        "enabled": true,
+                        "items": [{
+                            "name": "broken_formula",
+                            "formula": "missing_metric / total",
+                            "depends_on": ["MissingMetric"]
+                        }]
+                    },
+                    "policies": [],
+                    "approvals": [],
+                    "migrations": { "compatibility": "additive" },
+                    "agent_endpoints": {
+                        "enabled": false,
+                        "ids": [],
+                        "default_risk": "medium",
+                        "default_approval": "policy-driven",
+                        "exports": ["openapi"],
+                        "provider_category": "storage"
+                    },
+                    "output": { "include_agent_tools": true }
+                }),
+                4 => {
+                    assert!(request.system_prompt.contains("planning step"));
+                    serde_json::json!({
+                        "assistant_message": "I refreshed the draft.",
+                        "assumptions": [],
+                        "draft": {
+                            "summary": "Refreshed case system",
+                            "records": [{
+                                "name": "case",
+                                "description": "A case.",
+                                "fields": [{ "name": "id", "type_name": "string", "required": true, "sensitive": false, "description": null }]
+                            }],
+                            "relationships": [],
+                            "actions": [],
+                            "events": [],
+                            "projections": [],
+                            "metrics": [],
+                            "policies": [],
+                            "approvals": [],
+                            "migrations": [],
+                            "provider_requirements": []
+                        },
+                        "questions": []
+                    })
+                }
+                _ => serde_json::json!({
+                    "schema_version": "0.5",
+                    "flow": "create",
+                    "output_dir": "target/redrafted",
+                    "package": { "name": "redrafted-sor", "version": "0.1.0" },
+                    "providers": { "storage_category": "storage", "hints": [] },
+                    "records": {
+                        "default_source": "native",
+                        "items": [{
+                            "name": "case",
+                            "source": "native",
+                            "fields": [{ "name": "id", "type": "string", "required": true, "sensitive": false }]
+                        }]
+                    },
+                    "actions": [],
+                    "events": { "enabled": false, "items": [] },
+                    "projections": { "mode": "current-state", "items": [] },
+                    "policies": [],
+                    "approvals": [],
+                    "migrations": { "compatibility": "additive" },
+                    "agent_endpoints": {
+                        "enabled": false,
+                        "ids": [],
+                        "default_risk": "medium",
+                        "default_approval": "policy-driven",
+                        "exports": ["openapi"],
+                        "provider_category": "storage"
+                    },
+                    "output": { "include_agent_tools": true }
+                }),
+            };
+            Ok(LlmResponse {
+                content: content.to_string(),
+                usage: None,
             })
         }
     }
@@ -3473,7 +4489,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_authoring_output_is_repaired_with_wizard_schema_context() {
+    fn malformed_authoring_output_is_repaired_with_structured_schema_context() {
         let llm = AuthoringRepairLlm {
             calls: Cell::new(0),
             system_prompts: RefCell::new(Vec::new()),
@@ -3495,10 +4511,10 @@ mod tests {
         );
         assert_eq!(engine.llm.calls.get(), 3);
         let prompts = engine.llm.system_prompts.borrow();
-        assert!(prompts[0].contains("wizard --schema"));
+        assert!(prompts[0].contains("structured output validation"));
         assert!(prompts[0].contains("records"));
-        assert!(prompts[1].contains("wizard --schema"));
-        assert!(prompts[2].contains("wizard --schema"));
+        assert!(prompts[1].contains("response_format"));
+        assert!(prompts[2].contains("structured output validation"));
         assert!(prompts[2].contains("planning step"));
     }
 
@@ -3536,7 +4552,7 @@ mod tests {
     }
 
     #[test]
-    fn planner_can_ask_additional_scope_questions() {
+    fn planner_updates_draft_without_late_interactive_questions() {
         let engine = DefaultPromptAuthoringEngine::new(PlannerQuestionLlm {
             calls: Cell::new(0),
         });
@@ -3557,9 +4573,85 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(output.next_questions[0].id, "scope.visibility");
-        assert_eq!(output.session.phase, PromptPhase::AskingQuestions);
+        assert!(output.next_questions.is_empty());
+        assert_eq!(output.session.phase, PromptPhase::ReviewingDesignPlan);
         assert_eq!(engine.llm.calls.get(), 2);
+    }
+
+    #[test]
+    fn substantial_draft_skips_planner_refresh_after_questions() {
+        struct NoPlannerLlm;
+        impl LlmCapability for NoPlannerLlm {
+            fn complete(&self, _request: LlmRequest) -> Result<LlmResponse, SorlaError> {
+                panic!("substantial drafts should not call the planner refresh")
+            }
+        }
+
+        let engine = DefaultPromptAuthoringEngine::new(NoPlannerLlm);
+        let session = PromptSessionState {
+            session_id: "substantial-draft-session".to_string(),
+            phase: PromptPhase::AskingQuestions,
+            llm: Some(LlmCapabilityConfig {
+                provider: "openai".to_string(),
+                model: None,
+                api_key: None,
+                endpoint: None,
+                capability_id: None,
+            }),
+            business_prompt: Some("Build GrowthFit.".to_string()),
+            answers_so_far: Vec::new(),
+            questions: vec![PromptQuestion {
+                id: "scope.thresholds".to_string(),
+                text: "What thresholds determine recommendations?".to_string(),
+                help: None,
+                answer_kind: PromptAnswerKind::FreeText,
+                required: true,
+                risk: PromptQuestionRisk::Medium,
+                depends_on: Vec::new(),
+            }],
+            assumptions: Vec::new(),
+            draft_model: Some(SorDesignDraft {
+                summary: "GrowthFit validation system".to_string(),
+                records: vec![
+                    DraftRecord {
+                        name: "idea".to_string(),
+                        description: None,
+                        fields: vec![DraftField {
+                            name: "idea_id".to_string(),
+                            type_name: "uuid".to_string(),
+                            required: true,
+                            sensitive: false,
+                            description: None,
+                            rules: None,
+                        }],
+                    },
+                    DraftRecord {
+                        name: "experiment".to_string(),
+                        description: None,
+                        fields: vec![DraftField {
+                            name: "experiment_id".to_string(),
+                            type_name: "uuid".to_string(),
+                            required: true,
+                            sensitive: false,
+                            description: None,
+                            rules: None,
+                        }],
+                    },
+                ],
+                ..SorDesignDraft::default()
+            }),
+            staged_answers: false,
+        };
+
+        let output = engine
+            .next_turn(PromptTurnInput {
+                session,
+                user_message: "Build above 80, pivot below 50.".to_string(),
+            })
+            .expect("substantial draft should advance without planner");
+
+        assert_eq!(output.session.phase, PromptPhase::ReviewingDesignPlan);
+        assert!(output.next_questions.is_empty());
     }
 
     #[test]
@@ -3694,6 +4786,69 @@ mod tests {
         assert!(answer_generation_system_prompt(schema).contains("return a plain string"));
         assert!(answer_repair_system_prompt(schema).contains("return a plain string"));
         assert!(prompt_authoring_repair_system_prompt(schema).contains("lifecycle status"));
+        assert!(!answer_generation_system_prompt(schema).contains(schema));
+        assert!(!answer_repair_system_prompt(schema).contains(schema));
+        assert!(!planner_system_prompt(schema).contains(schema));
+    }
+
+    #[test]
+    fn answer_repair_prompt_regenerates_from_draft_without_invalid_answer_blob() {
+        let draft = SorDesignDraft {
+            summary: "Compact growth system".to_string(),
+            ..SorDesignDraft::default()
+        };
+        let prompt = answer_repair_user_prompt(
+            "Build GrowthFit.",
+            &[],
+            &draft,
+            "records.items[0].fields[0] is invalid",
+        );
+
+        assert!(prompt.contains("Detailed plan/draft"));
+        assert!(prompt.contains("Compact growth system"));
+        assert!(prompt.contains("Validation errors"));
+        assert!(prompt.contains("Regenerate the complete answers.json"));
+        assert!(!prompt.contains("Invalid answers JSON"));
+    }
+
+    #[test]
+    fn staged_answer_generation_uses_draft_scaffold_without_llm() {
+        struct NoAnswerLlm;
+        impl LlmCapability for NoAnswerLlm {
+            fn complete(&self, _request: LlmRequest) -> Result<LlmResponse, SorlaError> {
+                panic!("staged draft scaffold should not call the answer LLM")
+            }
+        }
+
+        let engine = DefaultPromptAuthoringEngine::new(NoAnswerLlm);
+        let session = PromptSessionState {
+            session_id: "staged-session".to_string(),
+            phase: PromptPhase::ReadyToGenerateAnswers,
+            llm: Some(LlmCapabilityConfig {
+                provider: "openai".to_string(),
+                model: None,
+                api_key: None,
+                endpoint: None,
+                capability_id: None,
+            }),
+            business_prompt: Some("Build a validation system.".to_string()),
+            answers_so_far: Vec::new(),
+            questions: Vec::new(),
+            assumptions: Vec::new(),
+            draft_model: Some(metrics_draft("track revenue metrics", &[])),
+            staged_answers: true,
+        };
+
+        let answers = engine
+            .generate_answers(session)
+            .expect("staged scaffold should validate");
+
+        assert_eq!(answers["package"]["name"], "prompt-generated-sor");
+        assert!(
+            answers["records"]["items"]
+                .as_array()
+                .is_some_and(|records| !records.is_empty())
+        );
     }
 
     #[test]
@@ -3714,16 +4869,18 @@ mod tests {
 
     #[test]
     fn answer_response_schema_is_openai_json_schema_object() {
-        let LlmResponseFormat::JsonSchema { schema, .. } = answer_response_format() else {
+        let LlmResponseFormat::JsonSchema { schema, strict, .. } = answer_response_format() else {
             panic!("answers should request a JSON schema response format");
         };
+        assert!(strict);
         assert_eq!(schema["type"], "object");
+        assert_eq!(schema["additionalProperties"], false);
         assert!(schema["properties"]["records"].is_object());
         assert!(schema["properties"]["metrics"].is_object());
         assert!(schema["properties"]["operational_indexes"].is_object());
         assert_eq!(
             schema["properties"]["agent_endpoints"]["additionalProperties"],
-            true
+            false
         );
         assert!(
             schema["properties"]["agent_endpoints"]["properties"]["items"]["items"]["required"]
@@ -3753,6 +4910,66 @@ mod tests {
                 .unwrap()
                 .contains(&serde_json::json!("records"))
         );
+    }
+
+    #[test]
+    fn authoring_response_schema_uses_strict_structured_outputs() {
+        let LlmResponseFormat::JsonSchema { schema, strict, .. } = authoring_response_format()
+        else {
+            panic!("authoring should request a JSON schema response format");
+        };
+        assert!(strict);
+        assert_openai_strict_object_schemas(&schema);
+    }
+
+    #[test]
+    fn answer_response_schema_uses_openai_strict_object_shapes() {
+        let LlmResponseFormat::JsonSchema { schema, strict, .. } = answer_response_format() else {
+            panic!("answers should request a JSON schema response format");
+        };
+        assert!(strict);
+        assert_openai_strict_object_schemas(&schema);
+    }
+
+    fn assert_openai_strict_object_schemas(schema: &serde_json::Value) {
+        match schema {
+            serde_json::Value::Object(map) => {
+                if schema_type_includes_object(map.get("type")) {
+                    assert_eq!(
+                        map.get("additionalProperties"),
+                        Some(&serde_json::Value::Bool(false)),
+                        "object schema must set additionalProperties false: {schema}"
+                    );
+                    if let Some(properties) =
+                        map.get("properties").and_then(serde_json::Value::as_object)
+                    {
+                        let required = map
+                            .get("required")
+                            .and_then(serde_json::Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(str::to_string)
+                            .collect::<std::collections::BTreeSet<_>>();
+                        for key in properties.keys() {
+                            assert!(
+                                required.contains(key),
+                                "strict object schema must require property `{key}`: {schema}"
+                            );
+                        }
+                    }
+                }
+                for child in map.values() {
+                    assert_openai_strict_object_schemas(child);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    assert_openai_strict_object_schemas(item);
+                }
+            }
+            _ => {}
+        }
     }
 
     #[test]
@@ -3787,6 +5004,33 @@ mod tests {
         crate::normalize_answers(answers.clone(), NormalizeOptions)
             .expect("repaired answers normalize");
         assert_eq!(answers["package"]["name"], "repaired-sor");
+    }
+
+    #[test]
+    fn answer_generation_refreshes_draft_after_exhausted_repair() {
+        let engine = DefaultPromptAuthoringEngine::new(RedraftAfterAnswerFailureLlm {
+            calls: Cell::new(0),
+        });
+        let mut session = engine.start_session(config()).unwrap();
+        session.business_prompt = Some("Build a case system.".to_string());
+        session.llm = Some(LlmCapabilityConfig {
+            provider: "openai".to_string(),
+            model: None,
+            api_key: None,
+            endpoint: None,
+            capability_id: None,
+        });
+        session.draft_model = Some(SorDesignDraft {
+            summary: "Damaged draft".to_string(),
+            ..SorDesignDraft::default()
+        });
+
+        let answers = engine
+            .generate_answers(session)
+            .expect("redraft retry should succeed");
+
+        assert_eq!(answers["package"]["name"], "redrafted-sor");
+        assert_eq!(engine.llm.calls.get(), 5);
     }
 
     #[test]
@@ -3886,5 +5130,169 @@ mod tests {
         assert_eq!(answers["metrics"]["items"][0]["source"], source_before);
         assert!(answers["metrics"]["items"][0]["source"]["kind"].is_string());
         assert!(answers["metrics"]["items"][0]["source"]["name"].is_string());
+    }
+
+    #[test]
+    fn generated_answers_normalizer_fills_recoverable_llm_omissions() {
+        let mut answers = answers_from_draft(&metrics_draft("track revenue metrics", &[]));
+        answers["package"].as_object_mut().unwrap().remove("name");
+        answers["metrics"]["items"][0]["time"]
+            .as_object_mut()
+            .unwrap()
+            .remove("grain");
+        answers["metrics"]["items"][0]["time"]
+            .as_object_mut()
+            .unwrap()
+            .remove("field");
+        answers["metrics"]["items"][0]["filters"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("field");
+        answers["records"]["items"][0]["fields"][0]["references"] = serde_json::json!({
+            "record": "order"
+        });
+        answers["actions"] = serde_json::json!([
+            { "title": "Approve campaign spend", "description": "Approve campaign spend before launch." }
+        ]);
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["package"]["name"], "prompt-generated-sor");
+        assert_eq!(answers["metrics"]["items"][0]["time"]["grain"], "month");
+        assert_eq!(
+            answers["metrics"]["items"][0]["time"]["field"],
+            "recognized_at"
+        );
+        assert_eq!(
+            answers["metrics"]["items"][0]["filters"][0]["field"],
+            "status"
+        );
+        assert_eq!(
+            answers["records"]["items"][0]["fields"][0]["references"]["field"],
+            "id"
+        );
+        assert_eq!(answers["actions"][0]["name"], "approve_campaign_spend");
+        crate::normalize_answers(answers, NormalizeOptions)
+            .expect("recoverable LLM omissions should validate after normalization");
+    }
+
+    #[test]
+    fn generated_answers_normalizer_fills_missing_fields_without_record_context() {
+        let mut answers = answers_from_draft(&metrics_draft("track revenue metrics", &[]));
+        answers["metrics"]["items"] = serde_json::json!([
+            {
+                "name": "event_count",
+                "source": { "kind": "event", "name": "unknown_event" },
+                "measure": { "aggregate": "count" },
+                "filters": [{ "operator": "equals", "value": "active" }],
+                "time": { "grain": "day" }
+            }
+        ]);
+        answers["records"]["items"][0]["fields"][0]["references"] = serde_json::json!({
+            "record": "",
+            "field": "order_id"
+        });
+        answers["migrations"] = serde_json::json!({
+            "compatibility": "additive",
+            "items": [{
+                "name": "fill_missing_value",
+                "backfills": [{ "record": "unknown_record", "default": "unknown" }]
+            }]
+        });
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(
+            answers["metrics"]["items"][0]["time"]["field"],
+            "occurred_at"
+        );
+        assert_eq!(
+            answers["metrics"]["items"][0]["filters"][0]["field"],
+            "status"
+        );
+        assert!(
+            answers["records"]["items"][0]["fields"][0]
+                .as_object()
+                .unwrap()
+                .get("references")
+                .is_none()
+        );
+        assert_eq!(
+            answers["migrations"]["items"][0]["backfills"][0]["field"],
+            "id"
+        );
+        let error = crate::normalize_answers(answers, NormalizeOptions)
+            .expect_err("semantic references may still be invalid");
+        assert!(!error.contains("missing field `field`"));
+    }
+
+    #[test]
+    fn generated_answers_normalizer_rewrites_unknown_metric_dependencies() {
+        let mut answers = answers_from_draft(&metrics_draft(
+            "track revenue costs signup conversion metrics",
+            &[],
+        ));
+        answers["metrics"]["items"] = serde_json::json!([
+            {
+                "name": "waitlist_signups",
+                "source": { "kind": "record", "name": "order" },
+                "measure": { "aggregate": "count" },
+                "time": { "field": "recognized_at", "grain": "month" },
+                "depends_on": []
+            },
+            {
+                "name": "signup_conversion_rate",
+                "formula": "waitlist_signups / visitors",
+                "depends_on": ["ExperimentMetric"]
+            }
+        ]);
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(
+            answers["metrics"]["items"][1]["depends_on"],
+            serde_json::json!(["waitlist_signups"])
+        );
+        crate::normalize_answers(answers, NormalizeOptions)
+            .expect("unknown metric dependencies should be normalized");
+    }
+
+    #[test]
+    fn generated_answers_normalizer_declares_referenced_endpoint_policies() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["policies"] = serde_json::json!({ "items": [] });
+        answers["agent_endpoints"]["items"][0]["authorization"] = serde_json::json!({
+            "policies": ["tenant_isolation_policy"]
+        });
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert!(
+            answers["policies"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|policy| policy["name"] == "tenant_isolation_policy")
+        );
+        crate::normalize_answers(answers, NormalizeOptions)
+            .expect("referenced endpoint policies should be declared");
+    }
+
+    #[test]
+    fn generated_answers_normalizer_fills_operational_indexes_schema() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["operational_indexes"]
+            .as_object_mut()
+            .unwrap()
+            .remove("schema");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(
+            answers["operational_indexes"]["schema"],
+            "greentic.sorla.operational-indexes.v1"
+        );
+        crate::normalize_answers(answers, NormalizeOptions)
+            .expect("operational indexes schema should be defaulted");
     }
 }

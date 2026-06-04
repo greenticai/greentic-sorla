@@ -36,6 +36,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 mod embedded_i18n {
     include!(concat!(env!("OUT_DIR"), "/embedded_i18n.rs"));
@@ -964,6 +965,12 @@ struct PromptArgs {
     /// Greentic LLM capability ID to resolve.
     #[arg(long)]
     llm_capability_id: Option<String>,
+    /// Suppress prompt progress messages; only errors and normal command output are shown.
+    #[arg(long, action = ArgAction::SetTrue)]
+    only_errors: bool,
+    /// Generate answers from the draft in staged/sectional mode when possible.
+    #[arg(long, action = ArgAction::SetTrue)]
+    staged: bool,
 }
 
 impl std::fmt::Debug for PromptArgs {
@@ -985,6 +992,8 @@ impl std::fmt::Debug for PromptArgs {
             )
             .field("llm_endpoint", &self.llm_endpoint)
             .field("llm_capability_id", &self.llm_capability_id)
+            .field("only_errors", &self.only_errors)
+            .field("staged", &self.staged)
             .finish()
     }
 }
@@ -4226,7 +4235,7 @@ fn render_prompt_help(
         localized_options_placeholder(catalog, fallback, "cli.options.placeholder", options);
 
     format!(
-        "{description}\n\n{usage}: greentic-sorla prompt [PROMPT] [{options_placeholder}]\n\n{arguments}:\n  PROMPT                         {prompt_description}\n\n{options}:\n      --prompt <FILE>            {prompt_file_description}\n      --answers-out <FILE>       {answers_out_description}\n      --sorla-yaml <FILE>        {sorla_yaml_description}\n      --resume <FILE>            {resume_description}\n      --session-out <FILE>       {session_out_description}\n      --locale <LOCALE>          {locale_description}\n      --llm-provider <PROVIDER>  {llm_provider_description}\n      --llm-model <MODEL>        {llm_model_description}\n      --llm-api-key <KEY>        {llm_api_key_description}\n      --llm-endpoint <URL>       {llm_endpoint_description}\n      --llm-capability-id <ID>   {llm_capability_id_description}\n  -h, --help                     {help_option}",
+        "{description}\n\n{usage}: greentic-sorla prompt [PROMPT] [{options_placeholder}]\n\n{arguments}:\n  PROMPT                         {prompt_description}\n\n{options}:\n      --prompt <FILE>            {prompt_file_description}\n      --answers-out <FILE>       {answers_out_description}\n      --sorla-yaml <FILE>        {sorla_yaml_description}\n      --resume <FILE>            {resume_description}\n      --session-out <FILE>       {session_out_description}\n      --locale <LOCALE>          {locale_description}\n      --llm-provider <PROVIDER>  {llm_provider_description}\n      --llm-model <MODEL>        {llm_model_description}\n      --llm-api-key <KEY>        {llm_api_key_description}\n      --llm-endpoint <URL>       {llm_endpoint_description}\n      --llm-capability-id <ID>   {llm_capability_id_description}\n      --only-errors              {only_errors_description}\n      --staged                   {staged_description}\n  -h, --help                     {help_option}",
         description = catalog_text(
             catalog,
             fallback,
@@ -4308,6 +4317,18 @@ fn render_prompt_help(
             fallback,
             "cli.prompt.options.llm_capability_id.description",
             "Greentic LLM capability ID to resolve."
+        ),
+        only_errors_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.only_errors.description",
+            "Suppress prompt progress messages and show only errors plus normal command output."
+        ),
+        staged_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.staged.description",
+            "Generate answers from the draft in staged/sectional mode when possible."
         ),
         help_option = catalog_text(
             catalog,
@@ -4714,7 +4735,9 @@ fn run_design_propose_patch(args: DesignProposePatchArgs) -> Result<(), String> 
                 capability_id: args.llm_capability_id,
             }),
         },
-        &CliPromptLlm,
+        &CliPromptLlm {
+            verbose: PromptVerbose::new(false),
+        },
     )?;
     if let Some(path) = args.out {
         let rendered =
@@ -4807,15 +4830,106 @@ fn print_design_diagnostics(diagnostics: &[SorlaDiagnostic]) {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PromptVerbose {
+    enabled: bool,
+}
+
+impl PromptVerbose {
+    fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+
+    fn start(self, label: impl Into<String>) -> PromptVerboseSpan {
+        let label = label.into();
+        if self.enabled {
+            eprintln!("[sorla] starting {label}");
+        }
+        PromptVerboseSpan {
+            enabled: self.enabled,
+            label,
+            started_at: Instant::now(),
+        }
+    }
+
+    fn message(self, message: impl AsRef<str>) {
+        if self.enabled {
+            eprintln!("[sorla] {}", message.as_ref());
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PromptVerboseSpan {
+    enabled: bool,
+    label: String,
+    started_at: Instant,
+}
+
+impl PromptVerboseSpan {
+    fn finish(self) {
+        self.finish_with("");
+    }
+
+    fn finish_with(self, detail: impl AsRef<str>) {
+        if self.enabled {
+            let detail = detail.as_ref();
+            if detail.is_empty() {
+                eprintln!(
+                    "[sorla] finished {} in {}",
+                    self.label,
+                    format_duration(self.started_at.elapsed())
+                );
+            } else {
+                eprintln!(
+                    "[sorla] finished {} in {} ({detail})",
+                    self.label,
+                    format_duration(self.started_at.elapsed())
+                );
+            }
+        }
+    }
+
+    fn fail(self, error: impl AsRef<str>) {
+        if self.enabled {
+            eprintln!(
+                "[sorla] failed {} after {} ({})",
+                self.label,
+                format_duration(self.started_at.elapsed()),
+                error.as_ref()
+            );
+        }
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    if duration.as_secs() >= 1 {
+        format!("{:.2}s", duration.as_secs_f64())
+    } else {
+        format!("{}ms", duration.as_millis())
+    }
+}
+
 fn run_prompt(args: PromptArgs) -> Result<(), String> {
+    let verbose = PromptVerbose::new(!args.only_errors);
     let locale = selected_locale(args.locale.as_deref(), None);
     let catalog = locale_catalog(&locale).unwrap_or_default();
     let fallback = locale_catalog("en").unwrap_or_default();
-    let update_target = args
-        .sorla_yaml
-        .as_ref()
-        .map(|path| prompt_update_target_from_sorla_yaml(path))
-        .transpose()?;
+    let update_target = if let Some(path) = &args.sorla_yaml {
+        let span = verbose.start(format!("reading update target {}", path.display()));
+        match prompt_update_target_from_sorla_yaml(path) {
+            Ok(target) => {
+                span.finish();
+                Some(target)
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
 
     if args.llm_provider.is_none() && args.llm_capability_id.is_none() {
         return Err(catalog_string(
@@ -4826,7 +4940,7 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
         ));
     }
 
-    let engine = prompt::DefaultPromptAuthoringEngine::new(CliPromptLlm);
+    let engine = prompt::DefaultPromptAuthoringEngine::new(CliPromptLlm { verbose });
     let config = prompt::PromptSessionConfig {
         locale: Some(locale),
         schema_version: Some(default_schema().schema_version.to_string()),
@@ -4849,7 +4963,8 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
     let current_llm_config = config.llm.clone();
 
     let mut session = if let Some(path) = &args.resume {
-        let contents = fs::read_to_string(path).map_err(|err| {
+        let span = verbose.start(format!("reading prompt session {}", path.display()));
+        let contents = match fs::read_to_string(path).map_err(|err| {
             render_catalog_template(
                 &catalog,
                 &fallback,
@@ -4860,8 +4975,18 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
                     ("error", err.to_string()),
                 ],
             )
-        })?;
-        serde_json::from_str::<prompt::PromptSessionState>(&contents).map_err(|err| {
+        }) {
+            Ok(contents) => {
+                span.finish_with(format!("{} bytes", contents.len()));
+                contents
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        };
+        let span = verbose.start(format!("parsing prompt session {}", path.display()));
+        match serde_json::from_str::<prompt::PromptSessionState>(&contents).map_err(|err| {
             render_catalog_template(
                 &catalog,
                 &fallback,
@@ -4872,39 +4997,92 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
                     ("error", err.to_string()),
                 ],
             )
-        })?
+        }) {
+            Ok(session) => {
+                span.finish_with(format!(
+                    "phase={:?}, draft={}",
+                    session.phase,
+                    session.draft_model.is_some()
+                ));
+                session
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        }
     } else {
-        engine.start_session(config)?
+        let span = verbose.start("starting new prompt session");
+        match engine.start_session(config) {
+            Ok(session) => {
+                span.finish_with(format!("session_id={}", session.session_id));
+                session
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        }
     };
     session.llm = Some(current_llm_config);
+    if args.staged {
+        session.staged_answers = true;
+    }
+    if session.staged_answers {
+        verbose.message("staged answer generation enabled");
+    }
 
     let mut initial_user_message = args.prompt_text;
     if initial_user_message.is_none()
         && session.phase == prompt::PromptPhase::AwaitingBusinessPrompt
         && let Some(path) = &args.prompt_file
     {
-        initial_user_message = Some(read_prompt_file(
-            path,
-            &catalog,
-            &fallback,
-            &catalog_string(
+        let span = verbose.start(format!("reading prompt file {}", path.display()));
+        initial_user_message = Some(
+            match read_prompt_file(
+                path,
                 &catalog,
                 &fallback,
-                "cli.prompt.errors.empty_business_prompt",
-                "business prompt must not be empty",
-            ),
-        )?);
+                &catalog_string(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.errors.empty_business_prompt",
+                    "business prompt must not be empty",
+                ),
+            ) {
+                Ok(prompt) => {
+                    span.finish_with(format!("{} chars", prompt.len()));
+                    prompt
+                }
+                Err(error) => {
+                    span.fail(&error);
+                    return Err(error);
+                }
+            },
+        );
     }
     if initial_user_message.is_none()
         && session.phase == prompt::PromptPhase::AwaitingBusinessPrompt
         && !io::stdin().is_terminal()
     {
-        initial_user_message = Some(read_stdin_to_prompt(&catalog_string(
-            &catalog,
-            &fallback,
-            "cli.prompt.errors.input_ended",
-            "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
-        ))?);
+        let span = verbose.start("reading prompt from stdin");
+        initial_user_message = Some(
+            match read_stdin_to_prompt(&catalog_string(
+                &catalog,
+                &fallback,
+                "cli.prompt.errors.input_ended",
+                "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
+            )) {
+                Ok(prompt) => {
+                    span.finish_with(format!("{} chars", prompt.len()));
+                    prompt
+                }
+                Err(error) => {
+                    span.fail(&error);
+                    return Err(error);
+                }
+            },
+        );
     }
 
     if session.phase == prompt::PromptPhase::AwaitingBusinessPrompt {
@@ -4921,12 +5099,44 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
         }
     }
 
+    if args.resume.is_some() && initial_user_message.is_none() {
+        initial_user_message = resumed_auto_user_message(&session);
+    }
+
+    if args.resume.is_some() && initial_user_message.is_none() {
+        print_resumed_prompt_state(&session, &catalog, &fallback);
+        if matches!(session.phase, prompt::PromptPhase::Completed) {
+            return Ok(());
+        }
+    }
+
     loop {
+        let mut read_from_prompt = false;
         let mut user_message = if matches!(
             session.phase,
             prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers
         ) {
-            "generate answers".to_string()
+            if let Some(message) = initial_user_message.take() {
+                message
+            } else {
+                print!("> ");
+                io::stdout().flush().map_err(|err| {
+                    render_catalog_template(
+                        &catalog,
+                        &fallback,
+                        "cli.prompt.errors.stdout_flush",
+                        "failed to flush prompt output: {error}",
+                        &[("error", err.to_string())],
+                    )
+                })?;
+                read_from_prompt = true;
+                read_stdin_line(&catalog_string(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.errors.input_ended",
+                    "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
+                ))?
+            }
         } else if matches!(session.phase, prompt::PromptPhase::AwaitingBusinessPrompt)
             && let Some(message) = initial_user_message.take()
         {
@@ -4942,6 +5152,7 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
                     &[("error", err.to_string())],
                 )
             })?;
+            read_from_prompt = true;
             read_stdin_line(&catalog_string(
                 &catalog,
                 &fallback,
@@ -4949,22 +5160,46 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
                 "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
             ))?
         };
+        if read_from_prompt && !args.only_errors {
+            println!();
+        }
         if matches!(session.phase, prompt::PromptPhase::AwaitingBusinessPrompt)
             && let Some(target) = &update_target
         {
             user_message = prompt_update_business_prompt(&user_message, target);
         }
 
-        let output = engine
+        let turn_label = format!("prompt turn from phase {:?}", session.phase);
+        let span = verbose.start(turn_label);
+        let output = match engine
             .next_turn(prompt::PromptTurnInput {
                 session,
                 user_message,
             })
-            .map_err(|err| localized_prompt_error(&catalog, &fallback, &err))?;
+            .map_err(|err| localized_prompt_error(&catalog, &fallback, &err))
+        {
+            Ok(output) => {
+                span.finish_with(format!(
+                    "next_phase={:?}, answers={}",
+                    output.session.phase,
+                    output.answers_document.is_some()
+                ));
+                output
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        };
         session = output.session;
 
         if let Some(path) = &args.session_out {
-            write_json_file(path, &session, &catalog, &fallback)?;
+            let span = verbose.start(format!("writing prompt session {}", path.display()));
+            if let Err(error) = write_json_file(path, &session, &catalog, &fallback) {
+                span.fail(&error);
+                return Err(error);
+            }
+            span.finish();
         }
 
         if output.answers_document.is_none() {
@@ -4997,7 +5232,12 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
             } else {
                 set_prompt_cli_output_dir(&mut answers, &args.answers_out);
             }
-            write_json_file(&args.answers_out, &answers, &catalog, &fallback)?;
+            let span = verbose.start(format!("writing answers {}", args.answers_out.display()));
+            if let Err(error) = write_json_file(&args.answers_out, &answers, &catalog, &fallback) {
+                span.fail(&error);
+                return Err(error);
+            }
+            span.finish();
             println!();
             println!(
                 "{}",
@@ -5025,6 +5265,98 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
             );
             return Ok(());
         }
+    }
+}
+
+fn print_resumed_prompt_state(
+    session: &prompt::PromptSessionState,
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+) {
+    match session.phase {
+        prompt::PromptPhase::AskingQuestions => {
+            println!(
+                "{}",
+                catalog_text(
+                    catalog,
+                    fallback,
+                    "cli.prompt.responses.resumed_questions",
+                    "Resumed prompt session. Continue with the next question."
+                )
+            );
+            for (index, question) in resumed_next_questions(session).iter().enumerate() {
+                println!();
+                println!(
+                    "{}",
+                    render_catalog_template(
+                        catalog,
+                        fallback,
+                        "cli.prompt.responses.question_heading",
+                        "Question {number}:",
+                        &[("number", (index + 1).to_string())],
+                    )
+                );
+                println!(
+                    "{}",
+                    localized_prompt_question_text(catalog, fallback, &question.id, &question.text)
+                );
+            }
+        }
+        prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers => {
+            println!(
+                "{}",
+                catalog_text(
+                    catalog,
+                    fallback,
+                    "cli.prompt.responses.resumed_review",
+                    "Resumed prompt session at the draft review step. Generating answers."
+                )
+            );
+        }
+        prompt::PromptPhase::Completed => {
+            println!(
+                "{}",
+                catalog_text(
+                    catalog,
+                    fallback,
+                    "cli.prompt.responses.resumed_completed",
+                    "Resumed prompt session is already complete."
+                )
+            );
+        }
+        prompt::PromptPhase::AwaitingBusinessPrompt => {}
+    }
+}
+
+fn resumed_next_questions(session: &prompt::PromptSessionState) -> Vec<&prompt::PromptQuestion> {
+    for question in &session.questions {
+        if session
+            .answers_so_far
+            .iter()
+            .any(|answer| answer.question_id == question.id)
+        {
+            continue;
+        }
+        if question.depends_on.iter().all(|dependency| {
+            session
+                .answers_so_far
+                .iter()
+                .any(|answer| answer.question_id == *dependency)
+        }) {
+            return vec![question];
+        }
+    }
+    Vec::new()
+}
+
+fn resumed_auto_user_message(session: &prompt::PromptSessionState) -> Option<String> {
+    match session.phase {
+        prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers => {
+            Some("generate answers".to_string())
+        }
+        prompt::PromptPhase::AwaitingBusinessPrompt
+        | prompt::PromptPhase::AskingQuestions
+        | prompt::PromptPhase::Completed => None,
     }
 }
 
@@ -5186,27 +5518,111 @@ fn localized_prompt_error(
     error.to_string()
 }
 
-struct CliPromptLlm;
+struct CliPromptLlm {
+    verbose: PromptVerbose,
+}
 
 impl prompt::LlmCapability for CliPromptLlm {
     fn complete(&self, request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
+        let label = prompt_llm_request_label(&request);
+        let span = self.verbose.start(format!(
+            "LLM {label} ({})",
+            prompt_llm_request_size_summary(&request)
+        ));
         if request.provider == "fake" {
-            return Ok(prompt::LlmResponse {
+            let response = prompt::LlmResponse {
                 content: "{}".to_string(),
-            });
+                usage: None,
+            };
+            span.finish_with(prompt_token_usage_summary(response.usage.as_ref()));
+            return Ok(response);
         }
         if request.provider != "openai" {
-            return Err(format!(
+            let error = format!(
                 "unsupported prompt LLM provider `{}`; supported providers: openai, fake",
                 request.provider
-            ));
+            );
+            span.fail(&error);
+            return Err(error);
         }
-        complete_openai_prompt(request)
+        match complete_openai_prompt(request, self.verbose) {
+            Ok(response) => {
+                span.finish_with(prompt_token_usage_summary(response.usage.as_ref()));
+                Ok(response)
+            }
+            Err(error) => {
+                span.fail(&error);
+                Err(error)
+            }
+        }
     }
 }
 
+fn prompt_llm_request_label(request: &prompt::LlmRequest) -> &'static str {
+    if request.system_prompt.contains("discovery step") {
+        "discovery draft"
+    } else if request.system_prompt.contains("planning step") {
+        "planning/draft refresh"
+    } else if request
+        .system_prompt
+        .contains("repair prompt-authoring JSON")
+    {
+        "authoring repair"
+    } else if request
+        .system_prompt
+        .contains("generate the final answers.json")
+    {
+        "answer generation"
+    } else if request.system_prompt.contains("regenerate answers.json")
+        || request.system_prompt.contains("repair answers.json")
+    {
+        "answer repair"
+    } else {
+        "completion"
+    }
+}
+
+fn prompt_llm_request_size_summary(request: &prompt::LlmRequest) -> String {
+    let system_chars = request.system_prompt.chars().count();
+    let message_chars = request
+        .messages
+        .iter()
+        .map(|message| message.content.chars().count())
+        .sum::<usize>();
+    let response_format_chars = request
+        .response_format
+        .as_ref()
+        .and_then(|format| serde_json::to_string(format).ok())
+        .map(|text| text.chars().count())
+        .unwrap_or(0);
+    format!(
+        "chars system={system_chars}, messages={message_chars}, response_format={response_format_chars}"
+    )
+}
+
+fn prompt_token_usage_summary(usage: Option<&prompt::LlmTokenUsage>) -> String {
+    match usage {
+        Some(usage) => format!(
+            "tokens prompt={}, completion={}, total={}",
+            prompt_optional_token_count(usage.prompt_tokens),
+            prompt_optional_token_count(usage.completion_tokens),
+            prompt_optional_token_count(usage.total_tokens)
+        ),
+        None => "tokens unknown".to_string(),
+    }
+}
+
+fn prompt_optional_token_count(tokens: Option<u64>) -> String {
+    tokens
+        .map(|tokens| tokens.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 #[cfg(feature = "cli")]
-fn complete_openai_prompt(request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
+fn complete_openai_prompt(
+    request: prompt::LlmRequest,
+    verbose: PromptVerbose,
+) -> Result<prompt::LlmResponse, SorlaError> {
     let api_key = request
         .api_key
         .or_else(|| std::env::var("OPENAI_API_KEY").ok())
@@ -5217,12 +5633,142 @@ fn complete_openai_prompt(request: prompt::LlmRequest) -> Result<prompt::LlmResp
     let endpoint = request
         .endpoint
         .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_string());
+    let body = openai_prompt_request_body(
+        model.clone(),
+        request.system_prompt,
+        request.messages,
+        request.response_format,
+    );
 
-    let mut messages = vec![serde_json::json!({
+    let mut last_error = None;
+    for attempt in 0..OPENAI_PROMPT_MAX_ATTEMPTS {
+        let attempt_label = format!(
+            "OpenAI request attempt {}/{} ({model})",
+            attempt + 1,
+            OPENAI_PROMPT_MAX_ATTEMPTS
+        );
+        let span = verbose.start(attempt_label);
+        match complete_openai_prompt_attempt(&endpoint, &api_key, &body) {
+            Ok(response) => {
+                span.finish_with(prompt_token_usage_summary(response.usage.as_ref()));
+                return Ok(response);
+            }
+            Err(OpenaiPromptAttemptError { message, retryable })
+                if retryable && attempt + 1 < OPENAI_PROMPT_MAX_ATTEMPTS =>
+            {
+                let delay = openai_prompt_retry_delay(attempt);
+                span.finish_with(format!(
+                    "retryable error: {message}; retrying in {}",
+                    format_duration(delay)
+                ));
+                last_error = Some(message);
+                std::thread::sleep(delay);
+            }
+            Err(error) => {
+                span.fail(&error.message);
+                return Err(error.message);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "OpenAI prompt request failed".to_string()))
+}
+
+#[cfg(feature = "cli")]
+const OPENAI_PROMPT_MAX_ATTEMPTS: usize = 4;
+
+#[cfg(feature = "cli")]
+const OPENAI_PROMPT_DEFAULT_TIMEOUT_SECS: u64 = 180;
+
+#[cfg(feature = "cli")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OpenaiPromptAttemptError {
+    message: String,
+    retryable: bool,
+}
+
+#[cfg(feature = "cli")]
+fn complete_openai_prompt_attempt(
+    endpoint: &str,
+    api_key: &str,
+    body: &serde_json::Value,
+) -> Result<prompt::LlmResponse, OpenaiPromptAttemptError> {
+    let mut response = ureq::post(endpoint)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .config()
+        .timeout_per_call(Some(openai_prompt_request_timeout()))
+        .http_status_as_error(false)
+        .build()
+        .send_json(&body)
+        .map_err(openai_request_error)?;
+    if !response.status().is_success() {
+        return Err(openai_status_error(response));
+    }
+    let value: serde_json::Value =
+        response
+            .body_mut()
+            .read_json()
+            .map_err(|err| OpenaiPromptAttemptError {
+                message: format!("OpenAI prompt response was not valid JSON: {err}"),
+                retryable: false,
+            })?;
+    let usage = openai_prompt_token_usage(&value);
+    let content = value["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| OpenaiPromptAttemptError {
+            message: format!("OpenAI prompt response did not contain message content: {value}"),
+            retryable: false,
+        })?
+        .to_string();
+    Ok(prompt::LlmResponse { content, usage })
+}
+
+#[cfg(feature = "cli")]
+fn openai_prompt_token_usage(value: &serde_json::Value) -> Option<prompt::LlmTokenUsage> {
+    let usage = value.get("usage")?;
+    Some(prompt::LlmTokenUsage {
+        prompt_tokens: usage
+            .get("prompt_tokens")
+            .or_else(|| usage.get("input_tokens"))
+            .and_then(serde_json::Value::as_u64),
+        completion_tokens: usage
+            .get("completion_tokens")
+            .or_else(|| usage.get("output_tokens"))
+            .and_then(serde_json::Value::as_u64),
+        total_tokens: usage
+            .get("total_tokens")
+            .and_then(serde_json::Value::as_u64),
+    })
+}
+
+#[cfg(feature = "cli")]
+fn openai_prompt_retry_delay(attempt: usize) -> Duration {
+    Duration::from_secs(1 << attempt.min(2))
+}
+
+#[cfg(feature = "cli")]
+fn openai_prompt_request_timeout() -> Duration {
+    std::env::var("GREENTIC_SORLA_OPENAI_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(OPENAI_PROMPT_DEFAULT_TIMEOUT_SECS))
+}
+
+#[cfg(feature = "cli")]
+fn openai_prompt_request_body(
+    model: String,
+    system_prompt: String,
+    messages: Vec<prompt::LlmMessage>,
+    response_format: Option<prompt::LlmResponseFormat>,
+) -> serde_json::Value {
+    let mut request_messages = vec![serde_json::json!({
         "role": "system",
-        "content": request.system_prompt,
+        "content": system_prompt,
     })];
-    messages.extend(request.messages.into_iter().map(|message| {
+    request_messages.extend(messages.into_iter().map(|message| {
         serde_json::json!({
             "role": match message.role {
                 prompt::LlmRole::System => "system",
@@ -5235,9 +5781,9 @@ fn complete_openai_prompt(request: prompt::LlmRequest) -> Result<prompt::LlmResp
 
     let mut body = serde_json::json!({
         "model": model,
-        "messages": messages,
+        "messages": request_messages,
     });
-    match request.response_format {
+    match response_format {
         Some(prompt::LlmResponseFormat::Json) => {
             body["response_format"] = serde_json::json!({ "type": "json_object" });
         }
@@ -5257,42 +5803,36 @@ fn complete_openai_prompt(request: prompt::LlmRequest) -> Result<prompt::LlmResp
         }
         Some(prompt::LlmResponseFormat::Text) | None => {}
     }
+    body
+}
 
-    let mut response = ureq::post(&endpoint)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json")
-        .config()
-        .http_status_as_error(false)
-        .build()
-        .send_json(&body)
-        .map_err(openai_request_error_message)?;
-    if !response.status().is_success() {
-        return Err(openai_status_error_message(response));
+#[cfg(feature = "cli")]
+fn openai_request_error(error: ureq::Error) -> OpenaiPromptAttemptError {
+    OpenaiPromptAttemptError {
+        message: format!("OpenAI prompt request failed: {error}"),
+        retryable: true,
     }
-    let value: serde_json::Value = response
-        .body_mut()
-        .read_json()
-        .map_err(|err| format!("OpenAI prompt response was not valid JSON: {err}"))?;
-    let content = value["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| format!("OpenAI prompt response did not contain message content: {value}"))?
-        .to_string();
-    Ok(prompt::LlmResponse { content })
 }
 
 #[cfg(feature = "cli")]
-fn openai_request_error_message(error: ureq::Error) -> String {
-    format!("OpenAI prompt request failed: {error}")
-}
-
-#[cfg(feature = "cli")]
-fn openai_status_error_message(mut response: ureq::http::Response<ureq::Body>) -> String {
+fn openai_status_error(mut response: ureq::http::Response<ureq::Body>) -> OpenaiPromptAttemptError {
     let status = response.status();
     let body = response.body_mut().read_to_string().unwrap_or_default();
-    if body.trim().is_empty() {
-        return format!("OpenAI prompt request failed with status {status}");
+    let message = if body.trim().is_empty() {
+        format!("OpenAI prompt request failed with status {status}")
+    } else {
+        let message = summarize_openai_error_body(&body);
+        format!("OpenAI prompt request failed with status {status}: {message}")
+    };
+    OpenaiPromptAttemptError {
+        message,
+        retryable: openai_status_is_retryable(status.as_u16()),
     }
-    let message = serde_json::from_str::<serde_json::Value>(&body)
+}
+
+#[cfg(feature = "cli")]
+fn summarize_openai_error_body(body: &str) -> String {
+    if let Some(message) = serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|value| {
             value["error"]["message"]
@@ -5300,12 +5840,49 @@ fn openai_status_error_message(mut response: ureq::http::Response<ureq::Body>) -
                 .map(str::to_string)
                 .or_else(|| value["message"].as_str().map(str::to_string))
         })
-        .unwrap_or(body);
-    format!("OpenAI prompt request failed with status {status}: {message}")
+    {
+        return message;
+    }
+    let trimmed = body.trim();
+    if trimmed.contains("<html") || trimmed.contains("<!DOCTYPE html") {
+        if let Some(title) = extract_html_title(trimmed) {
+            return format!("HTML error page: {title}");
+        }
+        return "HTML error page".to_string();
+    }
+    const MAX_ERROR_BODY_CHARS: usize = 500;
+    let compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() > MAX_ERROR_BODY_CHARS {
+        format!(
+            "{}...",
+            compact
+                .chars()
+                .take(MAX_ERROR_BODY_CHARS)
+                .collect::<String>()
+        )
+    } else {
+        compact
+    }
+}
+
+#[cfg(feature = "cli")]
+fn extract_html_title(body: &str) -> Option<String> {
+    let lower = body.to_ascii_lowercase();
+    let start = lower.find("<title>")? + "<title>".len();
+    let end = lower[start..].find("</title>")? + start;
+    Some(body[start..end].trim().to_string()).filter(|title| !title.is_empty())
+}
+
+#[cfg(feature = "cli")]
+fn openai_status_is_retryable(status: u16) -> bool {
+    matches!(status, 408 | 409 | 425 | 429 | 500..=599)
 }
 
 #[cfg(not(feature = "cli"))]
-fn complete_openai_prompt(_request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
+fn complete_openai_prompt(
+    _request: prompt::LlmRequest,
+    _verbose: PromptVerbose,
+) -> Result<prompt::LlmResponse, SorlaError> {
     Err("OpenAI prompt provider requires the `cli` feature".to_string())
 }
 
@@ -11631,6 +12208,80 @@ mod tests {
     use clap::CommandFactory;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    #[cfg(feature = "cli")]
+    #[test]
+    fn openai_prompt_request_body_serializes_strict_json_schema() {
+        let body = openai_prompt_request_body(
+            "gpt-test".to_string(),
+            "Return JSON.".to_string(),
+            vec![prompt::LlmMessage {
+                role: prompt::LlmRole::User,
+                content: "Build a plan.".to_string(),
+            }],
+            Some(prompt::LlmResponseFormat::JsonSchema {
+                name: "strict_test".to_string(),
+                schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "answer": { "type": "string" }
+                    },
+                    "required": ["answer"],
+                    "additionalProperties": false
+                }),
+                strict: true,
+            }),
+        );
+
+        assert_eq!(body["response_format"]["type"], "json_schema");
+        assert_eq!(
+            body["response_format"]["json_schema"]["name"],
+            "strict_test"
+        );
+        assert_eq!(body["response_format"]["json_schema"]["strict"], true);
+        assert_eq!(
+            body["response_format"]["json_schema"]["schema"]["required"],
+            serde_json::json!(["answer"])
+        );
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn openai_prompt_retries_transient_statuses_only() {
+        for status in [408, 409, 425, 429, 500, 502, 503, 504] {
+            assert!(openai_status_is_retryable(status), "{status} should retry");
+        }
+        for status in [400, 401, 403, 404, 422] {
+            assert!(
+                !openai_status_is_retryable(status),
+                "{status} should not retry"
+            );
+        }
+        assert_eq!(openai_prompt_retry_delay(0), Duration::from_secs(1));
+        assert_eq!(openai_prompt_retry_delay(1), Duration::from_secs(2));
+        assert_eq!(openai_prompt_retry_delay(2), Duration::from_secs(4));
+        assert_eq!(openai_prompt_retry_delay(10), Duration::from_secs(4));
+        assert_eq!(
+            openai_prompt_request_timeout(),
+            Duration::from_secs(OPENAI_PROMPT_DEFAULT_TIMEOUT_SECS)
+        );
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn openai_prompt_error_body_summary_is_compact() {
+        assert_eq!(
+            summarize_openai_error_body(r#"{"error":{"message":"model overloaded"}}"#),
+            "model overloaded"
+        );
+        assert_eq!(
+            summarize_openai_error_body(
+                "<!DOCTYPE html><html><head><title>api.openai.com | 504: Gateway time-out</title></head><body>long page</body></html>"
+            ),
+            "HTML error page: api.openai.com | 504: Gateway time-out"
+        );
+        assert!(summarize_openai_error_body(&"x ".repeat(1000)).len() < 520);
+    }
+
     #[test]
     fn action_endpoint_inference_uses_join_record_for_link_actions() {
         let action = NamedAnswer {
@@ -11741,6 +12392,8 @@ mod tests {
             "fake",
             "--llm-model",
             "fixture",
+            "--only-errors",
+            "--staged",
         ])
         .expect("prompt command parses");
         let Commands::Prompt(args) = cli.command else {
@@ -11754,6 +12407,8 @@ mod tests {
         assert_eq!(args.answers_out, PathBuf::from("answers.json"));
         assert_eq!(args.llm_provider.as_deref(), Some("fake"));
         assert!(args.sorla_yaml.is_none());
+        assert!(args.only_errors);
+        assert!(args.staged);
 
         let cli = Cli::try_parse_from([
             "greentic-sorla",
@@ -11785,6 +12440,44 @@ mod tests {
         let err = Cli::try_parse_from(["greentic-sorla", "prompt", "--no-llm"])
             .expect_err("prompt command should not accept --no-llm");
         assert!(err.to_string().contains("unexpected argument"));
+    }
+
+    #[test]
+    fn resumed_prompt_auto_generates_from_review_phases() {
+        fn state_with_phase(phase: prompt::PromptPhase) -> prompt::PromptSessionState {
+            prompt::PromptSessionState {
+                session_id: "session-1".to_string(),
+                phase,
+                llm: None,
+                business_prompt: Some("Build a system of record.".to_string()),
+                answers_so_far: Vec::new(),
+                questions: Vec::new(),
+                assumptions: Vec::new(),
+                draft_model: None,
+                staged_answers: false,
+            }
+        }
+
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::ReviewingDesignPlan))
+                .as_deref(),
+            Some("generate answers")
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(
+                prompt::PromptPhase::ReadyToGenerateAnswers
+            ))
+            .as_deref(),
+            Some("generate answers")
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::AskingQuestions)),
+            None
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::Completed)),
+            None
+        );
     }
 
     #[test]
@@ -11934,6 +12627,7 @@ mod tests {
             ) -> Result<prompt::LlmResponse, SorlaError> {
                 Ok(prompt::LlmResponse {
                     content: "{}".to_string(),
+                    usage: None,
                 })
             }
         }
@@ -12538,6 +13232,7 @@ records:
                         "explanation": "Adds postcode to property."
                     })
                     .to_string(),
+                    usage: None,
                 })
             }
         }
