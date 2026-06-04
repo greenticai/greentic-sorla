@@ -46,6 +46,8 @@ pub struct PromptSessionState {
     pub questions: Vec<PromptQuestion>,
     pub assumptions: Vec<PromptAssumption>,
     pub draft_model: Option<SorDesignDraft>,
+    #[serde(default)]
+    pub staged_answers: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,6 +145,7 @@ mod tests {
                 }],
                 ..SorDesignDraft::default()
             }),
+            staged_answers: true,
         };
 
         let encoded = serde_json::to_string(&state).expect("state serializes");

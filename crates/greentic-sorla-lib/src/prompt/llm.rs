@@ -47,6 +47,15 @@ pub enum LlmResponseFormat {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmResponse {
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<LlmTokenUsage>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LlmTokenUsage {
+    pub prompt_tokens: Option<u64>,
+    pub completion_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
 }
 
 #[cfg(test)]
@@ -67,6 +76,7 @@ mod tests {
 
             Ok(LlmResponse {
                 content: format!("fake response for {last_user_message}"),
+                usage: None,
             })
         }
     }
