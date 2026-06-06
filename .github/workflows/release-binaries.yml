@@ -160,7 +160,7 @@ jobs:
           # because cargo `^1.2.0-research` would resolve forward to any future
           # stable 1.2.0. Mirror this with the dev-dependency pin in
           # crates/greentic-sorla-designer-extension/Cargo.toml.
-          gtdx-version: "=1.2.0-research"
+          gtdx-version: "=1.2.7-research"
           manifest: crates/greentic-sorla-designer-extension/Cargo.toml
           store-url: https://store.greentic.cloud
           store-token: ${{ secrets.GREENTIC_STORE_TOKEN }}
