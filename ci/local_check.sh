@@ -343,6 +343,30 @@ else
   echo "[wasm] skipping greentic-sorla-lib wasm32-wasip2 build; install with: rustup target add wasm32-wasip2"
 fi
 
+run_step "Designer extension component build"
+if rustup target list --installed | grep -qx 'wasm32-wasip2'; then
+  if command -v cargo-component >/dev/null 2>&1; then
+    run_cmd cargo component build -p greentic-sorla-designer-extension
+    # `cargo component build` re-emits `src/bindings.rs` from the WIT contract.
+    # The committed copy is already canonical for `cargo fmt`, but the freshly
+    # generated copy expands the trailing `#[unsafe(link_section = ...)]`
+    # attribute over multiple lines, which `cargo fmt --check` rejects. Stable
+    # rustfmt honours neither `ignore` (nightly-only) nor a `#[rustfmt::skip]`
+    # placed on that generated tail. Restore the committed bindings (identical
+    # modulo formatting whenever the WIT is unchanged) so this check stays
+    # deterministic and idempotent across repeated runs.
+    bindings="crates/greentic-sorla-designer-extension/src/bindings.rs"
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+      && git ls-files --error-unmatch "${bindings}" >/dev/null 2>&1; then
+      run_cmd git checkout -- "${bindings}"
+    fi
+  else
+    echo "[wasm] skipping designer-extension component build; install cargo-component"
+  fi
+else
+  echo "[wasm] skipping designer-extension component build; install with: rustup target add wasm32-wasip2"
+fi
+
 run_step "cargo doc"
 run_cmd cargo doc --no-deps --all-features
 

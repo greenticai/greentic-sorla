@@ -25,6 +25,12 @@ serde_json.workspace = true
 wit-bindgen = "0.44"
 wit-bindgen-rt = "0.44"
 
+[dev-dependencies]
+# Validates describe.json against the published extension contract shape.
+# Pinned exactly: the `1.2.x-research` line is pre-release, and a non-exact
+# requirement would resolve forward to any future stable 1.2.0.
+greentic-extension-sdk-contract = "=1.2.7-research"
+
 [package.metadata.component]
 package = "greentic:sorla-designer-extension"
 

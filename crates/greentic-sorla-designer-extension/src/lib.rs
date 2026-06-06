@@ -1584,6 +1584,36 @@ mod tests {
     }
 
     #[test]
+    fn describe_json_parses_against_contract() {
+        let raw = include_str!("../describe.json");
+        let parsed: greentic_extension_sdk_contract::DescribeJson =
+            serde_json::from_str(raw).expect("describe.json matches contract");
+        assert_eq!(parsed.api_version, "greentic.ai/v2");
+        assert_eq!(parsed.metadata.id, "greentic.sorla");
+        // The host `llm` import is the only privileged seam this extension uses,
+        // so the sole declared permission is the `sorla_composer` LLM role
+        // (round-tripped through the camelCase `llmRoles` wire key).
+        assert_eq!(
+            parsed.runtime.permissions.llm_roles,
+            vec!["sorla_composer".to_string()]
+        );
+        assert!(parsed.runtime.permissions.network.is_empty());
+        assert!(parsed.runtime.permissions.secrets.is_empty());
+        // All 16 design-time tools must be advertised in the canonical order.
+        let described_tools = parsed
+            .contributions
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>();
+        let listed_tools = list_tools()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+        assert_eq!(described_tools, listed_tools);
+    }
+
+    #[test]
     fn tool_runtime_contexts_split_chat_and_studio_tools() {
         // The six chat-loop tools advertise the "flow" context; everything else
         // is studio-only. Keep this list in lockstep with `tool_runtime_contexts`.
