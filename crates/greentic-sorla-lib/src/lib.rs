@@ -5085,18 +5085,18 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
         );
     }
 
-    if session.phase == prompt::PromptPhase::AwaitingBusinessPrompt {
-        if initial_user_message.is_none() {
-            println!(
-                "{}",
-                catalog_text(
-                    &catalog,
-                    &fallback,
-                    "cli.prompt.responses.describe_system",
-                    "Describe the System of Record you want to create."
-                )
-            );
-        }
+    if session.phase == prompt::PromptPhase::AwaitingBusinessPrompt
+        && initial_user_message.is_none()
+    {
+        println!(
+            "{}",
+            catalog_text(
+                &catalog,
+                &fallback,
+                "cli.prompt.responses.describe_system",
+                "Describe the System of Record you want to create."
+            )
+        );
     }
 
     if args.resume.is_some() && initial_user_message.is_none() {
@@ -5714,7 +5714,7 @@ fn complete_openai_prompt_attempt(
         .timeout_per_call(Some(openai_prompt_request_timeout()))
         .http_status_as_error(false)
         .build()
-        .send_json(&body)
+        .send_json(body)
         .map_err(openai_request_error)?;
     if !response.status().is_success() {
         return Err(openai_status_error(response));
