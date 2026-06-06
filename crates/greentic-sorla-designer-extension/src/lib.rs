@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use greentic_sorla_lib::prompt::{
     DefaultPromptAuthoringEngine, LlmCapability, LlmCapabilityConfig, LlmRequest, LlmResponse,
     PromptAuthoringEngine, PromptSessionConfig, PromptSessionState, PromptTurnInput,
@@ -430,6 +431,12 @@ pub struct GenerateGtpackFromSorlaYamlRequest {
     pub source_yaml: String,
     pub pack_name: String,
     pub pack_version: String,
+    /// When true, each pack entry carries its raw bytes as `content_base64`
+    /// (STANDARD engine) so the host can ZIP directly without re-deriving the
+    /// content. When false (default) only the deterministic metadata is returned
+    /// and the host-packaging-required diagnostic is emitted.
+    #[serde(default)]
+    pub include_content: bool,
 }
 
 pub fn parse_sorla_yaml_tool(input: serde_json::Value) -> serde_json::Value {
@@ -599,6 +606,7 @@ pub fn generate_gtpack_from_sorla_yaml(input: serde_json::Value) -> serde_json::
         request.pack_version,
         entries,
         parsed.diagnostics,
+        request.include_content,
     )
 }
 
@@ -669,10 +677,21 @@ pub fn explain_model(input: serde_json::Value) -> serde_json::Value {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct GenerateGtpackRequest {
-    pub model: NormalizedSorlaModel,
+    /// A pre-normalized model. Optional for backward compatibility with existing
+    /// callers; exactly one of `model` or `answers` must be provided.
+    #[serde(default)]
+    pub model: Option<NormalizedSorlaModel>,
+    /// A completed prompt-session answers document. The designer's build route
+    /// holds the session's `answers.json` rather than a normalized model, so this
+    /// lets the host build a gtpack straight from it.
+    #[serde(default)]
+    pub answers: Option<serde_json::Value>,
     pub package: ArtifactPackage,
     #[serde(default)]
     pub options: ArtifactOptions,
+    /// See `GenerateGtpackFromSorlaYamlRequest::include_content`.
+    #[serde(default)]
+    pub include_content: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -703,7 +722,29 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
         Ok(request) => request,
         Err(err) => return artifact_error("designer.input", err.to_string()),
     };
-    let report = greentic_sorla_lib::validate_model(&request.model, ValidateOptions);
+    // Resolve the working model from exactly one of `model` (already normalized)
+    // or `answers` (a completed prompt-session document, normalized here via the
+    // same `normalize_answers` seam the wizard uses).
+    let model = match (request.model, request.answers) {
+        (Some(model), None) => model,
+        (None, Some(answers)) => match normalize_answers(answers, NormalizeOptions) {
+            Ok(model) => model,
+            Err(err) => return artifact_error("sorla.normalize", err),
+        },
+        (Some(_), Some(_)) => {
+            return artifact_error(
+                "designer.input",
+                "provide exactly one of `model` or `answers`, not both",
+            );
+        }
+        (None, None) => {
+            return artifact_error(
+                "designer.input",
+                "provide exactly one of `model` or `answers`",
+            );
+        }
+    };
+    let report = greentic_sorla_lib::validate_model(&model, ValidateOptions);
     if report.has_errors() {
         return serde_json::json!({
             "schema": "greentic.sorla.gtpack-plan.v1",
@@ -714,9 +755,12 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
             "preview_json": null
         });
     }
-    let preview = generate_preview(&request.model, PreviewOptions).ok();
+    let preview = generate_preview(&model, PreviewOptions).ok();
+    // Package coords precedence: the explicit request `package` always wins over
+    // any coords carried inside an answers document, so the host controls the
+    // final pack id/version regardless of how the model was sourced.
     let entries = match build_gtpack_entries(
-        &request.model,
+        &model,
         PackBuildOptions {
             name: Some(request.package.name.clone()),
             version: Some(request.package.version.clone()),
@@ -731,8 +775,13 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
         request.package.version,
         entries,
         report.diagnostics,
+        request.include_content,
     );
     if let Some(object) = output.as_object_mut() {
+        object.insert(
+            "sorla_yaml".to_string(),
+            serde_json::Value::String(model.source_yaml.clone()),
+        );
         object.insert(
             "preview_json".to_string(),
             if request.options.include_designer_preview {
@@ -781,12 +830,14 @@ pub struct StartPromptSessionRequest {
 /// resolves the concrete provider at runtime, so this sentinel only needs to
 /// name the host seam.
 fn host_llm_capability_config() -> LlmCapabilityConfig {
+    // Mirror greentic-sorla-lib's `default_patch_llm_config`: name the host LLM
+    // capability seam so the host can resolve a concrete provider at runtime.
     LlmCapabilityConfig {
         provider: "host".to_string(),
         model: None,
         api_key: None,
         endpoint: None,
-        capability_id: None,
+        capability_id: Some(greentic_sorla_lib::prompt::DEFAULT_LLM_CAPABILITY_ID.to_string()),
     }
 }
 
@@ -1209,22 +1260,33 @@ fn pack_entries_output(
     pack_version: String,
     entries: Vec<greentic_sorla_lib::PackEntry>,
     mut diagnostics: Vec<greentic_sorla_lib::SorlaDiagnostic>,
+    include_content: bool,
 ) -> serde_json::Value {
-    diagnostics.insert(0, greentic_sorla_lib::SorlaDiagnostic {
-        severity: greentic_sorla_lib::DiagnosticSeverity::Warning,
-        code: "sorla.gtpack.host_packaging_required".to_string(),
-        message: "WASM extension returned deterministic pack entries; host/native packaging must produce ZIP bytes.".to_string(),
-        path: None,
-        suggestion: Some("Package the returned entries with the native greentic-sorla-lib pack-zip feature when .gtpack bytes are required.".to_string()),
-    });
+    // With content bytes attached the host can ZIP the entries directly, so the
+    // host-packaging-required warning only applies to the metadata-only path.
+    if !include_content {
+        diagnostics.insert(0, greentic_sorla_lib::SorlaDiagnostic {
+            severity: greentic_sorla_lib::DiagnosticSeverity::Warning,
+            code: "sorla.gtpack.host_packaging_required".to_string(),
+            message: "WASM extension returned deterministic pack entries; host/native packaging must produce ZIP bytes.".to_string(),
+            path: None,
+            suggestion: Some("Package the returned entries with the native greentic-sorla-lib pack-zip feature when .gtpack bytes are required.".to_string()),
+        });
+    }
     let pack_entries = entries
         .iter()
         .map(|entry| {
-            serde_json::json!({
+            let mut value = serde_json::json!({
                 "path": entry.path,
                 "sha256": entry.sha256,
                 "size": entry.bytes.len()
-            })
+            });
+            if include_content {
+                value["content_base64"] = serde_json::Value::String(
+                    base64::engine::general_purpose::STANDARD.encode(&entry.bytes),
+                );
+            }
+            value
         })
         .collect::<Vec<_>>();
     serde_json::json!({
@@ -1632,7 +1694,8 @@ records:
             "business_prompt": "Add a postcode field to the property record.",
             "existing_sorla_yaml": existing_yaml
         }));
-        assert_ne!(start["status"], "error");
+        assert_eq!(start["status"], "needs_input");
+        assert!(start["session"]["update_package"].is_object());
         assert_eq!(
             start["session"]["update_package"]["name"],
             "designer-yaml-demo"
@@ -1797,6 +1860,93 @@ records:
         assert_eq!(first, second);
         assert!(!first.to_ascii_lowercase().contains("password"));
         assert!(!first.to_ascii_lowercase().contains("tenant_id"));
+    }
+
+    #[test]
+    fn generate_gtpack_includes_content_when_requested() {
+        // Reuse the same YAML fixture the other gtpack-from-yaml flows exercise.
+        let fixture_yaml = r#"
+package:
+  name: designer-yaml-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+        .trim_start();
+
+        let out = invoke_tool(
+            "generate_gtpack_from_sorla_yaml",
+            &serde_json::json!({
+                "source_yaml": fixture_yaml,
+                "pack_name": "designer-yaml-demo",
+                "pack_version": "0.1.0",
+                "include_content": true
+            })
+            .to_string(),
+        )
+        .expect("ok");
+        let out: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let entry = &out["pack_entries"][0];
+        let encoded = entry["content_base64"].as_str().expect("content_base64");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .expect("STANDARD base64 decodes");
+        assert_eq!(entry["size"].as_u64().unwrap() as usize, bytes.len());
+        // With content the host can package directly, so the warning is dropped.
+        let codes: Vec<&str> = out["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|d| d["code"].as_str())
+            .collect();
+        assert!(!codes.contains(&"sorla.gtpack.host_packaging_required"));
+
+        // Without include_content, content_base64 must be absent and the
+        // host-packaging-required diagnostic returns.
+        let out = invoke_tool(
+            "generate_gtpack_from_sorla_yaml",
+            &serde_json::json!({
+                "source_yaml": fixture_yaml,
+                "pack_name": "designer-yaml-demo",
+                "pack_version": "0.1.0"
+            })
+            .to_string(),
+        )
+        .expect("ok");
+        let out: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(out["pack_entries"][0]["content_base64"].is_null());
+        assert_eq!(
+            out["diagnostics"][0]["code"],
+            "sorla.gtpack.host_packaging_required"
+        );
+    }
+
+    #[test]
+    fn generate_gtpack_accepts_answers_document() {
+        let answers = supplier_contract_answers(&GenerateModelRequest {
+            prompt: "Create supplier contract risk management".to_string(),
+            constraints: GenerateConstraints::default(),
+            draft_json: None,
+        });
+        let out = invoke_tool(
+            "generate_gtpack",
+            &serde_json::json!({
+                "answers": answers,
+                "package": { "name": "supplier-contract", "version": "0.1.0" },
+                "include_content": true
+            })
+            .to_string(),
+        )
+        .expect("ok");
+        let out: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(out["schema"], "greentic.sorla.gtpack-plan.v1");
+        assert!(out["sorla_yaml"].as_str().is_some());
+        assert!(out["pack_entries"][0]["content_base64"].as_str().is_some());
     }
 
     #[test]
