@@ -5398,14 +5398,28 @@ fn prompt_update_target_from_sorla_yaml(path: &Path) -> Result<PromptUpdateTarge
     })
 }
 
-fn prompt_update_business_prompt(user_message: &str, target: &PromptUpdateTarget) -> String {
+/// Wraps an update request around the existing YAML so the prompt engine
+/// treats the turn as "modify this package" instead of greenfield. Shared by
+/// the CLI (`--sorla-yaml`) and the designer extension (`existing_sorla_yaml`).
+pub fn prompt_update_business_prompt_text(
+    user_message: &str,
+    package_name: &str,
+    package_version: &str,
+    yaml_context: &str,
+    location_display: &str,
+) -> String {
     format!(
-        "Update the existing Greentic SoRLa package at {} instead of creating a new package.\nExisting package: {} {}.\nExisting sorla.yaml:\n{}\n\nRequested change:\n{}",
-        target.sorla_yaml.display(),
-        target.previous.package_name,
-        target.previous.package_version,
-        target.yaml_context,
-        user_message
+        "Update the existing Greentic SoRLa package at {location_display} instead of creating a new package.\nExisting package: {package_name} {package_version}.\nExisting sorla.yaml:\n{yaml_context}\n\nRequested change:\n{user_message}"
+    )
+}
+
+fn prompt_update_business_prompt(user_message: &str, target: &PromptUpdateTarget) -> String {
+    prompt_update_business_prompt_text(
+        user_message,
+        &target.previous.package_name,
+        &target.previous.package_version,
+        &target.yaml_context,
+        &target.sorla_yaml.display().to_string(),
     )
 }
 
@@ -12565,6 +12579,21 @@ mod tests {
             prompt_update_business_prompt("add referrals", &target)
                 .contains("Update the existing Greentic SoRLa package")
         );
+    }
+
+    #[test]
+    fn update_business_prompt_wraps_yaml_and_change() {
+        let out = prompt_update_business_prompt_text(
+            "add a postcode field",
+            "landlord-tenant",
+            "0.2.0",
+            "records: []",
+            "session",
+        );
+        assert!(out.contains("Update the existing Greentic SoRLa package at session"));
+        assert!(out.contains("Existing package: landlord-tenant 0.2.0."));
+        assert!(out.contains("records: []"));
+        assert!(out.contains("Requested change:\nadd a postcode field"));
     }
 
     #[test]
