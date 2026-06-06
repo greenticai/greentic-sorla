@@ -1,9 +1,21 @@
+// Generated WIT bindings + world export glue are wasm-only. The native rlib
+// build (used by the unit tests and the sibling integration tests) keeps the
+// pure JSON-boundary API and never pulls in `wit-bindgen`'s wasm runtime.
+#[cfg(target_arch = "wasm32")]
+#[allow(warnings)]
+mod bindings;
+#[cfg(target_arch = "wasm32")]
+mod component;
+
 use base64::Engine as _;
 use greentic_sorla_lib::prompt::{
-    DefaultPromptAuthoringEngine, LlmCapability, LlmCapabilityConfig, LlmRequest, LlmResponse,
-    PromptAuthoringEngine, PromptSessionConfig, PromptSessionState, PromptTurnInput,
-    UpdatePackageRef,
+    DefaultPromptAuthoringEngine, LlmCapability, LlmCapabilityConfig, PromptAuthoringEngine,
+    PromptSessionConfig, PromptSessionState, PromptTurnInput, UpdatePackageRef,
 };
+// Only the native deterministic stub (`DesignerPromptLlm`) names these; the
+// wasm build routes through `crate::component::HostLlm` instead.
+#[cfg(not(target_arch = "wasm32"))]
+use greentic_sorla_lib::prompt::{LlmRequest, LlmResponse};
 use greentic_sorla_lib::{
     ApplyPatchInput, ConceptViewInput, ConceptViewMode, DEFAULT_DESIGNER_COMPONENT_OPERATION,
     DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypeOptions, NormalizeOptions,
@@ -240,6 +252,39 @@ pub fn list_tools() -> Vec<DesignerTool> {
             "Generate a generic flow node from a locked SoRLa Designer node type.",
         ),
     ]
+}
+
+/// Runtime contexts per tool: chat-exposed tools advertise "flow" (the chat
+/// loop's context); studio-only tools advertise "studio" so the designer's
+/// chat tool-def builder filters them out while by-name invocation keeps
+/// working for the /sorla studio routes.
+pub fn tool_runtime_contexts(tool: &str) -> Vec<String> {
+    match tool {
+        "start_prompt_session"
+        | "continue_prompt_session"
+        | "generate_prompt_answers"
+        | "parse_sorla_yaml"
+        | "validate_sorla_yaml"
+        | "propose_patch_from_instruction" => {
+            vec!["flow".to_string()]
+        }
+        _ => vec!["studio".to_string()],
+    }
+}
+
+/// LLM capability used by the prompt-authoring engine. On wasm the designer
+/// host owns provider/model/credentials (resolved per tenant from the declared
+/// `sorla_composer` role), so we delegate through the host's `llm` import. On
+/// native (tests, CLI) we keep the deterministic in-crate stub so the existing
+/// suites stay reproducible.
+#[cfg(target_arch = "wasm32")]
+fn prompt_llm() -> impl LlmCapability {
+    crate::component::HostLlm
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn prompt_llm() -> impl LlmCapability {
+    DesignerPromptLlm
 }
 
 fn tool(name: &'static str, description: &'static str) -> DesignerTool {
@@ -506,7 +551,7 @@ pub fn propose_patch_from_instruction_tool(input: serde_json::Value) -> serde_js
         Ok(request) => request,
         Err(err) => return yaml_tool_error("designer.input", err.to_string()),
     };
-    match propose_patch_from_instruction(request, &DesignerPromptLlm) {
+    match propose_patch_from_instruction(request, &prompt_llm()) {
         Ok(output) => serde_json::json!({
             "patch_proposal": output.patch,
             "explanation": output.explanation,
@@ -857,7 +902,7 @@ pub fn start_prompt_session(input: serde_json::Value) -> serde_json::Value {
         Ok(request) => request,
         Err(err) => return prompt_error("designer.input", err.to_string()),
     };
-    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    let engine = DefaultPromptAuthoringEngine::new(prompt_llm());
     let config = PromptSessionConfig {
         locale: request.locale,
         schema_version: request.schema_version,
@@ -943,7 +988,7 @@ pub fn continue_prompt_session(input: serde_json::Value) -> serde_json::Value {
         Ok(request) => request,
         Err(err) => return prompt_error("designer.input", err.to_string()),
     };
-    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    let engine = DefaultPromptAuthoringEngine::new(prompt_llm());
     prompt_turn_json(engine.next_turn(PromptTurnInput {
         session: request.session,
         user_message: request.user_message,
@@ -955,7 +1000,7 @@ pub fn generate_prompt_answers(input: serde_json::Value) -> serde_json::Value {
         Ok(request) => request,
         Err(err) => return prompt_error("designer.input", err.to_string()),
     };
-    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    let engine = DefaultPromptAuthoringEngine::new(prompt_llm());
     match engine.generate_answers(request.session.clone()) {
         Ok(mut answers) => {
             if let Some(pkg) = &request.session.update_package {
@@ -976,8 +1021,13 @@ pub fn generate_prompt_answers(input: serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// Deterministic stub LLM used only by the native build (tests, CLI). The wasm
+/// component routes through the designer host's `llm` import instead — see
+/// `prompt_llm` and `crate::component::HostLlm`.
+#[cfg(not(target_arch = "wasm32"))]
 struct DesignerPromptLlm;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl LlmCapability for DesignerPromptLlm {
     fn complete(&self, request: LlmRequest) -> Result<LlmResponse, greentic_sorla_lib::SorlaError> {
         if request.system_prompt.contains("semantic patches") {
@@ -1531,6 +1581,46 @@ mod tests {
                 "generate_flow_node_from_node_type"
             ]
         );
+    }
+
+    #[test]
+    fn tool_runtime_contexts_split_chat_and_studio_tools() {
+        // The six chat-loop tools advertise the "flow" context; everything else
+        // is studio-only. Keep this list in lockstep with `tool_runtime_contexts`.
+        let flow_tools = [
+            "start_prompt_session",
+            "continue_prompt_session",
+            "generate_prompt_answers",
+            "parse_sorla_yaml",
+            "validate_sorla_yaml",
+            "propose_patch_from_instruction",
+        ];
+        for tool in flow_tools {
+            assert_eq!(
+                tool_runtime_contexts(tool),
+                vec!["flow".to_string()],
+                "{tool} should be a flow (chat) tool"
+            );
+        }
+
+        // Every advertised tool resolves to a non-empty context list, and any
+        // tool not in the flow set is studio-only.
+        for tool in list_tools() {
+            let contexts = tool_runtime_contexts(tool.name);
+            assert!(
+                !contexts.is_empty(),
+                "{} must advertise at least one runtime context",
+                tool.name
+            );
+            if !flow_tools.contains(&tool.name) {
+                assert_eq!(
+                    contexts,
+                    vec!["studio".to_string()],
+                    "{} should be studio-only",
+                    tool.name
+                );
+            }
+        }
     }
 
     #[test]
