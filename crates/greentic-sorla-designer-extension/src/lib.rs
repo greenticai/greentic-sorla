@@ -1,6 +1,7 @@
 use greentic_sorla_lib::prompt::{
     DefaultPromptAuthoringEngine, LlmCapability, LlmCapabilityConfig, LlmRequest, LlmResponse,
     PromptAuthoringEngine, PromptSessionConfig, PromptSessionState, PromptTurnInput,
+    UpdatePackageRef,
 };
 use greentic_sorla_lib::{
     ApplyPatchInput, ConceptViewInput, ConceptViewMode, DEFAULT_DESIGNER_COMPONENT_OPERATION,
@@ -757,7 +758,8 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct StartPromptSessionRequest {
-    pub llm: LlmCapabilityConfig,
+    #[serde(default)]
+    pub llm: Option<LlmCapabilityConfig>,
     #[serde(default)]
     pub locale: Option<String>,
     #[serde(default)]
@@ -768,6 +770,24 @@ pub struct StartPromptSessionRequest {
     pub package_version_hint: Option<String>,
     #[serde(default)]
     pub business_prompt: Option<String>,
+    /// When present, the session updates this existing `sorla.yaml` instead of
+    /// authoring a greenfield package. The extension wraps it into the engine's
+    /// business prompt and stamps generated answers with `flow: "update"`.
+    #[serde(default)]
+    pub existing_sorla_yaml: Option<String>,
+}
+
+/// Default LLM capability used when a designer caller omits `llm`. The host
+/// resolves the concrete provider at runtime, so this sentinel only needs to
+/// name the host seam.
+fn host_llm_capability_config() -> LlmCapabilityConfig {
+    LlmCapabilityConfig {
+        provider: "host".to_string(),
+        model: None,
+        api_key: None,
+        endpoint: None,
+        capability_id: None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -792,8 +812,60 @@ pub fn start_prompt_session(input: serde_json::Value) -> serde_json::Value {
         schema_version: request.schema_version,
         package_name_hint: request.package_name_hint,
         package_version_hint: request.package_version_hint,
-        llm: request.llm,
+        llm: request.llm.unwrap_or_else(host_llm_capability_config),
     };
+
+    // Update-of-existing flow: the designer hands us the current sorla.yaml, we
+    // wrap it into the engine's business prompt and remember the package
+    // coordinates so the generated answers can be stamped as an update.
+    if let Some(existing_yaml) = request.existing_sorla_yaml {
+        let parsed = match parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: existing_yaml.clone(),
+            source_path: None,
+        }) {
+            Ok(parsed) => parsed,
+            Err(err) => return prompt_error("sorla.prompt.update_target", err),
+        };
+        let package = match parsed.model.package.as_ref() {
+            Some(package) => package,
+            None => {
+                return prompt_error(
+                    "sorla.prompt.update_target",
+                    "existing sorla.yaml must declare a package name and version to update",
+                );
+            }
+        };
+        let update_ref = UpdatePackageRef {
+            name: package.name.clone(),
+            version: package.version.clone(),
+        };
+        let prompt = match request.business_prompt {
+            Some(prompt) if !prompt.trim().is_empty() => prompt,
+            _ => {
+                return prompt_error(
+                    "sorla.prompt.update_target",
+                    "business_prompt describing the requested change is required when updating an existing package",
+                );
+            }
+        };
+        let wrapped = greentic_sorla_lib::prompt_update_business_prompt_text(
+            &prompt,
+            &update_ref.name,
+            &update_ref.version,
+            &existing_yaml,
+            "session",
+        );
+        let mut session = match engine.start_session(config) {
+            Ok(session) => session,
+            Err(err) => return prompt_error("sorla.prompt.start", err),
+        };
+        session.update_package = Some(update_ref);
+        return prompt_turn_json(engine.next_turn(PromptTurnInput {
+            session,
+            user_message: wrapped,
+        }));
+    }
+
     let session = match engine.start_session(config) {
         Ok(session) => session,
         Err(err) => return prompt_error("sorla.prompt.start", err),
@@ -834,12 +906,21 @@ pub fn generate_prompt_answers(input: serde_json::Value) -> serde_json::Value {
     };
     let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
     match engine.generate_answers(request.session.clone()) {
-        Ok(answers) => serde_json::json!({
-            "status": "valid",
-            "session": request.session,
-            "answers_json": answers,
-            "diagnostics": []
-        }),
+        Ok(mut answers) => {
+            if let Some(pkg) = &request.session.update_package {
+                answers["flow"] = serde_json::Value::String("update".into());
+                answers["package"] = serde_json::json!({
+                    "name": pkg.name,
+                    "version": pkg.version
+                });
+            }
+            serde_json::json!({
+                "status": "valid",
+                "session": request.session,
+                "answers_json": answers,
+                "diagnostics": []
+            })
+        }
         Err(err) => prompt_error("sorla.prompt.answers", err),
     }
 }
@@ -873,10 +954,12 @@ impl LlmCapability for DesignerPromptLlm {
                     "explanation": "Adds a postcode field to the property record."
                 })
                 .to_string(),
+                usage: None,
             });
         }
         Ok(LlmResponse {
             content: "{}".to_string(),
+            usage: None,
         })
     }
 }
@@ -1526,6 +1609,72 @@ records:
         let rendered = serde_json::to_string(&generated).unwrap();
         assert!(!rendered.contains("secret"));
         assert!(!rendered.contains("api_key"));
+    }
+
+    #[test]
+    fn prompt_session_update_flow_stamps_answers() {
+        let existing_yaml = r#"
+package:
+  name: designer-yaml-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+        .trim_start();
+
+        let start = start_prompt_session(serde_json::json!({
+            "llm": { "provider": "fake" },
+            "business_prompt": "Add a postcode field to the property record.",
+            "existing_sorla_yaml": existing_yaml
+        }));
+        assert_ne!(start["status"], "error");
+        assert_eq!(
+            start["session"]["update_package"]["name"],
+            "designer-yaml-demo"
+        );
+        assert_eq!(start["session"]["update_package"]["version"], "0.1.0");
+        assert!(
+            start["session"]["business_prompt"]
+                .as_str()
+                .unwrap()
+                .contains("Update the existing Greentic SoRLa package")
+        );
+
+        // Drive the session to completion using the deterministic fake engine.
+        let mut turn = start;
+        for answer in [
+            "yes",
+            "joint",
+            "yes, payments are immutable",
+            "yes, suppliers do the work",
+            "supplier work requires approval",
+        ] {
+            turn = continue_prompt_session(serde_json::json!({
+                "session": turn["session"].clone(),
+                "user_message": answer
+            }));
+        }
+        // The update target rides through every turn.
+        assert_eq!(
+            turn["session"]["update_package"]["name"],
+            "designer-yaml-demo"
+        );
+
+        let generated = generate_prompt_answers(serde_json::json!({
+            "session": turn["session"].clone()
+        }));
+        assert_eq!(generated["status"], "valid");
+        assert_eq!(generated["answers_json"]["flow"], "update");
+        assert_eq!(
+            generated["answers_json"]["package"]["name"],
+            "designer-yaml-demo"
+        );
+        assert_eq!(generated["answers_json"]["package"]["version"], "0.1.0");
     }
 
     #[test]
