@@ -137,6 +137,7 @@ where
             assumptions: Vec::new(),
             draft_model: None,
             staged_answers: false,
+            update_package: None,
         })
     }
 
@@ -4641,6 +4642,7 @@ mod tests {
                 ..SorDesignDraft::default()
             }),
             staged_answers: false,
+            update_package: None,
         };
 
         let output = engine
@@ -4837,6 +4839,7 @@ mod tests {
             assumptions: Vec::new(),
             draft_model: Some(metrics_draft("track revenue metrics", &[])),
             staged_answers: true,
+            update_package: None,
         };
 
         let answers = engine

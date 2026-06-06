@@ -12469,6 +12469,7 @@ mod tests {
                 assumptions: Vec::new(),
                 draft_model: None,
                 staged_answers: false,
+                update_package: None,
             }
         }
 
