@@ -29,6 +29,8 @@ pub struct Package {
     pub retrieval_bindings: Option<RetrievalBindings>,
     #[serde(default)]
     pub operational_indexes: Option<OperationalIndexes>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub record_hierarchy: BTreeMap<String, RecordHierarchyDecl>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleDecl>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -504,6 +506,17 @@ pub struct Record {
     pub access: RecordAccess,
     #[serde(default)]
     pub fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RecordHierarchyDecl {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub main: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

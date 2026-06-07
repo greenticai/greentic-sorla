@@ -38,6 +38,8 @@ pub struct CanonicalIr {
     pub roles: Vec<RoleIr>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub role_assignments: Vec<RoleAssignmentIr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub record_hierarchy: Vec<RecordHierarchyIr>,
     pub records: Vec<RecordIr>,
     pub events: Vec<EventIr>,
     pub actions: Vec<NamedItemIr>,
@@ -352,6 +354,21 @@ pub struct RecordAccessIr {
     pub update: Option<AccessRuleIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete: Option<AccessRuleIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordHierarchyIr {
+    pub record: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub main: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parents: Vec<RecordHierarchyParentIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordHierarchyParentIr {
+    pub record: String,
+    pub field: String,
 }
 
 impl RecordAccessIr {
@@ -1074,6 +1091,26 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
 
     let provider_categories = sorted_provider_requirements(&package.provider_requirements);
     let agent_endpoints = sorted_agent_endpoints(package);
+    let mut record_hierarchy = package
+        .record_hierarchy
+        .iter()
+        .map(|(record, hierarchy)| RecordHierarchyIr {
+            record: record.clone(),
+            main: hierarchy.main,
+            parents: hierarchy
+                .parent
+                .as_ref()
+                .zip(hierarchy.field.as_ref())
+                .map(|(parent, field)| {
+                    vec![RecordHierarchyParentIr {
+                        record: parent.clone(),
+                        field: field.clone(),
+                    }]
+                })
+                .unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+    record_hierarchy.sort_by(|left, right| left.record.cmp(&right.record));
 
     CanonicalIr {
         ir_version: IrVersion::current(),
@@ -1086,6 +1123,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         operational_indexes: lower_operational_indexes(package),
         roles,
         role_assignments,
+        record_hierarchy,
         records,
         events,
         actions: sorted_named_items(

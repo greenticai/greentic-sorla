@@ -67,6 +67,9 @@ records:
   - name: lab_id
     type: uuid
     sensitive: false
+    references:
+      record: lab
+      field: lab_id
   - name: user_id
     type: uuid
     sensitive: false
@@ -148,6 +151,12 @@ operational_indexes:
     used_by:
       agent_endpoint: join_waiting_list
     requires_index: waiting_list_entry_lab_email_unique
+record_hierarchy:
+  lab:
+    main: true
+  waiting_list_entry:
+    parent: lab
+    field: lab_id
 metrics:
 - name: number_in_waiting_list
   label: Number in waiting list

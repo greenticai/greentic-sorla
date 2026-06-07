@@ -54,10 +54,37 @@ pub struct PromptSessionState {
 #[serde(rename_all = "kebab-case")]
 pub enum PromptPhase {
     AwaitingBusinessPrompt,
+    ExtractingDomainModel,
+    ReviewingDomainModel,
+    AskingTargetedQuestions,
+    CompilingExpandedPlan,
+    ReviewingExpandedPlan,
+    GeneratingAnswers,
     AskingQuestions,
     ReviewingDesignPlan,
     ReadyToGenerateAnswers,
     Completed,
+}
+
+impl PromptPhase {
+    pub fn is_question_phase(self) -> bool {
+        matches!(self, Self::AskingTargetedQuestions | Self::AskingQuestions)
+    }
+
+    pub fn is_review_phase(self) -> bool {
+        matches!(
+            self,
+            Self::ReviewingDomainModel
+                | Self::ReviewingExpandedPlan
+                | Self::ReviewingDesignPlan
+                | Self::ReadyToGenerateAnswers
+                | Self::GeneratingAnswers
+        )
+    }
+
+    pub fn is_generation_phase(self) -> bool {
+        matches!(self, Self::ReadyToGenerateAnswers | Self::GeneratingAnswers)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
