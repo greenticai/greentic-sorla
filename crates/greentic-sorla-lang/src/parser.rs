@@ -42,6 +42,7 @@ fn validate_package(package: &Package) -> Result<Vec<ParseWarning>, String> {
     }
 
     validate_record_references(package)?;
+    validate_record_hierarchy(package)?;
     validate_event_references(package)?;
     validate_projection_references(package)?;
     validate_views(package)?;
@@ -384,6 +385,51 @@ fn validate_record_references(package: &Package) -> Result<(), String> {
                 "records[{record_index}].fields: duplicate field name in record `{}`",
                 record.name
             ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_record_hierarchy(package: &Package) -> Result<(), String> {
+    let record_names = declared_names(package.records.iter().map(|record| record.name.as_str()));
+    for (record, hierarchy) in &package.record_hierarchy {
+        let path = format!("record_hierarchy.{record}");
+        require_non_empty(record, &path, "record hierarchy record")?;
+        if !record_names.contains(record) {
+            return Err(format!("{path}: unknown hierarchy record `{record}`"));
+        }
+
+        match (&hierarchy.parent, &hierarchy.field) {
+            (Some(parent), Some(field)) => {
+                require_non_empty(parent, &format!("{path}.parent"), "parent record")?;
+                require_non_empty(field, &format!("{path}.field"), "parent field")?;
+                if !record_names.contains(parent) {
+                    return Err(format!("{path}.parent: unknown parent record `{parent}`"));
+                }
+                let child_record = package
+                    .records
+                    .iter()
+                    .find(|candidate| candidate.name == *record)
+                    .expect("record existence checked above");
+                let child_fields =
+                    declared_names(child_record.fields.iter().map(|field| field.name.as_str()));
+                if !child_fields.contains(field) {
+                    return Err(format!(
+                        "{path}.field: unknown child field `{field}` on record `{record}`"
+                    ));
+                }
+            }
+            (None, None) => {}
+            (Some(_), None) => {
+                return Err(format!(
+                    "{path}.field: hierarchy child record with `parent` must also declare `field`"
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(format!(
+                    "{path}.parent: hierarchy child record with `field` must also declare `parent`"
+                ));
+            }
         }
     }
     Ok(())
@@ -2260,5 +2306,65 @@ records:
 
         assert!(err.contains("policies[0].allow.operations"));
         assert!(err.contains("ApproveLeaseTransfer"));
+    }
+
+    #[test]
+    fn parses_and_validates_record_hierarchy() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: hierarchy
+  version: 0.1.0
+records:
+  - name: lab
+    source: native
+    fields:
+      - name: lab_id
+        type: uuid
+  - name: waiting_list_entry
+    source: native
+    fields:
+      - name: entry_id
+        type: uuid
+      - name: lab_id
+        type: uuid
+record_hierarchy:
+  lab:
+    main: true
+  waiting_list_entry:
+    parent: lab
+    field: lab_id
+"#,
+        )
+        .expect("record hierarchy should parse");
+
+        assert!(parsed.package.record_hierarchy["lab"].main);
+        assert_eq!(
+            parsed.package.record_hierarchy["waiting_list_entry"]
+                .parent
+                .as_deref(),
+            Some("lab")
+        );
+
+        let err = parse_package(
+            r#"
+package:
+  name: bad-hierarchy
+  version: 0.1.0
+records:
+  - name: lab
+    source: native
+    fields:
+      - name: lab_id
+        type: uuid
+record_hierarchy:
+  waiting_list_entry:
+    parent: lab
+    field: lab_id
+"#,
+        )
+        .expect_err("unknown hierarchy record should fail");
+
+        assert!(err.contains("record_hierarchy.waiting_list_entry"));
     }
 }
