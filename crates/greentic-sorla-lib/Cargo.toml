@@ -21,7 +21,7 @@ default = ["std", "pack-zip", "cli"]
 std = []
 wasm = []
 pack-zip = ["greentic-sorla-pack/pack-zip"]
-cli = ["dep:greentic-qa-lib", "dep:ureq"]
+cli = ["dep:greentic-llm", "dep:greentic-qa-lib", "dep:tokio"]
 
 [dependencies]
 ciborium.workspace = true
@@ -29,11 +29,12 @@ clap.workspace = true
 greentic-sorla-pack = { version = "0.1.13", path = "../greentic-sorla-pack", default-features = false }
 greentic-sorla-ir.workspace = true
 greentic-sorla-lang.workspace = true
+greentic-llm = { workspace = true, optional = true }
 greentic-qa-lib = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
 sha2.workspace = true
-ureq = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]

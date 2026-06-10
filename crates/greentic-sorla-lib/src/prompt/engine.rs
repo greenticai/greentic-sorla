@@ -185,9 +185,9 @@ where
                 session.draft_model = Some(model_output.draft);
                 session.questions = model_output.questions;
                 if session.questions.is_empty() {
-                    session.phase = PromptPhase::ReviewingDesignPlan;
+                    session.phase = PromptPhase::ReviewingDomainModel;
                 } else {
-                    session.phase = PromptPhase::AskingQuestions;
+                    session.phase = PromptPhase::AskingTargetedQuestions;
                 }
                 let next_questions = next_questions_for_session(&session);
                 if next_questions.is_empty() && !session_has_substantial_draft(&session) {
@@ -195,10 +195,10 @@ where
                 }
                 let next_questions = next_questions_for_session(&session);
                 let design_plan = if next_questions.is_empty() {
-                    session.phase = PromptPhase::ReviewingDesignPlan;
+                    session.phase = PromptPhase::ReviewingDomainModel;
                     session.draft_model.clone()
                 } else {
-                    session.phase = PromptPhase::AskingQuestions;
+                    session.phase = PromptPhase::AskingTargetedQuestions;
                     None
                 };
 
@@ -210,9 +210,9 @@ where
                     answers_document: None,
                 })
             }
-            PromptPhase::AskingQuestions => {
+            PromptPhase::AskingTargetedQuestions | PromptPhase::AskingQuestions => {
                 if should_generate_now(&input.user_message) {
-                    session.phase = PromptPhase::ReadyToGenerateAnswers;
+                    session.phase = PromptPhase::GeneratingAnswers;
                     let answers = self.generate_answers(session.clone())?;
                     session.phase = PromptPhase::Completed;
                     return Ok(PromptTurnOutput {
@@ -225,7 +225,7 @@ where
                 }
 
                 let Some(question) = next_questions_for_session(&session).into_iter().next() else {
-                    session.phase = PromptPhase::ReviewingDesignPlan;
+                    session.phase = PromptPhase::ReviewingDomainModel;
                     let design_plan = session.draft_model.clone();
                     return Ok(PromptTurnOutput {
                         session,
@@ -249,7 +249,7 @@ where
                 let next_questions = next_questions_for_session(&session);
                 if next_questions.is_empty() {
                     if session_has_substantial_draft(&session) {
-                        session.phase = PromptPhase::ReviewingDesignPlan;
+                        session.phase = PromptPhase::ReviewingDomainModel;
                     } else {
                         let llm_config = session.llm.clone().unwrap_or_else(default_llm_config);
                         apply_planner_output_if_needed(
@@ -259,19 +259,19 @@ where
                             false,
                         )?;
                         if next_questions_for_session(&session).is_empty() {
-                            session.phase = PromptPhase::ReviewingDesignPlan;
+                            session.phase = PromptPhase::ReviewingDomainModel;
                         }
                     }
                 }
                 let next_questions = next_questions_for_session(&session);
 
                 Ok(PromptTurnOutput {
-                    assistant_message: if session.phase == PromptPhase::ReviewingDesignPlan {
+                    assistant_message: if session.phase.is_review_phase() {
                         "I have enough to propose a draft design plan.".to_string()
                     } else {
                         "Thanks. I adjusted the draft and have one more question.".to_string()
                     },
-                    design_plan: if session.phase == PromptPhase::ReviewingDesignPlan {
+                    design_plan: if session.phase.is_review_phase() {
                         session.draft_model.clone()
                     } else {
                         None
@@ -281,8 +281,12 @@ where
                     session,
                 })
             }
-            PromptPhase::ReviewingDesignPlan | PromptPhase::ReadyToGenerateAnswers => {
-                session.phase = PromptPhase::ReadyToGenerateAnswers;
+            PromptPhase::ReviewingDomainModel
+            | PromptPhase::ReviewingExpandedPlan
+            | PromptPhase::ReviewingDesignPlan
+            | PromptPhase::ReadyToGenerateAnswers
+            | PromptPhase::GeneratingAnswers => {
+                session.phase = PromptPhase::GeneratingAnswers;
                 let answers = self.generate_answers(session.clone())?;
                 session.phase = PromptPhase::Completed;
                 Ok(PromptTurnOutput {
@@ -300,6 +304,16 @@ where
                 design_plan: None,
                 answers_document: None,
             }),
+            PromptPhase::ExtractingDomainModel | PromptPhase::CompilingExpandedPlan => {
+                session.phase = PromptPhase::ReviewingDomainModel;
+                Ok(PromptTurnOutput {
+                    session,
+                    assistant_message: "Review the draft design plan.".to_string(),
+                    next_questions: Vec::new(),
+                    design_plan: None,
+                    answers_document: None,
+                })
+            }
         }
     }
 
@@ -1197,42 +1211,84 @@ fn normalize_record_field_references(
     else {
         return;
     };
-    for field in records
-        .iter_mut()
-        .filter_map(|record| record.get_mut("fields"))
-        .filter_map(serde_json::Value::as_array_mut)
-        .flat_map(|fields| fields.iter_mut())
-    {
-        let Some(field_map) = field.as_object_mut() else {
-            continue;
-        };
-        let Some(reference) = field_map
-            .get_mut("references")
-            .and_then(serde_json::Value::as_object_mut)
+    for record in records.iter_mut() {
+        let current_record = record
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let Some(fields) = record
+            .get_mut("fields")
+            .and_then(serde_json::Value::as_array_mut)
         else {
             continue;
         };
-        let Some(record) = reference
-            .get("record")
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|record| !record.is_empty())
-        else {
-            field_map.remove("references");
-            continue;
-        };
-        let has_field = reference
-            .get("field")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|field| !field.trim().is_empty());
-        if has_field {
-            continue;
+        for field in fields {
+            let Some(field_map) = field.as_object_mut() else {
+                continue;
+            };
+            if !field_map.contains_key("references")
+                && let Some(reference) =
+                    inferred_field_reference(field_map, record_fields, &current_record)
+            {
+                field_map.insert("references".to_string(), reference);
+            }
+            let Some(reference) = field_map
+                .get_mut("references")
+                .and_then(serde_json::Value::as_object_mut)
+            else {
+                continue;
+            };
+            let Some(record) = reference
+                .get("record")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|record| !record.is_empty())
+            else {
+                field_map.remove("references");
+                continue;
+            };
+            let has_field = reference
+                .get("field")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|field| !field.trim().is_empty());
+            if has_field {
+                continue;
+            }
+            let field = record_fields
+                .primary_field(record)
+                .unwrap_or_else(|| "id".to_string());
+            reference.insert("field".to_string(), serde_json::Value::String(field));
         }
-        let field = record_fields
-            .primary_field(record)
-            .unwrap_or_else(|| "id".to_string());
-        reference.insert("field".to_string(), serde_json::Value::String(field));
     }
+}
+
+fn inferred_field_reference(
+    field_map: &serde_json::Map<String, serde_json::Value>,
+    record_fields: &RecordFieldCatalog,
+    current_record: &str,
+) -> Option<serde_json::Value> {
+    let field_name = field_map
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)?;
+    let type_name = field_map
+        .get("type")
+        .or_else(|| field_map.get("type_name"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if !matches!(type_name, "uuid" | "string" | "") || !field_name.ends_with("_id") {
+        return None;
+    }
+    let record = field_name.trim_end_matches("_id");
+    if record.is_empty() || record == current_record {
+        return None;
+    }
+    let target_field = record_fields.primary_field(record)?;
+    Some(serde_json::json!({
+        "record": record,
+        "field": target_field
+    }))
 }
 
 fn normalize_metric_items(
@@ -3550,7 +3606,7 @@ fn waiting_list_answers_from_draft() -> serde_json::Value {
                     "source": "native",
                     "fields": [
                         { "name": "entry_id", "type": "uuid", "required": true, "sensitive": false, "rules": { "unique": true } },
-                        { "name": "lab_id", "type": "uuid", "required": true, "sensitive": false },
+                        { "name": "lab_id", "type": "uuid", "required": true, "sensitive": false, "references": { "record": "lab", "field": "lab_id" } },
                         { "name": "user_id", "type": "uuid", "required": true, "sensitive": false },
                         { "name": "email", "type": "email", "required": true, "sensitive": false, "rules": { "max_length": 320 } },
                         { "name": "name", "type": "string", "required": true, "sensitive": false, "rules": { "min_length": 1, "max_length": 160 } },
@@ -3562,6 +3618,10 @@ fn waiting_list_answers_from_draft() -> serde_json::Value {
                     ]
                 }
             ]
+        },
+        "record_hierarchy": {
+            "lab": { "main": true },
+            "waiting_list_entry": { "parent": "lab", "field": "lab_id" }
         },
         "actions": [
             { "name": "join_waiting_list", "description": "Add a user to a lab waiting list once by email, optionally using an invitation code.", "risk": "medium" },
@@ -4245,7 +4305,7 @@ mod tests {
                 user_message: "We manage rental properties for landlords and tenants.".to_string(),
             })
             .expect("business prompt accepted");
-        assert_eq!(output.session.phase, PromptPhase::AskingQuestions);
+        assert_eq!(output.session.phase, PromptPhase::AskingTargetedQuestions);
         assert_eq!(output.next_questions[0].id, "lease.multiple_tenants");
 
         let encoded = serde_json::to_string(&output.session).expect("session serializes");
@@ -4575,7 +4635,7 @@ mod tests {
             .unwrap();
 
         assert!(output.next_questions.is_empty());
-        assert_eq!(output.session.phase, PromptPhase::ReviewingDesignPlan);
+        assert_eq!(output.session.phase, PromptPhase::ReviewingDomainModel);
         assert_eq!(engine.llm.calls.get(), 2);
     }
 
@@ -4591,7 +4651,7 @@ mod tests {
         let engine = DefaultPromptAuthoringEngine::new(NoPlannerLlm);
         let session = PromptSessionState {
             session_id: "substantial-draft-session".to_string(),
-            phase: PromptPhase::AskingQuestions,
+            phase: PromptPhase::AskingTargetedQuestions,
             llm: Some(LlmCapabilityConfig {
                 provider: "openai".to_string(),
                 model: None,
@@ -4652,7 +4712,7 @@ mod tests {
             })
             .expect("substantial draft should advance without planner");
 
-        assert_eq!(output.session.phase, PromptPhase::ReviewingDesignPlan);
+        assert_eq!(output.session.phase, PromptPhase::ReviewingDomainModel);
         assert!(output.next_questions.is_empty());
     }
 
@@ -5227,6 +5287,27 @@ mod tests {
         let error = crate::normalize_answers(answers, NormalizeOptions)
             .expect_err("semantic references may still be invalid");
         assert!(!error.contains("missing field `field`"));
+    }
+
+    #[test]
+    fn generated_answers_normalizer_infers_conventional_record_references() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["records"]["items"][1]["fields"][1]
+            .as_object_mut()
+            .unwrap()
+            .remove("references");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(
+            answers["records"]["items"][1]["fields"][1]["references"],
+            serde_json::json!({
+                "record": "lab",
+                "field": "lab_id"
+            })
+        );
+        crate::normalize_answers(answers, NormalizeOptions)
+            .expect("inferred record reference should validate");
     }
 
     #[test]

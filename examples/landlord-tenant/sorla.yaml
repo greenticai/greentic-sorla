@@ -725,6 +725,26 @@ projections:
     record: MaintenanceRequest
     source_event: MaintenanceRequestCreated
     mode: current-state
+record_hierarchy:
+  Building:
+    parent: Landlord
+    field: landlord_id
+  Landlord:
+    main: true
+  MaintenanceRequest:
+    parent: Unit
+    field: unit_id
+  Payment:
+    parent: Tenancy
+    field: tenancy_id
+  Tenancy:
+    parent: Tenant
+    field: tenant_id
+  Tenant:
+    main: true
+  Unit:
+    parent: Building
+    field: building_id
 metrics:
   - name: active_tenancies
     i18n_key: examples.landlord_tenant_sor.metrics.active_tenancies

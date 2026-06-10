@@ -6189,6 +6189,12 @@ fn agent_gateway_record_hierarchy(ir: &CanonicalIr) -> Vec<AgentGatewayRecordHie
         }
     }
 
+    let explicit_by_record = ir
+        .record_hierarchy
+        .iter()
+        .map(|entry| (entry.record.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+
     let mut hierarchy = ir
         .records
         .iter()
@@ -6209,6 +6215,18 @@ fn agent_gateway_record_hierarchy(ir: &CanonicalIr) -> Vec<AgentGatewayRecordHie
                     })
                 })
                 .collect::<Vec<_>>();
+            if let Some(explicit) = explicit_by_record.get(record.name.as_str()) {
+                for parent in &explicit.parents {
+                    let relationship = relationship_by_child_field
+                        .get(&(record.name.clone(), parent.field.clone()))
+                        .cloned();
+                    parents.push(AgentGatewayRecordParentRef {
+                        record: parent.record.clone(),
+                        field: parent.field.clone(),
+                        relationship,
+                    });
+                }
+            }
             parents.sort_by(|left, right| {
                 left.record
                     .cmp(&right.record)
@@ -6216,9 +6234,13 @@ fn agent_gateway_record_hierarchy(ir: &CanonicalIr) -> Vec<AgentGatewayRecordHie
             });
             parents
                 .dedup_by(|left, right| left.record == right.record && left.field == right.field);
+            let main = explicit_by_record
+                .get(record.name.as_str())
+                .map(|entry| entry.main)
+                .unwrap_or_else(|| parents.is_empty());
             AgentGatewayRecordHierarchyRef {
                 record: record.name.clone(),
-                main: parents.is_empty(),
+                main,
                 parents,
             }
         })
@@ -6787,6 +6809,61 @@ policies:
             context: team.building_ids
 "#
         .trim_start()
+    }
+
+    #[test]
+    fn agent_gateway_uses_declared_record_hierarchy() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: lab-waiting-list
+  version: 0.1.0
+records:
+  - name: lab
+    source: native
+    fields:
+      - name: lab_id
+        type: uuid
+      - name: name
+        type: string
+  - name: waiting_list_entry
+    source: native
+    fields:
+      - name: entry_id
+        type: uuid
+      - name: lab_id
+        type: uuid
+      - name: email
+        type: email
+record_hierarchy:
+  lab:
+    main: true
+  waiting_list_entry:
+    parent: lab
+    field: lab_id
+"#,
+        )
+        .expect("hierarchy package should parse");
+        let ir = lower_package(&parsed.package);
+        let gateway = agent_gateway_handoff_manifest(&ir);
+
+        let lab = gateway
+            .record_hierarchy
+            .iter()
+            .find(|entry| entry.record == "lab")
+            .expect("lab hierarchy entry");
+        assert!(lab.main);
+        assert!(lab.parents.is_empty());
+
+        let waiting_list = gateway
+            .record_hierarchy
+            .iter()
+            .find(|entry| entry.record == "waiting_list_entry")
+            .expect("waiting list hierarchy entry");
+        assert!(!waiting_list.main);
+        assert_eq!(waiting_list.parents.len(), 1);
+        assert_eq!(waiting_list.parents[0].record, "lab");
+        assert_eq!(waiting_list.parents[0].field, "lab_id");
     }
 
     #[test]

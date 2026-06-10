@@ -42,6 +42,7 @@ mod embedded_i18n {
     include!(concat!(env!("OUT_DIR"), "/embedded_i18n.rs"));
 }
 
+pub mod compiler;
 pub mod prompt;
 
 use crate::prompt::PromptAuthoringEngine;
@@ -1009,6 +1010,9 @@ struct WizardArgs {
     /// Apply a saved answers document.
     #[arg(long, value_name = "FILE")]
     answers: Option<PathBuf>,
+    /// Write compiler diagnostics produced while applying answers.
+    #[arg(long, value_name = "FILE")]
+    diagnostics_out: Option<PathBuf>,
     /// Override the deterministic .gtpack path generated next to sorla.yaml.
     #[arg(long, value_name = "FILE")]
     pack_out: Option<PathBuf>,
@@ -1182,6 +1186,8 @@ struct AnswersDocument {
     #[serde(default)]
     operational_indexes: Option<serde_json::Value>,
     #[serde(default)]
+    record_hierarchy: BTreeMap<String, RecordHierarchyAnswer>,
+    #[serde(default)]
     roles: Vec<RoleAnswer>,
     #[serde(default)]
     metrics: Option<MetricAnswers>,
@@ -1227,6 +1233,16 @@ struct RecordAnswers {
     external_ref_system: Option<String>,
     #[serde(default)]
     items: Vec<RecordItemAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct RecordHierarchyAnswer {
+    #[serde(default)]
+    main: bool,
+    #[serde(default)]
+    parent: Option<String>,
+    #[serde(default)]
+    field: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1826,6 +1842,8 @@ struct ResolvedAnswers {
     #[serde(default)]
     record_items: Vec<RecordItemAnswer>,
     #[serde(default)]
+    record_hierarchy: BTreeMap<String, RecordHierarchyAnswer>,
+    #[serde(default)]
     ontology: Option<OntologyAnswers>,
     #[serde(default)]
     semantic_aliases: Option<SemanticAliasesAnswer>,
@@ -1887,8 +1905,7 @@ pub fn schema_for_answers() -> Result<serde_json::Value, SorlaError> {
 }
 
 pub fn apply_answers(input: ApplyAnswersInput) -> Result<ApplyAnswersOutput, SorlaError> {
-    let answers: AnswersDocument = serde_json::from_value(input.answers)
-        .map_err(|err| format!("failed to parse answers document: {err}"))?;
+    let answers = answers_document_from_input(input.answers)?;
     apply_answers_document(answers, input.pack_out).map(ApplyAnswersOutput::from)
 }
 
@@ -1906,8 +1923,7 @@ pub fn normalize_answers(
     input: serde_json::Value,
     _options: NormalizeOptions,
 ) -> Result<NormalizedSorlaModel, SorlaError> {
-    let answers: AnswersDocument = serde_json::from_value(input)
-        .map_err(|err| format!("failed to parse answers document: {err}"))?;
+    let answers = answers_document_from_input(input)?;
     let schema = default_schema();
     validate_answers_document(&answers, &schema)?;
     let resolved = match answers.flow.as_str() {
@@ -1932,6 +1948,323 @@ pub fn normalize_answers(
         source_yaml,
         normalized_answers,
     })
+}
+
+fn answers_document_from_input(input: serde_json::Value) -> Result<AnswersDocument, SorlaError> {
+    if prompt::is_answers_v2_json(&input) {
+        let answers: prompt::AnswersV2 = serde_json::from_value(input)
+            .map_err(|err| format!("failed to parse answers v2 document: {err}"))?;
+        prompt::validate_answers_v2(&answers)
+            .map_err(|err| format!("failed to validate answers v2 document: {err}"))?;
+        return answers_document_from_v2(&answers);
+    }
+    serde_json::from_value(input).map_err(|err| format!("failed to parse answers document: {err}"))
+}
+
+fn diagnostics_for_answers_input(
+    input: &serde_json::Value,
+) -> Result<Vec<compiler::CompileDiagnostic>, SorlaError> {
+    if !prompt::is_answers_v2_json(input) {
+        return Ok(Vec::new());
+    }
+    let answers: prompt::AnswersV2 = serde_json::from_value(input.clone())
+        .map_err(|err| format!("failed to parse answers v2 document: {err}"))?;
+    prompt::validate_answers_v2(&answers)
+        .map_err(|err| format!("failed to validate answers v2 document: {err}"))?;
+    compiler::compile_answers_v2(&answers)
+        .map(|plan| plan.diagnostics)
+        .map_err(|err| err.to_string())
+}
+
+fn answers_document_from_v2(answers: &prompt::AnswersV2) -> Result<AnswersDocument, SorlaError> {
+    let plan = compiler::compile_answers_v2(answers).map_err(|err| err.to_string())?;
+    let package_name = v2_package_name(answers, &plan);
+    let record_items = plan
+        .records
+        .iter()
+        .map(v2_record_item_answer)
+        .collect::<Vec<_>>();
+    let record_hierarchy = infer_record_hierarchy_answers(&record_items);
+    let actions = plan
+        .actions
+        .iter()
+        .map(|action| NamedAnswer {
+            name: action.name.clone(),
+            ..NamedAnswer::default()
+        })
+        .collect::<Vec<_>>();
+    let events = if plan.events.is_empty() {
+        None
+    } else {
+        Some(EventAnswers {
+            enabled: Some(true),
+            items: plan
+                .events
+                .iter()
+                .filter_map(|event| {
+                    event.record.as_ref().map(|record| EventItemAnswer {
+                        name: event.name.clone(),
+                        i18n_key: None,
+                        record: record.clone(),
+                        kind: Some("domain".to_string()),
+                        emits: Vec::new(),
+                    })
+                })
+                .collect(),
+        })
+    };
+    let projections = if plan.projections.is_empty() {
+        None
+    } else {
+        Some(ProjectionAnswers {
+            mode: Some("current-state".to_string()),
+            items: plan
+                .projections
+                .iter()
+                .filter_map(|projection| {
+                    projection
+                        .record
+                        .as_ref()
+                        .map(|record| ProjectionItemAnswer {
+                            name: projection.name.clone(),
+                            i18n_key: None,
+                            record: record.clone(),
+                            source_event: plan
+                                .events
+                                .iter()
+                                .find(|event| event.record.as_deref() == Some(record))
+                                .map(|event| event.name.clone())
+                                .unwrap_or_default(),
+                            mode: Some("current-state".to_string()),
+                        })
+                })
+                .collect(),
+        })
+    };
+    let metrics = if plan.metrics.is_empty() {
+        None
+    } else {
+        Some(MetricAnswers {
+            enabled: Some(true),
+            items: plan
+                .metrics
+                .iter()
+                .map(|metric| MetricItemAnswer {
+                    name: metric.name.clone(),
+                    i18n_key: None,
+                    label: Some(title_from_identifier(&metric.name)),
+                    description: None,
+                    source: metric.record.as_ref().map(|record| MetricSourceAnswer {
+                        kind: "record".to_string(),
+                        name: record.clone(),
+                    }),
+                    measure: Some(MetricMeasureAnswer {
+                        aggregate: "count".to_string(),
+                        field: None,
+                    }),
+                    filters: Vec::new(),
+                    time: None,
+                    window: None,
+                    unit: None,
+                    dimensions: Vec::new(),
+                    formula: None,
+                    depends_on: Vec::new(),
+                    target: None,
+                })
+                .collect(),
+        })
+    };
+    Ok(AnswersDocument {
+        schema_version: default_schema().schema_version.to_string(),
+        flow: match answers.mode {
+            prompt::AnswersMode::Create => "create",
+            prompt::AnswersMode::Update => "update",
+        }
+        .to_string(),
+        output_dir: format!("target/{package_name}-generated"),
+        locale: Some("en".to_string()),
+        package: Some(PackageAnswers {
+            name: Some(package_name.clone()),
+            version: Some("0.1.0".to_string()),
+            i18n_key: None,
+        }),
+        providers: Some(ProviderAnswers {
+            storage_category: Some("storage".to_string()),
+            external_ref_category: None,
+            hints: None,
+        }),
+        records: Some(RecordAnswers {
+            default_source: Some("native".to_string()),
+            external_ref_system: None,
+            items: record_items,
+        }),
+        ontology: None,
+        semantic_aliases: None,
+        entity_linking: None,
+        retrieval_bindings: None,
+        actions,
+        events,
+        projections,
+        operational_indexes: None,
+        record_hierarchy,
+        roles: Vec::new(),
+        metrics,
+        provider_requirements: Vec::new(),
+        policies: plan
+            .policies
+            .iter()
+            .map(|policy| NamedAnswer {
+                name: policy.name.clone(),
+                ..NamedAnswer::default()
+            })
+            .collect(),
+        approvals: Vec::new(),
+        migrations: Some(MigrationAnswers {
+            compatibility: Some("additive".to_string()),
+            items: plan
+                .migrations
+                .iter()
+                .map(|migration| MigrationItemAnswer {
+                    name: migration.name.clone(),
+                    compatibility: Some(migration.compatibility.clone()),
+                    projection_updates: Vec::new(),
+                    backfills: Vec::new(),
+                    idempotence_key: None,
+                    notes: None,
+                })
+                .collect(),
+        }),
+        agent_endpoints: Some(AgentEndpointAnswers {
+            enabled: Some(true),
+            ids: Some(
+                plan.agent_endpoints
+                    .iter()
+                    .map(|endpoint| endpoint.id.clone())
+                    .collect(),
+            ),
+            default_risk: Some("medium".to_string()),
+            default_approval: Some("policy-driven".to_string()),
+            exports: Some(vec![
+                "openapi".to_string(),
+                "arazzo".to_string(),
+                "mcp".to_string(),
+                "llms_txt".to_string(),
+            ]),
+            provider_category: Some("storage".to_string()),
+            items: Vec::new(),
+        }),
+        output: None,
+    })
+}
+
+fn v2_record_item_answer(record: &compiler::RecordPlan) -> RecordItemAnswer {
+    let mut fields = record
+        .fields
+        .iter()
+        .map(|field| FieldAnswer {
+            name: field.name.clone(),
+            i18n_key: None,
+            type_name: field.field_type.clone(),
+            required: Some(field.required),
+            optional: None,
+            sensitive: None,
+            enum_values: field.values.clone(),
+            default: serde_json::Value::Null,
+            rules: SorlaFieldValidationRulesView::default(),
+            references: None,
+            authority: None,
+            description: field.description.clone(),
+        })
+        .collect::<Vec<_>>();
+    if !fields.iter().any(|field| field.name == "id") {
+        fields.insert(
+            0,
+            FieldAnswer {
+                name: "id".to_string(),
+                i18n_key: None,
+                type_name: "uuid".to_string(),
+                required: Some(true),
+                optional: None,
+                sensitive: None,
+                enum_values: Vec::new(),
+                default: serde_json::Value::Null,
+                rules: SorlaFieldValidationRulesView {
+                    unique: true,
+                    ..SorlaFieldValidationRulesView::default()
+                },
+                references: None,
+                authority: None,
+                description: None,
+            },
+        );
+    }
+    for relationship in &record.relationships {
+        if fields.iter().any(|field| field.name == relationship.name) {
+            continue;
+        }
+        fields.push(FieldAnswer {
+            name: relationship.name.clone(),
+            i18n_key: None,
+            type_name: "uuid".to_string(),
+            required: Some(relationship.required),
+            optional: None,
+            sensitive: None,
+            enum_values: Vec::new(),
+            default: serde_json::Value::Null,
+            rules: SorlaFieldValidationRulesView::default(),
+            references: Some(FieldReferenceAnswer {
+                record: relationship.target.clone(),
+                field: "id".to_string(),
+            }),
+            authority: None,
+            description: None,
+        });
+    }
+    RecordItemAnswer {
+        name: record.name.clone(),
+        i18n_key: None,
+        source: Some("native".to_string()),
+        external_ref: None,
+        access: RecordAccessAnswer::default(),
+        fields,
+    }
+}
+
+fn v2_package_name(answers: &prompt::AnswersV2, plan: &compiler::ExpandedSorlaPlan) -> String {
+    let seed = answers
+        .intent
+        .summary
+        .as_deref()
+        .or_else(|| plan.records.first().map(|record| record.name.as_str()))
+        .unwrap_or("semantic-sorla");
+    let slug = slugify_identifier(seed);
+    if slug.ends_with("-sor") {
+        slug
+    } else {
+        format!("{slug}-sor")
+    }
+}
+
+fn slugify_identifier(input: &str) -> String {
+    let mut slug = String::new();
+    let mut previous_dash = false;
+    for ch in input.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            previous_dash = false;
+        } else if !previous_dash && !slug.is_empty() {
+            slug.push('-');
+            previous_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        "semantic-sorla".to_string()
+    } else {
+        slug
+    }
 }
 
 pub fn parse_sorla_yaml(input: ParseSorlaInput) -> Result<ParseSorlaOutput, SorlaError> {
@@ -5112,10 +5445,9 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
 
     loop {
         let mut read_from_prompt = false;
-        let mut user_message = if matches!(
-            session.phase,
-            prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers
-        ) {
+        let mut user_message = if session.phase.is_review_phase()
+            || session.phase.is_generation_phase()
+        {
             if let Some(message) = initial_user_message.take() {
                 message
             } else {
@@ -5274,7 +5606,7 @@ fn print_resumed_prompt_state(
     fallback: &BTreeMap<String, String>,
 ) {
     match session.phase {
-        prompt::PromptPhase::AskingQuestions => {
+        prompt::PromptPhase::AskingTargetedQuestions | prompt::PromptPhase::AskingQuestions => {
             println!(
                 "{}",
                 catalog_text(
@@ -5302,7 +5634,11 @@ fn print_resumed_prompt_state(
                 );
             }
         }
-        prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers => {
+        prompt::PromptPhase::ReviewingDomainModel
+        | prompt::PromptPhase::ReviewingExpandedPlan
+        | prompt::PromptPhase::ReviewingDesignPlan
+        | prompt::PromptPhase::ReadyToGenerateAnswers
+        | prompt::PromptPhase::GeneratingAnswers => {
             println!(
                 "{}",
                 catalog_text(
@@ -5324,7 +5660,9 @@ fn print_resumed_prompt_state(
                 )
             );
         }
-        prompt::PromptPhase::AwaitingBusinessPrompt => {}
+        prompt::PromptPhase::AwaitingBusinessPrompt
+        | prompt::PromptPhase::ExtractingDomainModel
+        | prompt::PromptPhase::CompilingExpandedPlan => {}
     }
 }
 
@@ -5351,10 +5689,15 @@ fn resumed_next_questions(session: &prompt::PromptSessionState) -> Vec<&prompt::
 
 fn resumed_auto_user_message(session: &prompt::PromptSessionState) -> Option<String> {
     match session.phase {
-        prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers => {
-            Some("generate answers".to_string())
-        }
+        prompt::PromptPhase::ReviewingDomainModel
+        | prompt::PromptPhase::ReviewingExpandedPlan
+        | prompt::PromptPhase::ReviewingDesignPlan
+        | prompt::PromptPhase::ReadyToGenerateAnswers
+        | prompt::PromptPhase::GeneratingAnswers => Some("generate answers".to_string()),
         prompt::PromptPhase::AwaitingBusinessPrompt
+        | prompt::PromptPhase::ExtractingDomainModel
+        | prompt::PromptPhase::AskingTargetedQuestions
+        | prompt::PromptPhase::CompilingExpandedPlan
         | prompt::PromptPhase::AskingQuestions
         | prompt::PromptPhase::Completed => None,
     }
@@ -5551,15 +5894,7 @@ impl prompt::LlmCapability for CliPromptLlm {
             span.finish_with(prompt_token_usage_summary(response.usage.as_ref()));
             return Ok(response);
         }
-        if request.provider != "openai" {
-            let error = format!(
-                "unsupported prompt LLM provider `{}`; supported providers: openai, fake",
-                request.provider
-            );
-            span.fail(&error);
-            return Err(error);
-        }
-        match complete_openai_prompt(request, self.verbose) {
+        match complete_greentic_llm_prompt(request, self.verbose) {
             Ok(response) => {
                 span.finish_with(prompt_token_usage_summary(response.usage.as_ref()));
                 Ok(response)
@@ -5633,271 +5968,209 @@ fn prompt_optional_token_count(tokens: Option<u64>) -> String {
 }
 
 #[cfg(feature = "cli")]
-fn complete_openai_prompt(
+fn complete_greentic_llm_prompt(
     request: prompt::LlmRequest,
     verbose: PromptVerbose,
 ) -> Result<prompt::LlmResponse, SorlaError> {
-    let api_key = request
-        .api_key
-        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-        .ok_or_else(|| {
-            "OpenAI prompt provider requires --llm-api-key or OPENAI_API_KEY".to_string()
-        })?;
-    let model = request.model.unwrap_or_else(|| "gpt-4.1-mini".to_string());
-    let endpoint = request
-        .endpoint
-        .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_string());
-    let body = openai_prompt_request_body(
-        model.clone(),
+    use greentic_llm::{ChatRequest, LlmProvider, RigBackend};
+    use std::str::FromStr;
+
+    let provider = greentic_llm::ProviderKind::from_str(&request.provider)
+        .map_err(|error| prompt_llm_provider_error(&request.provider, &error))?;
+    let model = request
+        .model
+        .clone()
+        .unwrap_or_else(|| default_prompt_llm_model(provider));
+    let credential = prompt_llm_credential(provider, &request)?;
+    let messages = prompt_llm_chat_messages(
         request.system_prompt,
         request.messages,
         request.response_format,
     );
+    let span = verbose.start(format!(
+        "Greentic LLM {} request ({model})",
+        provider.as_str()
+    ));
 
-    let mut last_error = None;
-    for attempt in 0..OPENAI_PROMPT_MAX_ATTEMPTS {
-        let attempt_label = format!(
-            "OpenAI request attempt {}/{} ({model})",
-            attempt + 1,
-            OPENAI_PROMPT_MAX_ATTEMPTS
-        );
-        let span = verbose.start(attempt_label);
-        match complete_openai_prompt_attempt(&endpoint, &api_key, &body) {
-            Ok(response) => {
-                span.finish_with(prompt_token_usage_summary(response.usage.as_ref()));
-                return Ok(response);
-            }
-            Err(OpenaiPromptAttemptError { message, retryable })
-                if retryable && attempt + 1 < OPENAI_PROMPT_MAX_ATTEMPTS =>
-            {
-                let delay = openai_prompt_retry_delay(attempt);
-                span.finish_with(format!(
-                    "retryable error: {message}; retrying in {}",
-                    format_duration(delay)
-                ));
-                last_error = Some(message);
-                std::thread::sleep(delay);
-            }
-            Err(error) => {
-                span.fail(&error.message);
-                return Err(error.message);
-            }
+    let result = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("failed to create LLM runtime: {error}"))?
+        .block_on(async move {
+            let backend = RigBackend::new(provider, &model, &credential).map_err(|error| {
+                format!(
+                    "failed to create {} LLM backend: {error}",
+                    provider.as_str()
+                )
+            })?;
+            backend
+                .chat(ChatRequest {
+                    messages,
+                    tools: vec![],
+                    tool_choice: None,
+                    max_tokens: None,
+                    temperature: None,
+                })
+                .await
+                .map_err(|error| format!("{} LLM request failed: {error}", provider.as_str()))
+        });
+
+    match result {
+        Ok(response) => {
+            span.finish_with("completed through greentic-llm");
+            Ok(prompt::LlmResponse {
+                content: response.content,
+                usage: None,
+            })
+        }
+        Err(error) => {
+            span.fail(&error);
+            Err(error)
         }
     }
+}
 
-    Err(last_error.unwrap_or_else(|| "OpenAI prompt request failed".to_string()))
+#[cfg(not(feature = "cli"))]
+fn complete_greentic_llm_prompt(
+    _request: prompt::LlmRequest,
+    _verbose: PromptVerbose,
+) -> Result<prompt::LlmResponse, SorlaError> {
+    Err("Prompt LLM provider requires the `cli` feature".to_string())
 }
 
 #[cfg(feature = "cli")]
-const OPENAI_PROMPT_MAX_ATTEMPTS: usize = 4;
-
-#[cfg(feature = "cli")]
-const OPENAI_PROMPT_DEFAULT_TIMEOUT_SECS: u64 = 180;
-
-#[cfg(feature = "cli")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct OpenaiPromptAttemptError {
-    message: String,
-    retryable: bool,
+fn prompt_llm_provider_error(provider: &str, parse_error: &str) -> String {
+    let supported = greentic_llm::ProviderKind::all()
+        .iter()
+        .map(greentic_llm::ProviderKind::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "unsupported prompt LLM provider `{provider}` ({parse_error}); supported providers: {supported}, fake"
+    )
 }
 
 #[cfg(feature = "cli")]
-fn complete_openai_prompt_attempt(
-    endpoint: &str,
-    api_key: &str,
-    body: &serde_json::Value,
-) -> Result<prompt::LlmResponse, OpenaiPromptAttemptError> {
-    let mut response = ureq::post(endpoint)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json")
-        .config()
-        .timeout_per_call(Some(openai_prompt_request_timeout()))
-        .http_status_as_error(false)
-        .build()
-        .send_json(body)
-        .map_err(openai_request_error)?;
-    if !response.status().is_success() {
-        return Err(openai_status_error(response));
+fn default_prompt_llm_model(provider: greentic_llm::ProviderKind) -> String {
+    match provider {
+        greentic_llm::ProviderKind::Openai => "gpt-4.1-mini",
+        greentic_llm::ProviderKind::Anthropic => "claude-3-5-sonnet-latest",
+        greentic_llm::ProviderKind::Deepseek => "deepseek-chat",
+        greentic_llm::ProviderKind::Gemini => "gemini-1.5-pro",
+        greentic_llm::ProviderKind::Cohere => "command-r-plus",
+        greentic_llm::ProviderKind::Ollama => "llama3.1",
+        greentic_llm::ProviderKind::Groq => "llama-3.1-70b-versatile",
+        greentic_llm::ProviderKind::Perplexity => "sonar-pro",
+        greentic_llm::ProviderKind::Xai => "grok-2-latest",
     }
-    let value: serde_json::Value =
-        response
-            .body_mut()
-            .read_json()
-            .map_err(|err| OpenaiPromptAttemptError {
-                message: format!("OpenAI prompt response was not valid JSON: {err}"),
-                retryable: false,
-            })?;
-    let usage = openai_prompt_token_usage(&value);
-    let content = value["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| OpenaiPromptAttemptError {
-            message: format!("OpenAI prompt response did not contain message content: {value}"),
-            retryable: false,
-        })?
-        .to_string();
-    Ok(prompt::LlmResponse { content, usage })
+    .to_string()
 }
 
 #[cfg(feature = "cli")]
-fn openai_prompt_token_usage(value: &serde_json::Value) -> Option<prompt::LlmTokenUsage> {
-    let usage = value.get("usage")?;
-    Some(prompt::LlmTokenUsage {
-        prompt_tokens: usage
-            .get("prompt_tokens")
-            .or_else(|| usage.get("input_tokens"))
-            .and_then(serde_json::Value::as_u64),
-        completion_tokens: usage
-            .get("completion_tokens")
-            .or_else(|| usage.get("output_tokens"))
-            .and_then(serde_json::Value::as_u64),
-        total_tokens: usage
-            .get("total_tokens")
-            .and_then(serde_json::Value::as_u64),
+fn prompt_llm_credential(
+    provider: greentic_llm::ProviderKind,
+    request: &prompt::LlmRequest,
+) -> Result<greentic_llm::Credential, SorlaError> {
+    let api_key = request
+        .api_key
+        .clone()
+        .or_else(|| std::env::var("GREENTIC_LLM_API_KEY").ok())
+        .or_else(|| provider_api_key_env(provider).and_then(|name| std::env::var(name).ok()))
+        .or_else(|| (provider == greentic_llm::ProviderKind::Ollama).then(String::new))
+        .ok_or_else(|| {
+            let provider = provider.as_str();
+            let env_name = provider_api_key_env_name(provider);
+            format!(
+                "{provider} prompt provider requires --llm-api-key, GREENTIC_LLM_API_KEY, or {env_name}"
+            )
+        })?;
+    let base_url = request
+        .endpoint
+        .clone()
+        .or_else(|| std::env::var("GREENTIC_LLM_BASE_URL").ok())
+        .map(normalize_prompt_llm_base_url);
+    Ok(greentic_llm::Credential {
+        api_key,
+        base_url,
+        expires_at: None,
     })
 }
 
 #[cfg(feature = "cli")]
-fn openai_prompt_retry_delay(attempt: usize) -> Duration {
-    Duration::from_secs(1 << attempt.min(2))
+fn provider_api_key_env(provider: greentic_llm::ProviderKind) -> Option<&'static str> {
+    match provider {
+        greentic_llm::ProviderKind::Openai => Some("OPENAI_API_KEY"),
+        greentic_llm::ProviderKind::Anthropic => Some("ANTHROPIC_API_KEY"),
+        greentic_llm::ProviderKind::Deepseek => Some("DEEPSEEK_API_KEY"),
+        greentic_llm::ProviderKind::Gemini => Some("GEMINI_API_KEY"),
+        greentic_llm::ProviderKind::Cohere => Some("COHERE_API_KEY"),
+        greentic_llm::ProviderKind::Ollama => None,
+        greentic_llm::ProviderKind::Groq => Some("GROQ_API_KEY"),
+        greentic_llm::ProviderKind::Perplexity => Some("PERPLEXITY_API_KEY"),
+        greentic_llm::ProviderKind::Xai => Some("XAI_API_KEY"),
+    }
 }
 
 #[cfg(feature = "cli")]
-fn openai_prompt_request_timeout() -> Duration {
-    std::env::var("GREENTIC_SORLA_OPENAI_TIMEOUT_SECS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|seconds| *seconds > 0)
-        .map(Duration::from_secs)
-        .unwrap_or_else(|| Duration::from_secs(OPENAI_PROMPT_DEFAULT_TIMEOUT_SECS))
+fn provider_api_key_env_name(provider: &str) -> String {
+    format!("{}_API_KEY", provider.to_ascii_uppercase())
 }
 
 #[cfg(feature = "cli")]
-fn openai_prompt_request_body(
-    model: String,
+fn normalize_prompt_llm_base_url(endpoint: String) -> String {
+    endpoint
+        .trim_end_matches('/')
+        .trim_end_matches("/chat/completions")
+        .trim_end_matches("/responses")
+        .to_string()
+}
+
+#[cfg(feature = "cli")]
+fn prompt_llm_chat_messages(
     system_prompt: String,
     messages: Vec<prompt::LlmMessage>,
     response_format: Option<prompt::LlmResponseFormat>,
-) -> serde_json::Value {
-    let mut request_messages = vec![serde_json::json!({
-        "role": "system",
-        "content": system_prompt,
-    })];
-    request_messages.extend(messages.into_iter().map(|message| {
-        serde_json::json!({
-            "role": match message.role {
-                prompt::LlmRole::System => "system",
-                prompt::LlmRole::User => "user",
-                prompt::LlmRole::Assistant => "assistant",
-            },
-            "content": message.content,
-        })
-    }));
+) -> Vec<greentic_llm::ChatMessage> {
+    let mut chat_messages = vec![greentic_llm::ChatMessage {
+        role: greentic_llm::MessageRole::System,
+        content: prompt_llm_system_prompt(system_prompt, response_format),
+        images: vec![],
+    }];
+    chat_messages.extend(
+        messages
+            .into_iter()
+            .map(|message| greentic_llm::ChatMessage {
+                role: match message.role {
+                    prompt::LlmRole::System => greentic_llm::MessageRole::System,
+                    prompt::LlmRole::User => greentic_llm::MessageRole::User,
+                    prompt::LlmRole::Assistant => greentic_llm::MessageRole::Assistant,
+                },
+                content: message.content,
+                images: vec![],
+            }),
+    );
+    chat_messages
+}
 
-    let mut body = serde_json::json!({
-        "model": model,
-        "messages": request_messages,
-    });
+#[cfg(feature = "cli")]
+fn prompt_llm_system_prompt(
+    system_prompt: String,
+    response_format: Option<prompt::LlmResponseFormat>,
+) -> String {
     match response_format {
         Some(prompt::LlmResponseFormat::Json) => {
-            body["response_format"] = serde_json::json!({ "type": "json_object" });
+            format!("{system_prompt}\n\nReturn valid JSON only. Do not wrap it in markdown.")
         }
         Some(prompt::LlmResponseFormat::JsonSchema {
             name,
             schema,
             strict,
-        }) => {
-            body["response_format"] = serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": name,
-                    "strict": strict,
-                    "schema": schema
-                }
-            });
-        }
-        Some(prompt::LlmResponseFormat::Text) | None => {}
+        }) => format!(
+            "{system_prompt}\n\nReturn valid JSON only. Do not wrap it in markdown. The JSON must satisfy schema `{name}` with strict={strict}:\n{}",
+            serde_json::to_string_pretty(&schema).unwrap_or_else(|_| schema.to_string())
+        ),
+        Some(prompt::LlmResponseFormat::Text) | None => system_prompt,
     }
-    body
-}
-
-#[cfg(feature = "cli")]
-fn openai_request_error(error: ureq::Error) -> OpenaiPromptAttemptError {
-    OpenaiPromptAttemptError {
-        message: format!("OpenAI prompt request failed: {error}"),
-        retryable: true,
-    }
-}
-
-#[cfg(feature = "cli")]
-fn openai_status_error(mut response: ureq::http::Response<ureq::Body>) -> OpenaiPromptAttemptError {
-    let status = response.status();
-    let body = response.body_mut().read_to_string().unwrap_or_default();
-    let message = if body.trim().is_empty() {
-        format!("OpenAI prompt request failed with status {status}")
-    } else {
-        let message = summarize_openai_error_body(&body);
-        format!("OpenAI prompt request failed with status {status}: {message}")
-    };
-    OpenaiPromptAttemptError {
-        message,
-        retryable: openai_status_is_retryable(status.as_u16()),
-    }
-}
-
-#[cfg(feature = "cli")]
-fn summarize_openai_error_body(body: &str) -> String {
-    if let Some(message) = serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|value| {
-            value["error"]["message"]
-                .as_str()
-                .map(str::to_string)
-                .or_else(|| value["message"].as_str().map(str::to_string))
-        })
-    {
-        return message;
-    }
-    let trimmed = body.trim();
-    if trimmed.contains("<html") || trimmed.contains("<!DOCTYPE html") {
-        if let Some(title) = extract_html_title(trimmed) {
-            return format!("HTML error page: {title}");
-        }
-        return "HTML error page".to_string();
-    }
-    const MAX_ERROR_BODY_CHARS: usize = 500;
-    let compact = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
-    if compact.chars().count() > MAX_ERROR_BODY_CHARS {
-        format!(
-            "{}...",
-            compact
-                .chars()
-                .take(MAX_ERROR_BODY_CHARS)
-                .collect::<String>()
-        )
-    } else {
-        compact
-    }
-}
-
-#[cfg(feature = "cli")]
-fn extract_html_title(body: &str) -> Option<String> {
-    let lower = body.to_ascii_lowercase();
-    let start = lower.find("<title>")? + "<title>".len();
-    let end = lower[start..].find("</title>")? + start;
-    Some(body[start..end].trim().to_string()).filter(|title| !title.is_empty())
-}
-
-#[cfg(feature = "cli")]
-fn openai_status_is_retryable(status: u16) -> bool {
-    matches!(status, 408 | 409 | 425 | 429 | 500..=599)
-}
-
-#[cfg(not(feature = "cli"))]
-fn complete_openai_prompt(
-    _request: prompt::LlmRequest,
-    _verbose: PromptVerbose,
-) -> Result<prompt::LlmResponse, SorlaError> {
-    Err("OpenAI prompt provider requires the `cli` feature".to_string())
 }
 
 fn read_stdin_line(eof_message: &str) -> Result<String, String> {
@@ -6163,6 +6436,11 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
             if pack_out.is_some() {
                 return Err("`--pack-out` can only be used when applying answers or running the interactive wizard".to_string());
             }
+            if args.diagnostics_out.is_some() {
+                return Err(
+                    "`--diagnostics-out` can only be used when applying answers".to_string()
+                );
+            }
             let schema = default_schema_for_locale(&selected_locale(args.locale.as_deref(), None));
             let rendered = serde_json::to_string_pretty(&schema).map_err(|err| err.to_string())?;
             println!("{rendered}");
@@ -6171,8 +6449,18 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
         (false, Some(path)) => {
             let contents = fs::read_to_string(&path)
                 .map_err(|err| format!("failed to read answers file {}: {err}", path.display()))?;
-            let mut answers: AnswersDocument = serde_json::from_str(&contents)
+            let answers_value: serde_json::Value = serde_json::from_str(&contents)
                 .map_err(|err| format!("failed to parse answers file {}: {err}", path.display()))?;
+            if let Some(diagnostics_out) = &args.diagnostics_out {
+                let diagnostics = diagnostics_for_answers_input(&answers_value)?;
+                write_json_file(
+                    diagnostics_out,
+                    &diagnostics,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                )?;
+            }
+            let mut answers = answers_document_from_input(answers_value)?;
             if args.locale.is_some() {
                 answers.locale = args.locale;
             }
@@ -6184,7 +6472,14 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
         (true, Some(_)) => {
             Err("choose one wizard mode: use either `--schema` or `--answers <file>`".to_string())
         }
-        (false, None) => run_interactive_wizard(args.locale.as_deref(), pack_out),
+        (false, None) => {
+            if args.diagnostics_out.is_some() {
+                return Err(
+                    "`--diagnostics-out` can only be used when applying answers".to_string()
+                );
+            }
+            run_interactive_wizard(args.locale.as_deref(), pack_out)
+        }
     }
 }
 
@@ -8096,6 +8391,11 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
             .map(|records| records.items.clone())
             .unwrap_or_default(),
     );
+    let record_hierarchy = if answers.record_hierarchy.is_empty() {
+        infer_record_hierarchy_answers(&resolved_record_items)
+    } else {
+        answers.record_hierarchy.clone()
+    };
     apply_lifecycle_endpoint_defaults(&mut agent_endpoint_values.items, &resolved_record_items);
     let (resolved_event_items, resolved_projection_items) = normalize_events_and_projections(
         answers
@@ -8143,6 +8443,7 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
         external_ref_system,
         roles: answers.roles.clone(),
         record_items: resolved_record_items,
+        record_hierarchy,
         ontology: answers.ontology.clone(),
         semantic_aliases: answers.semantic_aliases.clone(),
         entity_linking: answers.entity_linking.clone(),
@@ -8292,6 +8593,11 @@ fn resolve_update_answers(
             })
             .unwrap_or_else(|| previous.record_items.clone()),
     );
+    let record_hierarchy = if answers.record_hierarchy.is_empty() {
+        infer_record_hierarchy_answers(&resolved_record_items)
+    } else {
+        answers.record_hierarchy.clone()
+    };
     apply_lifecycle_endpoint_defaults(&mut agent_endpoint_values.items, &resolved_record_items);
     let event_items = answers
         .events
@@ -8364,6 +8670,7 @@ fn resolve_update_answers(
             answers.roles.clone()
         },
         record_items: resolved_record_items,
+        record_hierarchy,
         ontology: answers.ontology.clone().or(previous.ontology),
         semantic_aliases: answers
             .semantic_aliases
@@ -9459,6 +9766,7 @@ fn has_rich_domain_answers(resolved: &ResolvedAnswers) -> bool {
         || !resolved.event_items.is_empty()
         || !resolved.projection_items.is_empty()
         || resolved.operational_indexes.is_some()
+        || !resolved.record_hierarchy.is_empty()
         || !resolved.metric_items.is_empty()
         || !resolved.provider_requirements.is_empty()
         || !resolved.policies.is_empty()
@@ -9498,6 +9806,7 @@ fn render_rich_package_yaml(resolved: &ResolvedAnswers) -> String {
     render_events(resolved, &mut lines);
     render_projections(resolved, &mut lines);
     render_operational_indexes(resolved, &mut lines);
+    render_record_hierarchy(resolved, &mut lines);
     render_metrics(resolved, &mut lines);
     render_provider_requirements(resolved, &mut lines);
     render_named_section("policies", &resolved.policies, &mut lines);
@@ -9514,6 +9823,68 @@ fn render_operational_indexes(resolved: &ResolvedAnswers, lines: &mut Vec<String
     };
     lines.push("operational_indexes:".to_string());
     render_json_value(operational_indexes, 2, lines);
+}
+
+fn render_record_hierarchy(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if resolved.record_hierarchy.is_empty() {
+        return;
+    }
+
+    lines.push("record_hierarchy:".to_string());
+    for (record, hierarchy) in &resolved.record_hierarchy {
+        lines.push(format!("  {}:", yaml_scalar_string(record)));
+        if hierarchy.main {
+            lines.push("    main: true".to_string());
+        }
+        if let Some(parent) = hierarchy
+            .parent
+            .as_deref()
+            .map(str::trim)
+            .filter(|parent| !parent.is_empty())
+        {
+            lines.push(format!("    parent: {}", yaml_scalar_string(parent)));
+        }
+        if let Some(field) = hierarchy
+            .field
+            .as_deref()
+            .map(str::trim)
+            .filter(|field| !field.is_empty())
+        {
+            lines.push(format!("    field: {}", yaml_scalar_string(field)));
+        }
+    }
+}
+
+fn infer_record_hierarchy_answers(
+    records: &[RecordItemAnswer],
+) -> BTreeMap<String, RecordHierarchyAnswer> {
+    let record_names = records
+        .iter()
+        .map(|record| record.name.as_str())
+        .collect::<BTreeSet<_>>();
+    records
+        .iter()
+        .map(|record| {
+            let parent = record.fields.iter().find_map(|field| {
+                let reference = field.references.as_ref()?;
+                record_names
+                    .contains(reference.record.as_str())
+                    .then(|| RecordHierarchyAnswer {
+                        main: false,
+                        parent: Some(reference.record.clone()),
+                        field: Some(field.name.clone()),
+                    })
+            });
+            (
+                record.name.clone(),
+                parent.unwrap_or(RecordHierarchyAnswer {
+                    main: true,
+                    parent: None,
+                    field: None,
+                }),
+            )
+        })
+        .collect()
 }
 
 fn render_roles(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
@@ -11385,6 +11756,7 @@ fn answers_document_from_qa_answers(answers: serde_json::Value) -> Result<Answer
             items: Vec::new(),
         }),
         operational_indexes: None,
+        record_hierarchy: BTreeMap::new(),
         metrics: Some(MetricAnswers {
             enabled: Some(false),
             items: Vec::new(),
@@ -12224,9 +12596,23 @@ mod tests {
 
     #[cfg(feature = "cli")]
     #[test]
-    fn openai_prompt_request_body_serializes_strict_json_schema() {
-        let body = openai_prompt_request_body(
-            "gpt-test".to_string(),
+    fn greentic_llm_prompt_supports_multiple_providers() {
+        let supported = greentic_llm::ProviderKind::all()
+            .iter()
+            .map(greentic_llm::ProviderKind::as_str)
+            .collect::<Vec<_>>();
+
+        assert!(supported.contains(&"openai"));
+        assert!(supported.contains(&"anthropic"));
+        assert!(supported.contains(&"ollama"));
+        assert!(supported.contains(&"groq"));
+        assert!(prompt_llm_provider_error("bogus", "unknown provider").contains("anthropic"));
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn greentic_llm_prompt_converts_json_schema_to_system_instruction() {
+        let messages = prompt_llm_chat_messages(
             "Return JSON.".to_string(),
             vec![prompt::LlmMessage {
                 role: prompt::LlmRole::User,
@@ -12246,54 +12632,23 @@ mod tests {
             }),
         );
 
-        assert_eq!(body["response_format"]["type"], "json_schema");
-        assert_eq!(
-            body["response_format"]["json_schema"]["name"],
-            "strict_test"
-        );
-        assert_eq!(body["response_format"]["json_schema"]["strict"], true);
-        assert_eq!(
-            body["response_format"]["json_schema"]["schema"]["required"],
-            serde_json::json!(["answer"])
-        );
+        assert_eq!(messages[0].role, greentic_llm::MessageRole::System);
+        assert!(messages[0].content.contains("schema `strict_test`"));
+        assert!(messages[0].content.contains("\"required\": ["));
+        assert_eq!(messages[1].role, greentic_llm::MessageRole::User);
     }
 
     #[cfg(feature = "cli")]
     #[test]
-    fn openai_prompt_retries_transient_statuses_only() {
-        for status in [408, 409, 425, 429, 500, 502, 503, 504] {
-            assert!(openai_status_is_retryable(status), "{status} should retry");
-        }
-        for status in [400, 401, 403, 404, 422] {
-            assert!(
-                !openai_status_is_retryable(status),
-                "{status} should not retry"
-            );
-        }
-        assert_eq!(openai_prompt_retry_delay(0), Duration::from_secs(1));
-        assert_eq!(openai_prompt_retry_delay(1), Duration::from_secs(2));
-        assert_eq!(openai_prompt_retry_delay(2), Duration::from_secs(4));
-        assert_eq!(openai_prompt_retry_delay(10), Duration::from_secs(4));
+    fn greentic_llm_prompt_normalizes_provider_base_url() {
         assert_eq!(
-            openai_prompt_request_timeout(),
-            Duration::from_secs(OPENAI_PROMPT_DEFAULT_TIMEOUT_SECS)
-        );
-    }
-
-    #[cfg(feature = "cli")]
-    #[test]
-    fn openai_prompt_error_body_summary_is_compact() {
-        assert_eq!(
-            summarize_openai_error_body(r#"{"error":{"message":"model overloaded"}}"#),
-            "model overloaded"
+            normalize_prompt_llm_base_url("https://api.openai.com/v1/chat/completions".to_string()),
+            "https://api.openai.com/v1"
         );
         assert_eq!(
-            summarize_openai_error_body(
-                "<!DOCTYPE html><html><head><title>api.openai.com | 504: Gateway time-out</title></head><body>long page</body></html>"
-            ),
-            "HTML error page: api.openai.com | 504: Gateway time-out"
+            normalize_prompt_llm_base_url("http://localhost:11434/".to_string()),
+            "http://localhost:11434"
         );
-        assert!(summarize_openai_error_body(&"x ".repeat(1000)).len() < 520);
     }
 
     #[test]
@@ -12483,6 +12838,16 @@ mod tests {
                 prompt::PromptPhase::ReadyToGenerateAnswers
             ))
             .as_deref(),
+            Some("generate answers")
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::ReviewingDomainModel))
+                .as_deref(),
+            Some("generate answers")
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::GeneratingAnswers))
+                .as_deref(),
             Some("generate answers")
         );
         assert_eq!(
@@ -12815,6 +13180,132 @@ mod tests {
 
         assert!(model.source_yaml.contains("name: bug_case_changed"));
         assert!(model.source_yaml.contains("source_event: bug_case_changed"));
+    }
+
+    #[test]
+    fn normalize_answers_accepts_v2_create_answers() {
+        let input = serde_json::json!({
+            "version": "sorla.answers.v2",
+            "mode": "create",
+            "intent": {
+                "summary": "Maintenance requests"
+            },
+            "domain": {
+                "records": [
+                    {
+                        "name": "request",
+                        "description": "A maintenance request",
+                        "fields": [
+                            { "name": "status", "field_type": "string", "required": true }
+                        ]
+                    },
+                    {
+                        "name": "quote",
+                        "description": "A contractor quote",
+                        "fields": [
+                            { "name": "amount", "field_type": "decimal", "required": true }
+                        ],
+                        "relationships": [
+                            {
+                                "name": "request_id",
+                                "target": "request",
+                                "cardinality": "many_to_one",
+                                "required": true
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        let model = normalize_answers(input, NormalizeOptions).expect("v2 answers normalize");
+        assert_eq!(model.package_name, "maintenance-requests-sor");
+        assert!(model.source_yaml.contains("name: request"));
+        assert!(model.source_yaml.contains("name: quote"));
+        assert!(model.source_yaml.contains("record_hierarchy:"));
+        assert!(model.source_yaml.contains("parent: request"));
+    }
+
+    #[test]
+    fn answers_v2_diagnostics_report_unknown_relationship_targets() {
+        let input = serde_json::json!({
+            "version": "sorla.answers.v2",
+            "mode": "create",
+            "intent": {
+                "summary": "Maintenance requests"
+            },
+            "domain": {
+                "records": [
+                    {
+                        "name": "quote",
+                        "description": "A contractor quote",
+                        "fields": [
+                            { "name": "amount", "field_type": "decimal", "required": true }
+                        ],
+                        "relationships": [
+                            {
+                                "name": "request_id",
+                                "target": "request",
+                                "cardinality": "many_to_one",
+                                "required": true
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        let diagnostics =
+            diagnostics_for_answers_input(&input).expect("v2 diagnostics should compile");
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "SORLA_UNKNOWN_RELATIONSHIP_TARGET"
+                && diagnostic.message.contains("request")
+        }));
+    }
+
+    #[test]
+    fn answers_v2_compiler_output_is_deterministic() {
+        let input = serde_json::json!({
+            "version": "sorla.answers.v2",
+            "mode": "create",
+            "intent": {
+                "summary": "Maintenance requests"
+            },
+            "domain": {
+                "records": [
+                    {
+                        "name": "request",
+                        "description": "A maintenance request",
+                        "fields": [
+                            { "name": "status", "field_type": "string", "required": true }
+                        ]
+                    }
+                ],
+                "lifecycle": [
+                    {
+                        "record": "request",
+                        "states": ["draft", "approved"],
+                        "transitions": [
+                            {
+                                "from": "draft",
+                                "to": "approved",
+                                "description": "Approve a request"
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+        let answers: prompt::AnswersV2 = serde_json::from_value(input).expect("v2 parse");
+
+        let first = compiler::compile_answers_v2(&answers).expect("first compile");
+        let second = compiler::compile_answers_v2(&answers).expect("second compile");
+
+        assert_eq!(
+            serde_json::to_value(first).expect("first to json"),
+            serde_json::to_value(second).expect("second to json")
+        );
     }
 
     #[test]
@@ -14405,6 +14896,60 @@ metrics:
                 .iter()
                 .any(|suite| suite == "contract")
         );
+    }
+
+    #[test]
+    fn wizard_answers_accepts_v2_and_writes_diagnostics() {
+        let dir = unique_temp_dir();
+        let answers_path = dir.join("answers-v2.json");
+        let diagnostics_path = dir.join("diagnostics.json");
+        let summary = format!(
+            "Diagnostics PR Seven {}",
+            dir.file_name().unwrap().to_string_lossy().replace('_', " ")
+        );
+        let package_name = format!("{}-sor", slugify_identifier(&summary));
+        fs::write(
+            &answers_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": "sorla.answers.v2",
+                "mode": "create",
+                "intent": {
+                    "summary": summary
+                },
+                "domain": {
+                    "records": [
+                        {
+                            "name": "case",
+                            "description": "A support case",
+                            "fields": [
+                                { "name": "status", "field_type": "string", "required": true }
+                            ]
+                        }
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        run([
+            "greentic-sorla",
+            "wizard",
+            "--answers",
+            answers_path.to_str().unwrap(),
+            "--diagnostics-out",
+            diagnostics_path.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let output_dir = Path::new("target").join(format!("{package_name}-generated"));
+        assert!(output_dir.join("sorla.yaml").exists());
+        let source_yaml = fs::read_to_string(output_dir.join("sorla.yaml")).unwrap();
+        assert!(source_yaml.contains("name: case"));
+
+        let diagnostics: Vec<compiler::CompileDiagnostic> =
+            serde_json::from_str(&fs::read_to_string(diagnostics_path).unwrap()).unwrap();
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
