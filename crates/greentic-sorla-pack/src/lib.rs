@@ -80,6 +80,14 @@ pub const OPERATIONAL_INDEXES_IR_CBOR_PATH: &str = "assets/sorla/operational-ind
 pub const METRICS_SCHEMA: &str = "greentic.sorla.metrics.v1";
 pub const METRICS_FILENAME: &str = "metrics.json";
 pub const METRICS_PATH: &str = "assets/sorla/metrics.json";
+pub const ROLE_ASSIGNMENTS_SCHEMA: &str = "greentic.sorla.role-assignments.v1";
+pub const ROLE_ASSIGNMENTS_FILENAME: &str = "role-assignments.json";
+pub const ROLE_ASSIGNMENTS_PATH: &str = "assets/sorla/role-assignments.json";
+pub const POLICY_RULES_SCHEMA: &str = "greentic.sorla.policy-rules.v1";
+pub const POLICY_RULES_FILENAME: &str = "policy-rules.json";
+pub const POLICY_RULES_PATH: &str = "assets/sorla/policy-rules.json";
+pub const POLICY_RULES_SCHEMA_FILENAME: &str = "policy-rules.schema.json";
+pub const POLICY_RULES_SCHEMA_PATH: &str = "assets/sorla/policy-rules.schema.json";
 pub const I18N_ASSET_DIR: &str = "assets/sorla/i18n";
 pub const DESIGNER_NODE_TYPES_SCHEMA: &str = "greentic.sorla.designer-node-types.v1";
 pub const DESIGNER_NODE_TYPES_FILENAME: &str = "designer-node-types.json";
@@ -172,6 +180,9 @@ pub struct ArtifactSet {
     pub designer_node_types_json: String,
     pub agent_endpoint_action_catalog_json: String,
     pub metrics_json: Option<String>,
+    pub role_assignments_json: Option<String>,
+    pub policy_rules_json: Option<String>,
+    pub policy_rules_schema_json: Option<String>,
     pub ontology_artifacts: Option<OntologyArtifactSet>,
     pub canonical_hash: String,
 }
@@ -862,6 +873,19 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
             .artifact_references
             .push(METRICS_FILENAME.to_string());
     }
+    if !ir.role_assignments.is_empty() {
+        package_manifest
+            .artifact_references
+            .push(ROLE_ASSIGNMENTS_FILENAME.to_string());
+    }
+    if ir.policies.iter().any(|policy| policy.allow.is_some()) {
+        package_manifest
+            .artifact_references
+            .push(POLICY_RULES_FILENAME.to_string());
+        package_manifest
+            .artifact_references
+            .push(POLICY_RULES_SCHEMA_FILENAME.to_string());
+    }
     let designer_node_types =
         generate_designer_node_types_from_ir(&ir, &DesignerNodeTypeGenerationOptions::default())?;
     let designer_node_types_json =
@@ -943,6 +967,21 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
     } else {
         Some(metrics_artifact_json(&ir, &canonical_hash)?)
     };
+    let role_assignments_json = if ir.role_assignments.is_empty() {
+        None
+    } else {
+        Some(role_assignments_artifact_json(&ir, &canonical_hash)?)
+    };
+    let policy_rules_json = if ir.policies.iter().any(|policy| policy.allow.is_some()) {
+        Some(policy_rules_artifact_json(&ir, &canonical_hash)?)
+    } else {
+        None
+    };
+    let policy_rules_schema_json = if policy_rules_json.is_some() {
+        Some(policy_rules_schema_json()?)
+    } else {
+        None
+    };
 
     Ok(ArtifactSet {
         ir,
@@ -955,6 +994,9 @@ pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, Str
         designer_node_types_json,
         agent_endpoint_action_catalog_json,
         metrics_json,
+        role_assignments_json,
+        policy_rules_json,
+        policy_rules_schema_json,
         ontology_artifacts,
         canonical_hash,
     })
@@ -971,6 +1013,70 @@ fn metrics_artifact_json(ir: &CanonicalIr, ir_hash: &str) -> Result<String, Stri
         metrics: metrics_artifact_metrics(ir),
     };
     serde_json::to_string_pretty(&document).map_err(|err| err.to_string())
+}
+
+fn role_assignments_artifact_json(ir: &CanonicalIr, ir_hash: &str) -> Result<String, String> {
+    let document = serde_json::json!({
+        "schema": ROLE_ASSIGNMENTS_SCHEMA,
+        "package": {
+            "name": ir.package.name,
+            "version": ir.package.version,
+            "ir_hash": ir_hash,
+        },
+        "role_assignments": ir.role_assignments,
+    });
+    serde_json::to_string_pretty(&document).map_err(|err| err.to_string())
+}
+
+fn policy_rules_artifact_json(ir: &CanonicalIr, ir_hash: &str) -> Result<String, String> {
+    let policies = ir
+        .policies
+        .iter()
+        .filter(|policy| policy.allow.is_some())
+        .collect::<Vec<_>>();
+    let document = serde_json::json!({
+        "schema": POLICY_RULES_SCHEMA,
+        "package": {
+            "name": ir.package.name,
+            "version": ir.package.version,
+            "ir_hash": ir_hash,
+        },
+        "policies": policies,
+    });
+    serde_json::to_string_pretty(&document).map_err(|err| err.to_string())
+}
+
+fn policy_rules_schema_json() -> Result<String, String> {
+    let schema = serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://greentic.ai/schemas/sorla/policy-rules.v1.schema.json",
+        "title": "Greentic SoRLa policy rules",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schema", "package", "policies"],
+        "properties": {
+            "schema": { "const": POLICY_RULES_SCHEMA },
+            "package": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "version", "ir_hash"],
+                "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "version": { "type": "string", "minLength": 1 },
+                    "ir_hash": { "type": "string", "minLength": 1 }
+                }
+            },
+            "policies": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "required": ["name"]
+                }
+            }
+        }
+    });
+    serde_json::to_string_pretty(&schema).map_err(|err| err.to_string())
 }
 
 fn metrics_artifact_metrics(ir: &CanonicalIr) -> Vec<MetricsArtifactMetric> {
@@ -1513,6 +1619,30 @@ fn build_sorla_gtpack_from_artifacts(
             &mut asset_paths,
             METRICS_PATH.to_string(),
             metrics_json.as_bytes().to_vec(),
+        );
+    }
+    if let Some(role_assignments_json) = &artifacts.role_assignments_json {
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            ROLE_ASSIGNMENTS_PATH.to_string(),
+            role_assignments_json.as_bytes().to_vec(),
+        );
+    }
+    if let Some(policy_rules_json) = &artifacts.policy_rules_json {
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            POLICY_RULES_PATH.to_string(),
+            policy_rules_json.as_bytes().to_vec(),
+        );
+    }
+    if let Some(policy_rules_schema_json) = &artifacts.policy_rules_schema_json {
+        insert_pack_asset(
+            &mut entries,
+            &mut asset_paths,
+            POLICY_RULES_SCHEMA_PATH.to_string(),
+            policy_rules_schema_json.as_bytes().to_vec(),
         );
     }
     for (path, bytes) in i18n_assets {
@@ -6060,6 +6190,12 @@ fn agent_gateway_record_hierarchy(ir: &CanonicalIr) -> Vec<AgentGatewayRecordHie
         }
     }
 
+    let explicit_by_record = ir
+        .record_hierarchy
+        .iter()
+        .map(|entry| (entry.record.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+
     let mut hierarchy = ir
         .records
         .iter()
@@ -6080,6 +6216,18 @@ fn agent_gateway_record_hierarchy(ir: &CanonicalIr) -> Vec<AgentGatewayRecordHie
                     })
                 })
                 .collect::<Vec<_>>();
+            if let Some(explicit) = explicit_by_record.get(record.name.as_str()) {
+                for parent in &explicit.parents {
+                    let relationship = relationship_by_child_field
+                        .get(&(record.name.clone(), parent.field.clone()))
+                        .cloned();
+                    parents.push(AgentGatewayRecordParentRef {
+                        record: parent.record.clone(),
+                        field: parent.field.clone(),
+                        relationship,
+                    });
+                }
+            }
             parents.sort_by(|left, right| {
                 left.record
                     .cmp(&right.record)
@@ -6087,9 +6235,13 @@ fn agent_gateway_record_hierarchy(ir: &CanonicalIr) -> Vec<AgentGatewayRecordHie
             });
             parents
                 .dedup_by(|left, right| left.record == right.record && left.field == right.field);
+            let main = explicit_by_record
+                .get(record.name.as_str())
+                .map(|entry| entry.main)
+                .unwrap_or_else(|| parents.is_empty());
             AgentGatewayRecordHierarchyRef {
                 record: record.name.clone(),
-                main: parents.is_empty(),
+                main,
                 parents,
             }
         })
@@ -6618,6 +6770,103 @@ metrics:
         .trim_start()
     }
 
+    fn authorization_fixture_yaml() -> &'static str {
+        r#"
+package:
+  name: authorization-demo
+  version: 0.2.0
+roles:
+  - id: property_manager
+    grants:
+      - tenancy.manage
+role_assignments:
+  - role: property_manager
+    team: building-ops
+records:
+  - name: Tenancy
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: building_id
+        type: string
+actions:
+  - name: AssignTenantToUnit
+events:
+  - name: TenancyAssigned
+    record: Tenancy
+policies:
+  - name: BuildingManagerTenancyPolicy
+    allow:
+      operations:
+        - AssignTenantToUnit
+      events:
+        subscribe:
+          - TenancyAssigned
+      constraints:
+        - field: building_id
+          operator: equals
+          value:
+            context: team.building_ids
+"#
+        .trim_start()
+    }
+
+    #[test]
+    fn agent_gateway_uses_declared_record_hierarchy() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: lab-waiting-list
+  version: 0.1.0
+records:
+  - name: lab
+    source: native
+    fields:
+      - name: lab_id
+        type: uuid
+      - name: name
+        type: string
+  - name: waiting_list_entry
+    source: native
+    fields:
+      - name: entry_id
+        type: uuid
+      - name: lab_id
+        type: uuid
+      - name: email
+        type: email
+record_hierarchy:
+  lab:
+    main: true
+  waiting_list_entry:
+    parent: lab
+    field: lab_id
+"#,
+        )
+        .expect("hierarchy package should parse");
+        let ir = lower_package(&parsed.package);
+        let gateway = agent_gateway_handoff_manifest(&ir);
+
+        let lab = gateway
+            .record_hierarchy
+            .iter()
+            .find(|entry| entry.record == "lab")
+            .expect("lab hierarchy entry");
+        assert!(lab.main);
+        assert!(lab.parents.is_empty());
+
+        let waiting_list = gateway
+            .record_hierarchy
+            .iter()
+            .find(|entry| entry.record == "waiting_list_entry")
+            .expect("waiting list hierarchy entry");
+        assert!(!waiting_list.main);
+        assert_eq!(waiting_list.parents.len(), 1);
+        assert_eq!(waiting_list.parents[0].record, "lab");
+        assert_eq!(waiting_list.parents[0].field, "lab_id");
+    }
+
     #[test]
     fn scaffold_handoff_manifest_stays_provider_agnostic() {
         let manifest = scaffold_handoff_manifest();
@@ -6708,6 +6957,77 @@ metrics:
         let rebuilt =
             build_handoff_artifacts_from_yaml(metrics_fixture_yaml()).expect("fixture rebuilds");
         assert_eq!(artifacts.metrics_json, rebuilt.metrics_json);
+    }
+
+    #[test]
+    fn builds_authorization_sidecar_artifacts_from_yaml() {
+        let artifacts = build_handoff_artifacts_from_yaml(authorization_fixture_yaml())
+            .expect("fixture builds");
+
+        assert!(
+            artifacts
+                .handoff_manifest()
+                .artifact_references
+                .contains(&ROLE_ASSIGNMENTS_FILENAME.to_string())
+        );
+        assert!(
+            artifacts
+                .handoff_manifest()
+                .artifact_references
+                .contains(&POLICY_RULES_FILENAME.to_string())
+        );
+        assert!(
+            artifacts
+                .handoff_manifest()
+                .artifact_references
+                .contains(&POLICY_RULES_SCHEMA_FILENAME.to_string())
+        );
+
+        let role_assignments: serde_json::Value = serde_json::from_str(
+            artifacts
+                .role_assignments_json
+                .as_ref()
+                .expect("role assignments emitted"),
+        )
+        .expect("role assignments JSON decodes");
+        assert_eq!(role_assignments["schema"], ROLE_ASSIGNMENTS_SCHEMA);
+        assert_eq!(
+            role_assignments["role_assignments"][0]["role"],
+            "property_manager"
+        );
+        assert_eq!(
+            role_assignments["role_assignments"][0]["team"],
+            "building-ops"
+        );
+
+        let policy_rules: serde_json::Value = serde_json::from_str(
+            artifacts
+                .policy_rules_json
+                .as_ref()
+                .expect("policy rules emitted"),
+        )
+        .expect("policy rules JSON decodes");
+        assert_eq!(policy_rules["schema"], POLICY_RULES_SCHEMA);
+        assert_eq!(
+            policy_rules["policies"][0]["name"],
+            "BuildingManagerTenancyPolicy"
+        );
+        assert_eq!(
+            policy_rules["policies"][0]["allow"]["operations"][0],
+            "AssignTenantToUnit"
+        );
+
+        let policy_schema: serde_json::Value = serde_json::from_str(
+            artifacts
+                .policy_rules_schema_json
+                .as_ref()
+                .expect("policy rules schema emitted"),
+        )
+        .expect("policy rules schema JSON decodes");
+        assert_eq!(
+            policy_schema["properties"]["schema"]["const"],
+            POLICY_RULES_SCHEMA
+        );
     }
 
     #[test]

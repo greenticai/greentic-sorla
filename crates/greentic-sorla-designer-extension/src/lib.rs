@@ -873,10 +873,12 @@ impl LlmCapability for DesignerPromptLlm {
                     "explanation": "Adds a postcode field to the property record."
                 })
                 .to_string(),
+                usage: None,
             });
         }
         Ok(LlmResponse {
             content: "{}".to_string(),
+            usage: None,
         })
     }
 }

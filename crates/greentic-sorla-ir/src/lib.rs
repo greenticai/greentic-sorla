@@ -1,8 +1,8 @@
 use greentic_sorla_lang::ast::{
     AccessRule, AgentEndpointApprovalMode, AgentEndpointRisk, CardinalityValue, CompatibilityMode,
     ConceptKind, ConfidenceScore, EndpointAuthorization, EventKind, FieldAuthority,
-    MigrationOperationDecl, OperationalIndexKind, Package, ProjectionMode, ProviderRequirement,
-    RecordAccess, RecordSource, ViewMode,
+    MigrationOperationDecl, OperationalIndexKind, Package, PolicyConstraintValue, ProjectionMode,
+    ProviderRequirement, RecordAccess, RecordSource, ViewMode,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -36,10 +36,14 @@ pub struct CanonicalIr {
     pub operational_indexes: Option<OperationalIndexesIr>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleIr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub role_assignments: Vec<RoleAssignmentIr>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub record_hierarchy: Vec<RecordHierarchyIr>,
     pub records: Vec<RecordIr>,
     pub events: Vec<EventIr>,
     pub actions: Vec<NamedItemIr>,
-    pub policies: Vec<NamedItemIr>,
+    pub policies: Vec<PolicyIr>,
     pub approvals: Vec<NamedItemIr>,
     pub views: Vec<ViewIr>,
     pub flows: Vec<NamedItemIr>,
@@ -312,6 +316,23 @@ pub struct RoleIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleAssignmentIr {
+    pub role: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordIr {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -333,6 +354,21 @@ pub struct RecordAccessIr {
     pub update: Option<AccessRuleIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete: Option<AccessRuleIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordHierarchyIr {
+    pub record: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub main: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parents: Vec<RecordHierarchyParentIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordHierarchyParentIr {
+    pub record: String,
+    pub field: String,
 }
 
 impl RecordAccessIr {
@@ -606,6 +642,44 @@ pub struct NamedItemIr {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyIr {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow: Option<PolicyAllowIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyAllowIr {
+    pub operations: Vec<String>,
+    pub events: PolicyEventPermissionsIr,
+    pub constraints: Vec<PolicyConstraintIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PolicyEventPermissionsIr {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subscribe: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub publish: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PolicyConstraintIr {
+    pub field: String,
+    pub operator: String,
+    pub value: PolicyConstraintValueIr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PolicyConstraintValueIr {
+    Context { context: String },
+    Literal(serde_json::Value),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewIr {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -786,6 +860,29 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         })
         .collect();
     roles.sort_by(|left, right| left.id.cmp(&right.id));
+    let mut role_assignments = package
+        .role_assignments
+        .iter()
+        .map(|assignment| RoleAssignmentIr {
+            role: assignment.role.clone(),
+            tenant: assignment.tenant.clone(),
+            team: assignment.team.clone(),
+            user: assignment.user.clone(),
+            service: assignment.service.clone(),
+            component: assignment.component.clone(),
+            workflow: assignment.workflow.clone(),
+        })
+        .collect::<Vec<_>>();
+    role_assignments.sort_by(|left, right| {
+        left.role
+            .cmp(&right.role)
+            .then(left.tenant.cmp(&right.tenant))
+            .then(left.team.cmp(&right.team))
+            .then(left.user.cmp(&right.user))
+            .then(left.service.cmp(&right.service))
+            .then(left.component.cmp(&right.component))
+            .then(left.workflow.cmp(&right.workflow))
+    });
 
     let mut records: Vec<RecordIr> = package
         .records
@@ -994,6 +1091,26 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
 
     let provider_categories = sorted_provider_requirements(&package.provider_requirements);
     let agent_endpoints = sorted_agent_endpoints(package);
+    let mut record_hierarchy = package
+        .record_hierarchy
+        .iter()
+        .map(|(record, hierarchy)| RecordHierarchyIr {
+            record: record.clone(),
+            main: hierarchy.main,
+            parents: hierarchy
+                .parent
+                .as_ref()
+                .zip(hierarchy.field.as_ref())
+                .map(|(parent, field)| {
+                    vec![RecordHierarchyParentIr {
+                        record: parent.clone(),
+                        field: field.clone(),
+                    }]
+                })
+                .unwrap_or_default(),
+        })
+        .collect::<Vec<_>>();
+    record_hierarchy.sort_by(|left, right| left.record.cmp(&right.record));
 
     CanonicalIr {
         ir_version: IrVersion::current(),
@@ -1005,6 +1122,8 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         retrieval_bindings: lower_retrieval_bindings(package),
         operational_indexes: lower_operational_indexes(package),
         roles,
+        role_assignments,
+        record_hierarchy,
         records,
         events,
         actions: sorted_named_items(
@@ -1014,13 +1133,7 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
                 .map(|item| item.name.as_str())
                 .collect::<Vec<_>>(),
         ),
-        policies: sorted_named_items(
-            &package
-                .policies
-                .iter()
-                .map(|item| item.name.as_str())
-                .collect::<Vec<_>>(),
-        ),
+        policies: sorted_policies(package),
         approvals: sorted_named_items(
             &package
                 .approvals
@@ -1045,6 +1158,63 @@ pub fn lower_package(package: &Package) -> CanonicalIr {
         },
         agent_endpoints,
     }
+}
+
+fn sorted_policies(package: &Package) -> Vec<PolicyIr> {
+    let mut policies = package
+        .policies
+        .iter()
+        .map(|policy| PolicyIr {
+            name: policy.name.clone(),
+            description: policy.description.clone(),
+            allow: policy.allow.as_ref().map(|allow| {
+                let mut operations = allow.operations.clone();
+                operations.sort();
+                let mut subscribe = allow.events.subscribe.clone();
+                subscribe.sort();
+                let mut publish = allow.events.publish.clone();
+                publish.sort();
+                let mut constraints = allow
+                    .constraints
+                    .iter()
+                    .map(|constraint| PolicyConstraintIr {
+                        field: constraint.field.clone(),
+                        operator: constraint.operator.clone(),
+                        value: match &constraint.value {
+                            PolicyConstraintValue::Context { context } => {
+                                PolicyConstraintValueIr::Context {
+                                    context: context.clone(),
+                                }
+                            }
+                            PolicyConstraintValue::Literal(value) => {
+                                PolicyConstraintValueIr::Literal(value.clone())
+                            }
+                        },
+                    })
+                    .collect::<Vec<_>>();
+                constraints.sort_by(|left, right| {
+                    left.field
+                        .cmp(&right.field)
+                        .then(left.operator.cmp(&right.operator))
+                        .then(
+                            serde_json::to_string(&left.value)
+                                .expect("policy constraint should serialize")
+                                .cmp(
+                                    &serde_json::to_string(&right.value)
+                                        .expect("policy constraint should serialize"),
+                                ),
+                        )
+                });
+                PolicyAllowIr {
+                    operations,
+                    events: PolicyEventPermissionsIr { subscribe, publish },
+                    constraints,
+                }
+            }),
+        })
+        .collect::<Vec<_>>();
+    policies.sort_by(|left, right| left.name.cmp(&right.name));
+    policies
 }
 
 fn lower_retrieval_bindings(package: &Package) -> Option<RetrievalBindingsIr> {
@@ -1838,6 +2008,67 @@ agent_endpoints:
                 "\"agent-endpoints\": \"create_customer_contact,create_partner_contact\""
             )
         );
+    }
+
+    #[test]
+    fn lowers_role_assignments_and_structured_policy_rules() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: authorization-demo
+  version: 0.2.0
+roles:
+  - id: property_manager
+    grants:
+      - tenancy.manage
+role_assignments:
+  - role: property_manager
+    team: building-ops
+records:
+  - name: Tenancy
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: building_id
+        type: string
+actions:
+  - name: AssignTenantToUnit
+events:
+  - name: TenancyAssigned
+    record: Tenancy
+policies:
+  - name: BuildingManagerTenancyPolicy
+    allow:
+      operations:
+        - AssignTenantToUnit
+      events:
+        subscribe:
+          - TenancyAssigned
+      constraints:
+        - field: building_id
+          operator: equals
+          value:
+            context: team.building_ids
+"#,
+        )
+        .expect("authorization fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        assert_eq!(ir.role_assignments.len(), 1);
+        assert_eq!(ir.role_assignments[0].role, "property_manager");
+        assert_eq!(ir.role_assignments[0].team.as_deref(), Some("building-ops"));
+
+        let policy = ir
+            .policies
+            .iter()
+            .find(|policy| policy.name == "BuildingManagerTenancyPolicy")
+            .expect("structured policy lowered");
+        let allow = policy.allow.as_ref().expect("allow block lowered");
+        assert_eq!(allow.operations, vec!["AssignTenantToUnit"]);
+        assert_eq!(allow.events.subscribe, vec!["TenancyAssigned"]);
+        assert_eq!(allow.constraints[0].field, "building_id");
+        assert_eq!(allow.constraints[0].operator, "equals");
     }
 
     #[test]

@@ -45,6 +45,7 @@ categories = [
 [workspace.dependencies]
 ciborium = "0.2"
 criterion = "0.8"
+greentic-llm = "1.2.0-research"
 greentic-pack = { package = "greentic-pack-lib", version = ">=1.1.0-dev, <1.2.0-0" }
 greentic-qa-lib = ">=1.1.0-dev, <1.2.0-0"
 greentic-sorla-cli = { package = "greentic-sorla", version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-cli" }
@@ -59,7 +60,7 @@ serde_json = "1"
 serde_yaml = "0.9"
 sha2 = "0.11"
 tempfile = "3"
-ureq = { version = "3", features = ["json"] }
+tokio = { version = "1", features = ["net", "rt", "time"] }
 zip = "8.6"
 
 [workspace.dependencies.clap]

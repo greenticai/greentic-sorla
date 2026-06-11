@@ -421,6 +421,7 @@ records:
       - name: status
         i18n_key: examples.landlord_tenant_sor.records.maintenancerequest.fields.status
         type: string
+        default: open
 ontology:
   schema: greentic.sorla.ontology.v1
   concepts:
@@ -724,6 +725,26 @@ projections:
     record: MaintenanceRequest
     source_event: MaintenanceRequestCreated
     mode: current-state
+record_hierarchy:
+  Building:
+    parent: Landlord
+    field: landlord_id
+  Landlord:
+    main: true
+  MaintenanceRequest:
+    parent: Unit
+    field: unit_id
+  Payment:
+    parent: Tenancy
+    field: tenancy_id
+  Tenancy:
+    parent: Tenant
+    field: tenant_id
+  Tenant:
+    main: true
+  Unit:
+    parent: Building
+    field: building_id
 metrics:
   - name: active_tenancies
     i18n_key: examples.landlord_tenant_sor.metrics.active_tenancies
@@ -1298,6 +1319,7 @@ agent_endpoints:
         building_id: "$input.building_id"
         id: "$generated.maintenance_request_id"
         summary: "$input.summary"
+        status: open
         unit_id: "$input.unit_id"
     risk: low
     approval: optional

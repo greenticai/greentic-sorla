@@ -3,7 +3,7 @@
   "package": {
     "name": "metrics-commerce",
     "version": "0.1.0",
-    "ir_hash": "27d4ee79eb7bb05e7d809d4baf5b29d517f164d525d4232ed0f7710961825b35"
+    "ir_hash": "a4c109216cc9835ea21aced09c382a3edcec71493e75c3b53810f07bc455b1f4"
   },
   "metrics": [
     {

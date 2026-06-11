@@ -18,9 +18,10 @@ pub use greentic_sorla_pack::{
     DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypesDocument,
 };
 use greentic_sorla_pack::{
-    DesignerNodeTypeGenerationOptions, PROVIDER_BINDINGS_TEMPLATE_FILENAME,
-    RUNTIME_TEMPLATE_FILENAME, SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA,
-    SORX_VALIDATION_SCHEMA, START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
+    DesignerNodeTypeGenerationOptions, POLICY_RULES_PATH, POLICY_RULES_SCHEMA_PATH,
+    PROVIDER_BINDINGS_TEMPLATE_FILENAME, ROLE_ASSIGNMENTS_PATH, RUNTIME_TEMPLATE_FILENAME,
+    SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA, SORX_VALIDATION_SCHEMA,
+    START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
     agent_endpoint_contract_warnings, build_handoff_artifacts_from_yaml,
     generate_agent_endpoint_action_catalog_from_ir, generate_designer_node_types_from_ir,
     generate_sorx_validation_manifest_from_ir, ontology_schema_json,
@@ -33,13 +34,15 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 mod embedded_i18n {
     include!(concat!(env!("OUT_DIR"), "/embedded_i18n.rs"));
 }
 
+pub mod compiler;
 pub mod prompt;
 
 use crate::prompt::PromptAuthoringEngine;
@@ -80,6 +83,7 @@ pub struct ApplyAnswersOutput {
     pub locale: String,
     pub written_files: Vec<String>,
     pub pack_path: Option<String>,
+    pub change_history_path: Option<String>,
     pub preserved_user_content: bool,
 }
 
@@ -527,6 +531,7 @@ pub struct ConceptArtifact {
 
 pub const SORLA_PATCH_SCHEMA: &str = "greentic.sorla.patch.v1";
 pub const CONCEPT_DIFF_SCHEMA: &str = "greentic.sorla.concept-diff.v1";
+pub const SORLA_CHANGE_HISTORY_SCHEMA: &str = "greentic.sorla.change-history.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplyPatchInput {
@@ -675,6 +680,26 @@ pub struct ConceptChange {
     pub label: String,
     pub before: Option<serde_json::Value>,
     pub after: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaChangeHistoryEntry {
+    pub schema: String,
+    pub source_path: String,
+    pub mode: String,
+    pub old_hash: String,
+    pub new_hash: String,
+    pub diff: ConceptDiff,
+    pub rollback: SorlaRollbackSnapshot,
+    pub before_yaml: String,
+    pub after_yaml: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SorlaRollbackSnapshot {
+    pub strategy: String,
+    pub restore_hash: String,
+    pub restore_yaml: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -905,6 +930,12 @@ struct DesignValidateArgs {
 
 #[derive(Args)]
 struct PromptArgs {
+    /// Business prompt to use instead of asking interactively.
+    #[arg(value_name = "PROMPT", conflicts_with = "prompt_file")]
+    prompt_text: Option<String>,
+    /// File to read the initial business prompt from.
+    #[arg(long = "prompt", value_name = "FILE", conflicts_with = "prompt_text")]
+    prompt_file: Option<PathBuf>,
     /// File to write generated answers JSON to.
     #[arg(long, value_name = "FILE", default_value = "answers.json")]
     answers_out: PathBuf,
@@ -935,12 +966,20 @@ struct PromptArgs {
     /// Greentic LLM capability ID to resolve.
     #[arg(long)]
     llm_capability_id: Option<String>,
+    /// Suppress prompt progress messages; only errors and normal command output are shown.
+    #[arg(long, action = ArgAction::SetTrue)]
+    only_errors: bool,
+    /// Generate answers from the draft in staged/sectional mode when possible.
+    #[arg(long, action = ArgAction::SetTrue)]
+    staged: bool,
 }
 
 impl std::fmt::Debug for PromptArgs {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("PromptArgs")
+            .field("prompt_text", &self.prompt_text)
+            .field("prompt_file", &self.prompt_file)
             .field("answers_out", &self.answers_out)
             .field("sorla_yaml", &self.sorla_yaml)
             .field("resume", &self.resume)
@@ -954,6 +993,8 @@ impl std::fmt::Debug for PromptArgs {
             )
             .field("llm_endpoint", &self.llm_endpoint)
             .field("llm_capability_id", &self.llm_capability_id)
+            .field("only_errors", &self.only_errors)
+            .field("staged", &self.staged)
             .finish()
     }
 }
@@ -969,6 +1010,9 @@ struct WizardArgs {
     /// Apply a saved answers document.
     #[arg(long, value_name = "FILE")]
     answers: Option<PathBuf>,
+    /// Write compiler diagnostics produced while applying answers.
+    #[arg(long, value_name = "FILE")]
+    diagnostics_out: Option<PathBuf>,
     /// Override the deterministic .gtpack path generated next to sorla.yaml.
     #[arg(long, value_name = "FILE")]
     pack_out: Option<PathBuf>,
@@ -1107,6 +1151,8 @@ struct ExecutionSummary {
     written_files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pack_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    change_history_path: Option<String>,
     preserved_user_content: bool,
 }
 
@@ -1139,6 +1185,8 @@ struct AnswersDocument {
     projections: Option<ProjectionAnswers>,
     #[serde(default)]
     operational_indexes: Option<serde_json::Value>,
+    #[serde(default)]
+    record_hierarchy: BTreeMap<String, RecordHierarchyAnswer>,
     #[serde(default)]
     roles: Vec<RoleAnswer>,
     #[serde(default)]
@@ -1185,6 +1233,16 @@ struct RecordAnswers {
     external_ref_system: Option<String>,
     #[serde(default)]
     items: Vec<RecordItemAnswer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+struct RecordHierarchyAnswer {
+    #[serde(default)]
+    main: bool,
+    #[serde(default)]
+    parent: Option<String>,
+    #[serde(default)]
+    field: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1784,6 +1842,8 @@ struct ResolvedAnswers {
     #[serde(default)]
     record_items: Vec<RecordItemAnswer>,
     #[serde(default)]
+    record_hierarchy: BTreeMap<String, RecordHierarchyAnswer>,
+    #[serde(default)]
     ontology: Option<OntologyAnswers>,
     #[serde(default)]
     semantic_aliases: Option<SemanticAliasesAnswer>,
@@ -1845,8 +1905,7 @@ pub fn schema_for_answers() -> Result<serde_json::Value, SorlaError> {
 }
 
 pub fn apply_answers(input: ApplyAnswersInput) -> Result<ApplyAnswersOutput, SorlaError> {
-    let answers: AnswersDocument = serde_json::from_value(input.answers)
-        .map_err(|err| format!("failed to parse answers document: {err}"))?;
+    let answers = answers_document_from_input(input.answers)?;
     apply_answers_document(answers, input.pack_out).map(ApplyAnswersOutput::from)
 }
 
@@ -1864,8 +1923,7 @@ pub fn normalize_answers(
     input: serde_json::Value,
     _options: NormalizeOptions,
 ) -> Result<NormalizedSorlaModel, SorlaError> {
-    let answers: AnswersDocument = serde_json::from_value(input)
-        .map_err(|err| format!("failed to parse answers document: {err}"))?;
+    let answers = answers_document_from_input(input)?;
     let schema = default_schema();
     validate_answers_document(&answers, &schema)?;
     let resolved = match answers.flow.as_str() {
@@ -1890,6 +1948,323 @@ pub fn normalize_answers(
         source_yaml,
         normalized_answers,
     })
+}
+
+fn answers_document_from_input(input: serde_json::Value) -> Result<AnswersDocument, SorlaError> {
+    if prompt::is_answers_v2_json(&input) {
+        let answers: prompt::AnswersV2 = serde_json::from_value(input)
+            .map_err(|err| format!("failed to parse answers v2 document: {err}"))?;
+        prompt::validate_answers_v2(&answers)
+            .map_err(|err| format!("failed to validate answers v2 document: {err}"))?;
+        return answers_document_from_v2(&answers);
+    }
+    serde_json::from_value(input).map_err(|err| format!("failed to parse answers document: {err}"))
+}
+
+fn diagnostics_for_answers_input(
+    input: &serde_json::Value,
+) -> Result<Vec<compiler::CompileDiagnostic>, SorlaError> {
+    if !prompt::is_answers_v2_json(input) {
+        return Ok(Vec::new());
+    }
+    let answers: prompt::AnswersV2 = serde_json::from_value(input.clone())
+        .map_err(|err| format!("failed to parse answers v2 document: {err}"))?;
+    prompt::validate_answers_v2(&answers)
+        .map_err(|err| format!("failed to validate answers v2 document: {err}"))?;
+    compiler::compile_answers_v2(&answers)
+        .map(|plan| plan.diagnostics)
+        .map_err(|err| err.to_string())
+}
+
+fn answers_document_from_v2(answers: &prompt::AnswersV2) -> Result<AnswersDocument, SorlaError> {
+    let plan = compiler::compile_answers_v2(answers).map_err(|err| err.to_string())?;
+    let package_name = v2_package_name(answers, &plan);
+    let record_items = plan
+        .records
+        .iter()
+        .map(v2_record_item_answer)
+        .collect::<Vec<_>>();
+    let record_hierarchy = infer_record_hierarchy_answers(&record_items);
+    let actions = plan
+        .actions
+        .iter()
+        .map(|action| NamedAnswer {
+            name: action.name.clone(),
+            ..NamedAnswer::default()
+        })
+        .collect::<Vec<_>>();
+    let events = if plan.events.is_empty() {
+        None
+    } else {
+        Some(EventAnswers {
+            enabled: Some(true),
+            items: plan
+                .events
+                .iter()
+                .filter_map(|event| {
+                    event.record.as_ref().map(|record| EventItemAnswer {
+                        name: event.name.clone(),
+                        i18n_key: None,
+                        record: record.clone(),
+                        kind: Some("domain".to_string()),
+                        emits: Vec::new(),
+                    })
+                })
+                .collect(),
+        })
+    };
+    let projections = if plan.projections.is_empty() {
+        None
+    } else {
+        Some(ProjectionAnswers {
+            mode: Some("current-state".to_string()),
+            items: plan
+                .projections
+                .iter()
+                .filter_map(|projection| {
+                    projection
+                        .record
+                        .as_ref()
+                        .map(|record| ProjectionItemAnswer {
+                            name: projection.name.clone(),
+                            i18n_key: None,
+                            record: record.clone(),
+                            source_event: plan
+                                .events
+                                .iter()
+                                .find(|event| event.record.as_deref() == Some(record))
+                                .map(|event| event.name.clone())
+                                .unwrap_or_default(),
+                            mode: Some("current-state".to_string()),
+                        })
+                })
+                .collect(),
+        })
+    };
+    let metrics = if plan.metrics.is_empty() {
+        None
+    } else {
+        Some(MetricAnswers {
+            enabled: Some(true),
+            items: plan
+                .metrics
+                .iter()
+                .map(|metric| MetricItemAnswer {
+                    name: metric.name.clone(),
+                    i18n_key: None,
+                    label: Some(title_from_identifier(&metric.name)),
+                    description: None,
+                    source: metric.record.as_ref().map(|record| MetricSourceAnswer {
+                        kind: "record".to_string(),
+                        name: record.clone(),
+                    }),
+                    measure: Some(MetricMeasureAnswer {
+                        aggregate: "count".to_string(),
+                        field: None,
+                    }),
+                    filters: Vec::new(),
+                    time: None,
+                    window: None,
+                    unit: None,
+                    dimensions: Vec::new(),
+                    formula: None,
+                    depends_on: Vec::new(),
+                    target: None,
+                })
+                .collect(),
+        })
+    };
+    Ok(AnswersDocument {
+        schema_version: default_schema().schema_version.to_string(),
+        flow: match answers.mode {
+            prompt::AnswersMode::Create => "create",
+            prompt::AnswersMode::Update => "update",
+        }
+        .to_string(),
+        output_dir: format!("target/{package_name}-generated"),
+        locale: Some("en".to_string()),
+        package: Some(PackageAnswers {
+            name: Some(package_name.clone()),
+            version: Some("0.1.0".to_string()),
+            i18n_key: None,
+        }),
+        providers: Some(ProviderAnswers {
+            storage_category: Some("storage".to_string()),
+            external_ref_category: None,
+            hints: None,
+        }),
+        records: Some(RecordAnswers {
+            default_source: Some("native".to_string()),
+            external_ref_system: None,
+            items: record_items,
+        }),
+        ontology: None,
+        semantic_aliases: None,
+        entity_linking: None,
+        retrieval_bindings: None,
+        actions,
+        events,
+        projections,
+        operational_indexes: None,
+        record_hierarchy,
+        roles: Vec::new(),
+        metrics,
+        provider_requirements: Vec::new(),
+        policies: plan
+            .policies
+            .iter()
+            .map(|policy| NamedAnswer {
+                name: policy.name.clone(),
+                ..NamedAnswer::default()
+            })
+            .collect(),
+        approvals: Vec::new(),
+        migrations: Some(MigrationAnswers {
+            compatibility: Some("additive".to_string()),
+            items: plan
+                .migrations
+                .iter()
+                .map(|migration| MigrationItemAnswer {
+                    name: migration.name.clone(),
+                    compatibility: Some(migration.compatibility.clone()),
+                    projection_updates: Vec::new(),
+                    backfills: Vec::new(),
+                    idempotence_key: None,
+                    notes: None,
+                })
+                .collect(),
+        }),
+        agent_endpoints: Some(AgentEndpointAnswers {
+            enabled: Some(true),
+            ids: Some(
+                plan.agent_endpoints
+                    .iter()
+                    .map(|endpoint| endpoint.id.clone())
+                    .collect(),
+            ),
+            default_risk: Some("medium".to_string()),
+            default_approval: Some("policy-driven".to_string()),
+            exports: Some(vec![
+                "openapi".to_string(),
+                "arazzo".to_string(),
+                "mcp".to_string(),
+                "llms_txt".to_string(),
+            ]),
+            provider_category: Some("storage".to_string()),
+            items: Vec::new(),
+        }),
+        output: None,
+    })
+}
+
+fn v2_record_item_answer(record: &compiler::RecordPlan) -> RecordItemAnswer {
+    let mut fields = record
+        .fields
+        .iter()
+        .map(|field| FieldAnswer {
+            name: field.name.clone(),
+            i18n_key: None,
+            type_name: field.field_type.clone(),
+            required: Some(field.required),
+            optional: None,
+            sensitive: None,
+            enum_values: field.values.clone(),
+            default: serde_json::Value::Null,
+            rules: SorlaFieldValidationRulesView::default(),
+            references: None,
+            authority: None,
+            description: field.description.clone(),
+        })
+        .collect::<Vec<_>>();
+    if !fields.iter().any(|field| field.name == "id") {
+        fields.insert(
+            0,
+            FieldAnswer {
+                name: "id".to_string(),
+                i18n_key: None,
+                type_name: "uuid".to_string(),
+                required: Some(true),
+                optional: None,
+                sensitive: None,
+                enum_values: Vec::new(),
+                default: serde_json::Value::Null,
+                rules: SorlaFieldValidationRulesView {
+                    unique: true,
+                    ..SorlaFieldValidationRulesView::default()
+                },
+                references: None,
+                authority: None,
+                description: None,
+            },
+        );
+    }
+    for relationship in &record.relationships {
+        if fields.iter().any(|field| field.name == relationship.name) {
+            continue;
+        }
+        fields.push(FieldAnswer {
+            name: relationship.name.clone(),
+            i18n_key: None,
+            type_name: "uuid".to_string(),
+            required: Some(relationship.required),
+            optional: None,
+            sensitive: None,
+            enum_values: Vec::new(),
+            default: serde_json::Value::Null,
+            rules: SorlaFieldValidationRulesView::default(),
+            references: Some(FieldReferenceAnswer {
+                record: relationship.target.clone(),
+                field: "id".to_string(),
+            }),
+            authority: None,
+            description: None,
+        });
+    }
+    RecordItemAnswer {
+        name: record.name.clone(),
+        i18n_key: None,
+        source: Some("native".to_string()),
+        external_ref: None,
+        access: RecordAccessAnswer::default(),
+        fields,
+    }
+}
+
+fn v2_package_name(answers: &prompt::AnswersV2, plan: &compiler::ExpandedSorlaPlan) -> String {
+    let seed = answers
+        .intent
+        .summary
+        .as_deref()
+        .or_else(|| plan.records.first().map(|record| record.name.as_str()))
+        .unwrap_or("semantic-sorla");
+    let slug = slugify_identifier(seed);
+    if slug.ends_with("-sor") {
+        slug
+    } else {
+        format!("{slug}-sor")
+    }
+}
+
+fn slugify_identifier(input: &str) -> String {
+    let mut slug = String::new();
+    let mut previous_dash = false;
+    for ch in input.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            previous_dash = false;
+        } else if !previous_dash && !slug.is_empty() {
+            slug.push('-');
+            previous_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        "semantic-sorla".to_string()
+    } else {
+        slug
+    }
 }
 
 pub fn parse_sorla_yaml(input: ParseSorlaInput) -> Result<ParseSorlaOutput, SorlaError> {
@@ -2289,7 +2664,7 @@ fn design_model_from_package(
     let mut policies = package
         .policies
         .iter()
-        .map(named_view)
+        .map(policy_named_view)
         .collect::<Vec<SorlaNamedView>>();
     policies.sort_by(|left, right| left.name.cmp(&right.name));
 
@@ -2578,6 +2953,12 @@ fn metric_view(metric: &sorla_ast::MetricDecl) -> SorlaMetricView {
 }
 
 fn named_view(block: &sorla_ast::NamedBlock) -> SorlaNamedView {
+    SorlaNamedView {
+        name: block.name.clone(),
+    }
+}
+
+fn policy_named_view(block: &sorla_ast::PolicyDecl) -> SorlaNamedView {
     SorlaNamedView {
         name: block.name.clone(),
     }
@@ -3292,7 +3673,7 @@ pub fn propose_patch_from_instruction(
         model: llm_config.model,
         api_key: llm_config.api_key,
         endpoint: llm_config.endpoint,
-        system_prompt: "You propose SoRLa semantic patches only. Return JSON with a `patch` object using schema greentic.sorla.patch.v1, plus optional `explanation`. Do not return raw YAML or credentials.".to_string(),
+        system_prompt: "You propose SoRLa semantic patches only. Return JSON with a `patch` object using schema greentic.sorla.patch.v1, plus optional `explanation`. Use add/update/delete operations instead of raw YAML rewrites so the caller can journal additions, modifications, deletions, and rollback data. Preserve existing domain quality: lifecycle defaults must stay aligned with metric filters and generated create flows; relationship and metric dimension fields must remain on the records that metrics query. Do not return raw YAML or credentials.".to_string(),
         messages: vec![prompt::LlmMessage {
             role: prompt::LlmRole::User,
             content: format!(
@@ -3843,6 +4224,27 @@ pub fn build_gtpack_entries(
             sha256: sha256_hex_public(metrics_json.as_bytes()),
         });
     }
+    if let Some(role_assignments_json) = &artifacts.role_assignments_json {
+        entries.push(PackEntry {
+            path: ROLE_ASSIGNMENTS_PATH.to_string(),
+            bytes: role_assignments_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(role_assignments_json.as_bytes()),
+        });
+    }
+    if let Some(policy_rules_json) = &artifacts.policy_rules_json {
+        entries.push(PackEntry {
+            path: POLICY_RULES_PATH.to_string(),
+            bytes: policy_rules_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(policy_rules_json.as_bytes()),
+        });
+    }
+    if let Some(policy_rules_schema_json) = &artifacts.policy_rules_schema_json {
+        entries.push(PackEntry {
+            path: POLICY_RULES_SCHEMA_PATH.to_string(),
+            bytes: policy_rules_schema_json.as_bytes().to_vec(),
+            sha256: sha256_hex_public(policy_rules_schema_json.as_bytes()),
+        });
+    }
     if !artifacts.ir.agent_endpoints.is_empty() {
         entries.push(PackEntry {
             path: "assets/sorla/designer-node-types.json".to_string(),
@@ -4170,7 +4572,7 @@ fn render_prompt_help(
         localized_options_placeholder(catalog, fallback, "cli.options.placeholder", options);
 
     format!(
-        "{description}\n\n{usage}: greentic-sorla prompt [{options_placeholder}]\n\n{options}:\n      --answers-out <FILE>       {answers_out_description}\n      --sorla-yaml <FILE>        {sorla_yaml_description}\n      --resume <FILE>            {resume_description}\n      --session-out <FILE>       {session_out_description}\n      --locale <LOCALE>          {locale_description}\n      --llm-provider <PROVIDER>  {llm_provider_description}\n      --llm-model <MODEL>        {llm_model_description}\n      --llm-api-key <KEY>        {llm_api_key_description}\n      --llm-endpoint <URL>       {llm_endpoint_description}\n      --llm-capability-id <ID>   {llm_capability_id_description}\n  -h, --help                     {help_option}",
+        "{description}\n\n{usage}: greentic-sorla prompt [PROMPT] [{options_placeholder}]\n\n{arguments}:\n  PROMPT                         {prompt_description}\n\n{options}:\n      --prompt <FILE>            {prompt_file_description}\n      --answers-out <FILE>       {answers_out_description}\n      --sorla-yaml <FILE>        {sorla_yaml_description}\n      --resume <FILE>            {resume_description}\n      --session-out <FILE>       {session_out_description}\n      --locale <LOCALE>          {locale_description}\n      --llm-provider <PROVIDER>  {llm_provider_description}\n      --llm-model <MODEL>        {llm_model_description}\n      --llm-api-key <KEY>        {llm_api_key_description}\n      --llm-endpoint <URL>       {llm_endpoint_description}\n      --llm-capability-id <ID>   {llm_capability_id_description}\n      --only-errors              {only_errors_description}\n      --staged                   {staged_description}\n  -h, --help                     {help_option}",
         description = catalog_text(
             catalog,
             fallback,
@@ -4179,6 +4581,19 @@ fn render_prompt_help(
         ),
         usage = catalog_text(catalog, fallback, "cli.usage", "Usage"),
         options_placeholder = options_placeholder,
+        arguments = catalog_text(catalog, fallback, "cli.arguments", "Arguments"),
+        prompt_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.arguments.prompt.description",
+            "Business prompt to use instead of asking interactively."
+        ),
+        prompt_file_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.prompt.description",
+            "File to read the initial business prompt from."
+        ),
         options = options,
         answers_out_description = catalog_text(
             catalog,
@@ -4239,6 +4654,18 @@ fn render_prompt_help(
             fallback,
             "cli.prompt.options.llm_capability_id.description",
             "Greentic LLM capability ID to resolve."
+        ),
+        only_errors_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.only_errors.description",
+            "Suppress prompt progress messages and show only errors plus normal command output."
+        ),
+        staged_description = catalog_text(
+            catalog,
+            fallback,
+            "cli.prompt.options.staged.description",
+            "Generate answers from the draft in staged/sectional mode when possible."
         ),
         help_option = catalog_text(
             catalog,
@@ -4570,10 +4997,20 @@ fn run_design_patch(args: DesignPatchArgs) -> Result<(), String> {
     if args.force {
         patch.source.base_hash = current_sorla_source_hash(&source_yaml)?;
     }
+    let original_source_yaml = source_yaml.clone();
     let output = apply_sorla_patch(ApplyPatchInput { source_yaml, patch })?;
     if !args.dry_run {
         fs::write(&args.input, &output.updated_yaml)
             .map_err(|err| format!("failed to write {}: {err}", args.input.display()))?;
+        let output_dir = args.input.parent().unwrap_or_else(|| Path::new("."));
+        write_sorla_change_history(
+            output_dir,
+            &args.input,
+            "design-patch",
+            &original_source_yaml,
+            &output.updated_yaml,
+            Some(output.diff.clone()),
+        )?;
     }
     print_concept_diff(&output.diff);
     print_design_diagnostics(&output.diagnostics);
@@ -4635,7 +5072,9 @@ fn run_design_propose_patch(args: DesignProposePatchArgs) -> Result<(), String> 
                 capability_id: args.llm_capability_id,
             }),
         },
-        &CliPromptLlm,
+        &CliPromptLlm {
+            verbose: PromptVerbose::new(false),
+        },
     )?;
     if let Some(path) = args.out {
         let rendered =
@@ -4728,15 +5167,106 @@ fn print_design_diagnostics(diagnostics: &[SorlaDiagnostic]) {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PromptVerbose {
+    enabled: bool,
+}
+
+impl PromptVerbose {
+    fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+
+    fn start(self, label: impl Into<String>) -> PromptVerboseSpan {
+        let label = label.into();
+        if self.enabled {
+            eprintln!("[sorla] starting {label}");
+        }
+        PromptVerboseSpan {
+            enabled: self.enabled,
+            label,
+            started_at: Instant::now(),
+        }
+    }
+
+    fn message(self, message: impl AsRef<str>) {
+        if self.enabled {
+            eprintln!("[sorla] {}", message.as_ref());
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PromptVerboseSpan {
+    enabled: bool,
+    label: String,
+    started_at: Instant,
+}
+
+impl PromptVerboseSpan {
+    fn finish(self) {
+        self.finish_with("");
+    }
+
+    fn finish_with(self, detail: impl AsRef<str>) {
+        if self.enabled {
+            let detail = detail.as_ref();
+            if detail.is_empty() {
+                eprintln!(
+                    "[sorla] finished {} in {}",
+                    self.label,
+                    format_duration(self.started_at.elapsed())
+                );
+            } else {
+                eprintln!(
+                    "[sorla] finished {} in {} ({detail})",
+                    self.label,
+                    format_duration(self.started_at.elapsed())
+                );
+            }
+        }
+    }
+
+    fn fail(self, error: impl AsRef<str>) {
+        if self.enabled {
+            eprintln!(
+                "[sorla] failed {} after {} ({})",
+                self.label,
+                format_duration(self.started_at.elapsed()),
+                error.as_ref()
+            );
+        }
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    if duration.as_secs() >= 1 {
+        format!("{:.2}s", duration.as_secs_f64())
+    } else {
+        format!("{}ms", duration.as_millis())
+    }
+}
+
 fn run_prompt(args: PromptArgs) -> Result<(), String> {
+    let verbose = PromptVerbose::new(!args.only_errors);
     let locale = selected_locale(args.locale.as_deref(), None);
     let catalog = locale_catalog(&locale).unwrap_or_default();
     let fallback = locale_catalog("en").unwrap_or_default();
-    let update_target = args
-        .sorla_yaml
-        .as_ref()
-        .map(|path| prompt_update_target_from_sorla_yaml(path))
-        .transpose()?;
+    let update_target = if let Some(path) = &args.sorla_yaml {
+        let span = verbose.start(format!("reading update target {}", path.display()));
+        match prompt_update_target_from_sorla_yaml(path) {
+            Ok(target) => {
+                span.finish();
+                Some(target)
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
 
     if args.llm_provider.is_none() && args.llm_capability_id.is_none() {
         return Err(catalog_string(
@@ -4747,7 +5277,7 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
         ));
     }
 
-    let engine = prompt::DefaultPromptAuthoringEngine::new(CliPromptLlm);
+    let engine = prompt::DefaultPromptAuthoringEngine::new(CliPromptLlm { verbose });
     let config = prompt::PromptSessionConfig {
         locale: Some(locale),
         schema_version: Some(default_schema().schema_version.to_string()),
@@ -4770,7 +5300,8 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
     let current_llm_config = config.llm.clone();
 
     let mut session = if let Some(path) = &args.resume {
-        let contents = fs::read_to_string(path).map_err(|err| {
+        let span = verbose.start(format!("reading prompt session {}", path.display()));
+        let contents = match fs::read_to_string(path).map_err(|err| {
             render_catalog_template(
                 &catalog,
                 &fallback,
@@ -4781,8 +5312,18 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
                     ("error", err.to_string()),
                 ],
             )
-        })?;
-        serde_json::from_str::<prompt::PromptSessionState>(&contents).map_err(|err| {
+        }) {
+            Ok(contents) => {
+                span.finish_with(format!("{} bytes", contents.len()));
+                contents
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        };
+        let span = verbose.start(format!("parsing prompt session {}", path.display()));
+        match serde_json::from_str::<prompt::PromptSessionState>(&contents).map_err(|err| {
             render_catalog_template(
                 &catalog,
                 &fallback,
@@ -4793,13 +5334,97 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
                     ("error", err.to_string()),
                 ],
             )
-        })?
+        }) {
+            Ok(session) => {
+                span.finish_with(format!(
+                    "phase={:?}, draft={}",
+                    session.phase,
+                    session.draft_model.is_some()
+                ));
+                session
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        }
     } else {
-        engine.start_session(config)?
+        let span = verbose.start("starting new prompt session");
+        match engine.start_session(config) {
+            Ok(session) => {
+                span.finish_with(format!("session_id={}", session.session_id));
+                session
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        }
     };
     session.llm = Some(current_llm_config);
+    if args.staged {
+        session.staged_answers = true;
+    }
+    if session.staged_answers {
+        verbose.message("staged answer generation enabled");
+    }
 
-    if session.phase == prompt::PromptPhase::AwaitingBusinessPrompt {
+    let mut initial_user_message = args.prompt_text;
+    if initial_user_message.is_none()
+        && session.phase == prompt::PromptPhase::AwaitingBusinessPrompt
+        && let Some(path) = &args.prompt_file
+    {
+        let span = verbose.start(format!("reading prompt file {}", path.display()));
+        initial_user_message = Some(
+            match read_prompt_file(
+                path,
+                &catalog,
+                &fallback,
+                &catalog_string(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.errors.empty_business_prompt",
+                    "business prompt must not be empty",
+                ),
+            ) {
+                Ok(prompt) => {
+                    span.finish_with(format!("{} chars", prompt.len()));
+                    prompt
+                }
+                Err(error) => {
+                    span.fail(&error);
+                    return Err(error);
+                }
+            },
+        );
+    }
+    if initial_user_message.is_none()
+        && session.phase == prompt::PromptPhase::AwaitingBusinessPrompt
+        && !io::stdin().is_terminal()
+    {
+        let span = verbose.start("reading prompt from stdin");
+        initial_user_message = Some(
+            match read_stdin_to_prompt(&catalog_string(
+                &catalog,
+                &fallback,
+                "cli.prompt.errors.input_ended",
+                "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
+            )) {
+                Ok(prompt) => {
+                    span.finish_with(format!("{} chars", prompt.len()));
+                    prompt
+                }
+                Err(error) => {
+                    span.fail(&error);
+                    return Err(error);
+                }
+            },
+        );
+    }
+
+    if session.phase == prompt::PromptPhase::AwaitingBusinessPrompt
+        && initial_user_message.is_none()
+    {
         println!(
             "{}",
             catalog_text(
@@ -4811,12 +5436,47 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
         );
     }
 
+    if args.resume.is_some() && initial_user_message.is_none() {
+        initial_user_message = resumed_auto_user_message(&session);
+    }
+
+    if args.resume.is_some() && initial_user_message.is_none() {
+        print_resumed_prompt_state(&session, &catalog, &fallback);
+        if matches!(session.phase, prompt::PromptPhase::Completed) {
+            return Ok(());
+        }
+    }
+
     loop {
-        let mut user_message = if matches!(
-            session.phase,
-            prompt::PromptPhase::ReviewingDesignPlan | prompt::PromptPhase::ReadyToGenerateAnswers
-        ) {
-            "generate answers".to_string()
+        let mut read_from_prompt = false;
+        let mut user_message = if session.phase.is_review_phase()
+            || session.phase.is_generation_phase()
+        {
+            if let Some(message) = initial_user_message.take() {
+                message
+            } else {
+                print!("> ");
+                io::stdout().flush().map_err(|err| {
+                    render_catalog_template(
+                        &catalog,
+                        &fallback,
+                        "cli.prompt.errors.stdout_flush",
+                        "failed to flush prompt output: {error}",
+                        &[("error", err.to_string())],
+                    )
+                })?;
+                read_from_prompt = true;
+                read_stdin_line(&catalog_string(
+                    &catalog,
+                    &fallback,
+                    "cli.prompt.errors.input_ended",
+                    "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
+                ))?
+            }
+        } else if matches!(session.phase, prompt::PromptPhase::AwaitingBusinessPrompt)
+            && let Some(message) = initial_user_message.take()
+        {
+            message
         } else {
             print!("> ");
             io::stdout().flush().map_err(|err| {
@@ -4828,6 +5488,7 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
                     &[("error", err.to_string())],
                 )
             })?;
+            read_from_prompt = true;
             read_stdin_line(&catalog_string(
                 &catalog,
                 &fallback,
@@ -4835,22 +5496,46 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
                 "prompt input ended before the session completed; rerun with --resume <FILE> if you wrote --session-out",
             ))?
         };
+        if read_from_prompt && !args.only_errors {
+            println!();
+        }
         if matches!(session.phase, prompt::PromptPhase::AwaitingBusinessPrompt)
             && let Some(target) = &update_target
         {
             user_message = prompt_update_business_prompt(&user_message, target);
         }
 
-        let output = engine
+        let turn_label = format!("prompt turn from phase {:?}", session.phase);
+        let span = verbose.start(turn_label);
+        let output = match engine
             .next_turn(prompt::PromptTurnInput {
                 session,
                 user_message,
             })
-            .map_err(|err| localized_prompt_error(&catalog, &fallback, &err))?;
+            .map_err(|err| localized_prompt_error(&catalog, &fallback, &err))
+        {
+            Ok(output) => {
+                span.finish_with(format!(
+                    "next_phase={:?}, answers={}",
+                    output.session.phase,
+                    output.answers_document.is_some()
+                ));
+                output
+            }
+            Err(error) => {
+                span.fail(&error);
+                return Err(error);
+            }
+        };
         session = output.session;
 
         if let Some(path) = &args.session_out {
-            write_json_file(path, &session, &catalog, &fallback)?;
+            let span = verbose.start(format!("writing prompt session {}", path.display()));
+            if let Err(error) = write_json_file(path, &session, &catalog, &fallback) {
+                span.fail(&error);
+                return Err(error);
+            }
+            span.finish();
         }
 
         if output.answers_document.is_none() {
@@ -4883,7 +5568,12 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
             } else {
                 set_prompt_cli_output_dir(&mut answers, &args.answers_out);
             }
-            write_json_file(&args.answers_out, &answers, &catalog, &fallback)?;
+            let span = verbose.start(format!("writing answers {}", args.answers_out.display()));
+            if let Err(error) = write_json_file(&args.answers_out, &answers, &catalog, &fallback) {
+                span.fail(&error);
+                return Err(error);
+            }
+            span.finish();
             println!();
             println!(
                 "{}",
@@ -4911,6 +5601,109 @@ fn run_prompt(args: PromptArgs) -> Result<(), String> {
             );
             return Ok(());
         }
+    }
+}
+
+fn print_resumed_prompt_state(
+    session: &prompt::PromptSessionState,
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+) {
+    match session.phase {
+        prompt::PromptPhase::AskingTargetedQuestions | prompt::PromptPhase::AskingQuestions => {
+            println!(
+                "{}",
+                catalog_text(
+                    catalog,
+                    fallback,
+                    "cli.prompt.responses.resumed_questions",
+                    "Resumed prompt session. Continue with the next question."
+                )
+            );
+            for (index, question) in resumed_next_questions(session).iter().enumerate() {
+                println!();
+                println!(
+                    "{}",
+                    render_catalog_template(
+                        catalog,
+                        fallback,
+                        "cli.prompt.responses.question_heading",
+                        "Question {number}:",
+                        &[("number", (index + 1).to_string())],
+                    )
+                );
+                println!(
+                    "{}",
+                    localized_prompt_question_text(catalog, fallback, &question.id, &question.text)
+                );
+            }
+        }
+        prompt::PromptPhase::ReviewingDomainModel
+        | prompt::PromptPhase::ReviewingExpandedPlan
+        | prompt::PromptPhase::ReviewingDesignPlan
+        | prompt::PromptPhase::ReadyToGenerateAnswers
+        | prompt::PromptPhase::GeneratingAnswers => {
+            println!(
+                "{}",
+                catalog_text(
+                    catalog,
+                    fallback,
+                    "cli.prompt.responses.resumed_review",
+                    "Resumed prompt session at the draft review step. Generating answers."
+                )
+            );
+        }
+        prompt::PromptPhase::Completed => {
+            println!(
+                "{}",
+                catalog_text(
+                    catalog,
+                    fallback,
+                    "cli.prompt.responses.resumed_completed",
+                    "Resumed prompt session is already complete."
+                )
+            );
+        }
+        prompt::PromptPhase::AwaitingBusinessPrompt
+        | prompt::PromptPhase::ExtractingDomainModel
+        | prompt::PromptPhase::CompilingExpandedPlan => {}
+    }
+}
+
+fn resumed_next_questions(session: &prompt::PromptSessionState) -> Vec<&prompt::PromptQuestion> {
+    for question in &session.questions {
+        if session
+            .answers_so_far
+            .iter()
+            .any(|answer| answer.question_id == question.id)
+        {
+            continue;
+        }
+        if question.depends_on.iter().all(|dependency| {
+            session
+                .answers_so_far
+                .iter()
+                .any(|answer| answer.question_id == *dependency)
+        }) {
+            return vec![question];
+        }
+    }
+    Vec::new()
+}
+
+fn resumed_auto_user_message(session: &prompt::PromptSessionState) -> Option<String> {
+    match session.phase {
+        prompt::PromptPhase::ReviewingDomainModel
+        | prompt::PromptPhase::ReviewingExpandedPlan
+        | prompt::PromptPhase::ReviewingDesignPlan
+        | prompt::PromptPhase::ReadyToGenerateAnswers
+        | prompt::PromptPhase::GeneratingAnswers => Some("generate answers".to_string()),
+        prompt::PromptPhase::AwaitingBusinessPrompt
+        | prompt::PromptPhase::ExtractingDomainModel
+        | prompt::PromptPhase::AskingTargetedQuestions
+        | prompt::PromptPhase::CompilingExpandedPlan
+        | prompt::PromptPhase::AskingQuestions
+        | prompt::PromptPhase::Completed => None,
     }
 }
 
@@ -5072,127 +5865,302 @@ fn localized_prompt_error(
     error.to_string()
 }
 
-struct CliPromptLlm;
+struct CliPromptLlm {
+    verbose: PromptVerbose,
+}
 
 impl prompt::LlmCapability for CliPromptLlm {
     fn complete(&self, request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
+        let label = prompt_llm_request_label(&request);
+        let span = self.verbose.start(format!(
+            "LLM {label} ({})",
+            prompt_llm_request_size_summary(&request)
+        ));
         if request.provider == "fake" {
-            return Ok(prompt::LlmResponse {
+            let response = prompt::LlmResponse {
                 content: "{}".to_string(),
-            });
+                usage: None,
+            };
+            span.finish_with(prompt_token_usage_summary(response.usage.as_ref()));
+            return Ok(response);
         }
-        if request.provider != "openai" {
-            return Err(format!(
-                "unsupported prompt LLM provider `{}`; supported providers: openai, fake",
-                request.provider
-            ));
+        match complete_greentic_llm_prompt(request, self.verbose) {
+            Ok(response) => {
+                span.finish_with(prompt_token_usage_summary(response.usage.as_ref()));
+                Ok(response)
+            }
+            Err(error) => {
+                span.fail(&error);
+                Err(error)
+            }
         }
-        complete_openai_prompt(request)
+    }
+}
+
+fn prompt_llm_request_label(request: &prompt::LlmRequest) -> &'static str {
+    if request.system_prompt.contains("discovery step") {
+        "discovery draft"
+    } else if request.system_prompt.contains("planning step") {
+        "planning/draft refresh"
+    } else if request
+        .system_prompt
+        .contains("repair prompt-authoring JSON")
+    {
+        "authoring repair"
+    } else if request
+        .system_prompt
+        .contains("generate the final answers.json")
+    {
+        "answer generation"
+    } else if request.system_prompt.contains("regenerate answers.json")
+        || request.system_prompt.contains("repair answers.json")
+    {
+        "answer repair"
+    } else {
+        "completion"
+    }
+}
+
+fn prompt_llm_request_size_summary(request: &prompt::LlmRequest) -> String {
+    let system_chars = request.system_prompt.chars().count();
+    let message_chars = request
+        .messages
+        .iter()
+        .map(|message| message.content.chars().count())
+        .sum::<usize>();
+    let response_format_chars = request
+        .response_format
+        .as_ref()
+        .and_then(|format| serde_json::to_string(format).ok())
+        .map(|text| text.chars().count())
+        .unwrap_or(0);
+    format!(
+        "chars system={system_chars}, messages={message_chars}, response_format={response_format_chars}"
+    )
+}
+
+fn prompt_token_usage_summary(usage: Option<&prompt::LlmTokenUsage>) -> String {
+    match usage {
+        Some(usage) => format!(
+            "tokens prompt={}, completion={}, total={}",
+            prompt_optional_token_count(usage.prompt_tokens),
+            prompt_optional_token_count(usage.completion_tokens),
+            prompt_optional_token_count(usage.total_tokens)
+        ),
+        None => "tokens unknown".to_string(),
+    }
+}
+
+fn prompt_optional_token_count(tokens: Option<u64>) -> String {
+    tokens
+        .map(|tokens| tokens.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+#[cfg(feature = "cli")]
+fn complete_greentic_llm_prompt(
+    request: prompt::LlmRequest,
+    verbose: PromptVerbose,
+) -> Result<prompt::LlmResponse, SorlaError> {
+    use greentic_llm::{ChatRequest, LlmProvider, RigBackend};
+    use std::str::FromStr;
+
+    let provider = greentic_llm::ProviderKind::from_str(&request.provider)
+        .map_err(|error| prompt_llm_provider_error(&request.provider, &error))?;
+    let model = request
+        .model
+        .clone()
+        .unwrap_or_else(|| default_prompt_llm_model(provider));
+    let credential = prompt_llm_credential(provider, &request)?;
+    let messages = prompt_llm_chat_messages(
+        request.system_prompt,
+        request.messages,
+        request.response_format,
+    );
+    let span = verbose.start(format!(
+        "Greentic LLM {} request ({model})",
+        provider.as_str()
+    ));
+
+    let result = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("failed to create LLM runtime: {error}"))?
+        .block_on(async move {
+            let backend = RigBackend::new(provider, &model, &credential).map_err(|error| {
+                format!(
+                    "failed to create {} LLM backend: {error}",
+                    provider.as_str()
+                )
+            })?;
+            backend
+                .chat(ChatRequest {
+                    messages,
+                    tools: vec![],
+                    tool_choice: None,
+                    max_tokens: None,
+                    temperature: None,
+                })
+                .await
+                .map_err(|error| format!("{} LLM request failed: {error}", provider.as_str()))
+        });
+
+    match result {
+        Ok(response) => {
+            span.finish_with("completed through greentic-llm");
+            Ok(prompt::LlmResponse {
+                content: response.content,
+                usage: None,
+            })
+        }
+        Err(error) => {
+            span.fail(&error);
+            Err(error)
+        }
+    }
+}
+
+#[cfg(not(feature = "cli"))]
+fn complete_greentic_llm_prompt(
+    _request: prompt::LlmRequest,
+    _verbose: PromptVerbose,
+) -> Result<prompt::LlmResponse, SorlaError> {
+    Err("Prompt LLM provider requires the `cli` feature".to_string())
+}
+
+#[cfg(feature = "cli")]
+fn prompt_llm_provider_error(provider: &str, parse_error: &str) -> String {
+    let supported = greentic_llm::ProviderKind::all()
+        .iter()
+        .map(greentic_llm::ProviderKind::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "unsupported prompt LLM provider `{provider}` ({parse_error}); supported providers: {supported}, fake"
+    )
+}
+
+#[cfg(feature = "cli")]
+fn default_prompt_llm_model(provider: greentic_llm::ProviderKind) -> String {
+    match provider {
+        greentic_llm::ProviderKind::Openai => "gpt-4.1-mini",
+        greentic_llm::ProviderKind::Anthropic => "claude-3-5-sonnet-latest",
+        greentic_llm::ProviderKind::Deepseek => "deepseek-chat",
+        greentic_llm::ProviderKind::Gemini => "gemini-1.5-pro",
+        greentic_llm::ProviderKind::Cohere => "command-r-plus",
+        greentic_llm::ProviderKind::Ollama => "llama3.1",
+        greentic_llm::ProviderKind::Groq => "llama-3.1-70b-versatile",
+        greentic_llm::ProviderKind::Perplexity => "sonar-pro",
+        greentic_llm::ProviderKind::Xai => "grok-2-latest",
+    }
+    .to_string()
+}
+
+#[cfg(feature = "cli")]
+fn prompt_llm_credential(
+    provider: greentic_llm::ProviderKind,
+    request: &prompt::LlmRequest,
+) -> Result<greentic_llm::Credential, SorlaError> {
+    let api_key = request
+        .api_key
+        .clone()
+        .or_else(|| std::env::var("GREENTIC_LLM_API_KEY").ok())
+        .or_else(|| provider_api_key_env(provider).and_then(|name| std::env::var(name).ok()))
+        .or_else(|| (provider == greentic_llm::ProviderKind::Ollama).then(String::new))
+        .ok_or_else(|| {
+            let provider = provider.as_str();
+            let env_name = provider_api_key_env_name(provider);
+            format!(
+                "{provider} prompt provider requires --llm-api-key, GREENTIC_LLM_API_KEY, or {env_name}"
+            )
+        })?;
+    let base_url = request
+        .endpoint
+        .clone()
+        .or_else(|| std::env::var("GREENTIC_LLM_BASE_URL").ok())
+        .map(normalize_prompt_llm_base_url);
+    Ok(greentic_llm::Credential {
+        api_key,
+        base_url,
+        expires_at: None,
+    })
+}
+
+#[cfg(feature = "cli")]
+fn provider_api_key_env(provider: greentic_llm::ProviderKind) -> Option<&'static str> {
+    match provider {
+        greentic_llm::ProviderKind::Openai => Some("OPENAI_API_KEY"),
+        greentic_llm::ProviderKind::Anthropic => Some("ANTHROPIC_API_KEY"),
+        greentic_llm::ProviderKind::Deepseek => Some("DEEPSEEK_API_KEY"),
+        greentic_llm::ProviderKind::Gemini => Some("GEMINI_API_KEY"),
+        greentic_llm::ProviderKind::Cohere => Some("COHERE_API_KEY"),
+        greentic_llm::ProviderKind::Ollama => None,
+        greentic_llm::ProviderKind::Groq => Some("GROQ_API_KEY"),
+        greentic_llm::ProviderKind::Perplexity => Some("PERPLEXITY_API_KEY"),
+        greentic_llm::ProviderKind::Xai => Some("XAI_API_KEY"),
     }
 }
 
 #[cfg(feature = "cli")]
-fn complete_openai_prompt(request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
-    let api_key = request
-        .api_key
-        .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-        .ok_or_else(|| {
-            "OpenAI prompt provider requires --llm-api-key or OPENAI_API_KEY".to_string()
-        })?;
-    let model = request.model.unwrap_or_else(|| "gpt-4.1-mini".to_string());
-    let endpoint = request
-        .endpoint
-        .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_string());
+fn provider_api_key_env_name(provider: &str) -> String {
+    format!("{}_API_KEY", provider.to_ascii_uppercase())
+}
 
-    let mut messages = vec![serde_json::json!({
-        "role": "system",
-        "content": request.system_prompt,
-    })];
-    messages.extend(request.messages.into_iter().map(|message| {
-        serde_json::json!({
-            "role": match message.role {
-                prompt::LlmRole::System => "system",
-                prompt::LlmRole::User => "user",
-                prompt::LlmRole::Assistant => "assistant",
-            },
-            "content": message.content,
-        })
-    }));
+#[cfg(feature = "cli")]
+fn normalize_prompt_llm_base_url(endpoint: String) -> String {
+    endpoint
+        .trim_end_matches('/')
+        .trim_end_matches("/chat/completions")
+        .trim_end_matches("/responses")
+        .to_string()
+}
 
-    let mut body = serde_json::json!({
-        "model": model,
-        "messages": messages,
-    });
-    match request.response_format {
+#[cfg(feature = "cli")]
+fn prompt_llm_chat_messages(
+    system_prompt: String,
+    messages: Vec<prompt::LlmMessage>,
+    response_format: Option<prompt::LlmResponseFormat>,
+) -> Vec<greentic_llm::ChatMessage> {
+    let mut chat_messages = vec![greentic_llm::ChatMessage {
+        role: greentic_llm::MessageRole::System,
+        content: prompt_llm_system_prompt(system_prompt, response_format),
+        images: vec![],
+    }];
+    chat_messages.extend(
+        messages
+            .into_iter()
+            .map(|message| greentic_llm::ChatMessage {
+                role: match message.role {
+                    prompt::LlmRole::System => greentic_llm::MessageRole::System,
+                    prompt::LlmRole::User => greentic_llm::MessageRole::User,
+                    prompt::LlmRole::Assistant => greentic_llm::MessageRole::Assistant,
+                },
+                content: message.content,
+                images: vec![],
+            }),
+    );
+    chat_messages
+}
+
+#[cfg(feature = "cli")]
+fn prompt_llm_system_prompt(
+    system_prompt: String,
+    response_format: Option<prompt::LlmResponseFormat>,
+) -> String {
+    match response_format {
         Some(prompt::LlmResponseFormat::Json) => {
-            body["response_format"] = serde_json::json!({ "type": "json_object" });
+            format!("{system_prompt}\n\nReturn valid JSON only. Do not wrap it in markdown.")
         }
         Some(prompt::LlmResponseFormat::JsonSchema {
             name,
             schema,
             strict,
-        }) => {
-            body["response_format"] = serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": name,
-                    "strict": strict,
-                    "schema": schema
-                }
-            });
-        }
-        Some(prompt::LlmResponseFormat::Text) | None => {}
+        }) => format!(
+            "{system_prompt}\n\nReturn valid JSON only. Do not wrap it in markdown. The JSON must satisfy schema `{name}` with strict={strict}:\n{}",
+            serde_json::to_string_pretty(&schema).unwrap_or_else(|_| schema.to_string())
+        ),
+        Some(prompt::LlmResponseFormat::Text) | None => system_prompt,
     }
-
-    let mut response = ureq::post(&endpoint)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json")
-        .config()
-        .http_status_as_error(false)
-        .build()
-        .send_json(&body)
-        .map_err(openai_request_error_message)?;
-    if !response.status().is_success() {
-        return Err(openai_status_error_message(response));
-    }
-    let value: serde_json::Value = response
-        .body_mut()
-        .read_json()
-        .map_err(|err| format!("OpenAI prompt response was not valid JSON: {err}"))?;
-    let content = value["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| format!("OpenAI prompt response did not contain message content: {value}"))?
-        .to_string();
-    Ok(prompt::LlmResponse { content })
-}
-
-#[cfg(feature = "cli")]
-fn openai_request_error_message(error: ureq::Error) -> String {
-    format!("OpenAI prompt request failed: {error}")
-}
-
-#[cfg(feature = "cli")]
-fn openai_status_error_message(mut response: ureq::http::Response<ureq::Body>) -> String {
-    let status = response.status();
-    let body = response.body_mut().read_to_string().unwrap_or_default();
-    if body.trim().is_empty() {
-        return format!("OpenAI prompt request failed with status {status}");
-    }
-    let message = serde_json::from_str::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|value| {
-            value["error"]["message"]
-                .as_str()
-                .map(str::to_string)
-                .or_else(|| value["message"].as_str().map(str::to_string))
-        })
-        .unwrap_or(body);
-    format!("OpenAI prompt request failed with status {status}: {message}")
-}
-
-#[cfg(not(feature = "cli"))]
-fn complete_openai_prompt(_request: prompt::LlmRequest) -> Result<prompt::LlmResponse, SorlaError> {
-    Err("OpenAI prompt provider requires the `cli` feature".to_string())
 }
 
 fn read_stdin_line(eof_message: &str) -> Result<String, String> {
@@ -5204,6 +6172,43 @@ fn read_stdin_line(eof_message: &str) -> Result<String, String> {
         return Err(eof_message.to_string());
     }
     Ok(line.trim_end().to_string())
+}
+
+fn read_stdin_to_prompt(eof_message: &str) -> Result<String, String> {
+    let mut prompt = String::new();
+    io::stdin()
+        .read_to_string(&mut prompt)
+        .map_err(|err| format!("failed to read prompt input: {err}"))?;
+    let prompt = prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Err(eof_message.to_string());
+    }
+    Ok(prompt)
+}
+
+fn read_prompt_file(
+    path: &Path,
+    catalog: &BTreeMap<String, String>,
+    fallback: &BTreeMap<String, String>,
+    empty_message: &str,
+) -> Result<String, String> {
+    let prompt = fs::read_to_string(path).map_err(|err| {
+        render_catalog_template(
+            catalog,
+            fallback,
+            "cli.prompt.errors.prompt_read",
+            "failed to read prompt file {path}: {error}",
+            &[
+                ("path", path.display().to_string()),
+                ("error", err.to_string()),
+            ],
+        )
+    })?;
+    let prompt = prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Err(empty_message.to_string());
+    }
+    Ok(prompt)
 }
 
 fn write_json_file<T>(
@@ -5421,6 +6426,11 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
             if pack_out.is_some() {
                 return Err("`--pack-out` can only be used when applying answers or running the interactive wizard".to_string());
             }
+            if args.diagnostics_out.is_some() {
+                return Err(
+                    "`--diagnostics-out` can only be used when applying answers".to_string()
+                );
+            }
             let schema = default_schema_for_locale(&selected_locale(args.locale.as_deref(), None));
             let rendered = serde_json::to_string_pretty(&schema).map_err(|err| err.to_string())?;
             println!("{rendered}");
@@ -5429,8 +6439,18 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
         (false, Some(path)) => {
             let contents = fs::read_to_string(&path)
                 .map_err(|err| format!("failed to read answers file {}: {err}", path.display()))?;
-            let mut answers: AnswersDocument = serde_json::from_str(&contents)
+            let answers_value: serde_json::Value = serde_json::from_str(&contents)
                 .map_err(|err| format!("failed to parse answers file {}: {err}", path.display()))?;
+            if let Some(diagnostics_out) = &args.diagnostics_out {
+                let diagnostics = diagnostics_for_answers_input(&answers_value)?;
+                write_json_file(
+                    diagnostics_out,
+                    &diagnostics,
+                    &BTreeMap::new(),
+                    &BTreeMap::new(),
+                )?;
+            }
+            let mut answers = answers_document_from_input(answers_value)?;
             if args.locale.is_some() {
                 answers.locale = args.locale;
             }
@@ -5442,7 +6462,14 @@ fn run_wizard(args: WizardArgs) -> Result<(), String> {
         (true, Some(_)) => {
             Err("choose one wizard mode: use either `--schema` or `--answers <file>`".to_string())
         }
-        (false, None) => run_interactive_wizard(args.locale.as_deref(), pack_out),
+        (false, None) => {
+            if args.diagnostics_out.is_some() {
+                return Err(
+                    "`--diagnostics-out` can only be used when applying answers".to_string()
+                );
+            }
+            run_interactive_wizard(args.locale.as_deref(), pack_out)
+        }
     }
 }
 
@@ -5565,10 +6592,44 @@ fn apply_answers_document(
     })?;
 
     let package_path = output_dir.join("sorla.yaml");
+    let previous_package_yaml = if resolved.flow == "update" && package_path.exists() {
+        Some(fs::read_to_string(&package_path).map_err(|err| {
+            format!(
+                "failed to read existing package file {}: {err}",
+                package_path.display()
+            )
+        })?)
+    } else {
+        None
+    };
+    let previous_generated_yaml = previous_package_yaml
+        .as_deref()
+        .and_then(extract_generated_block_yaml);
     let generated_yaml = render_package_yaml(&resolved);
     let preserved_user_content = write_generated_block(&package_path, &generated_yaml)?;
 
     let mut written_files = vec![relative_to_output(&output_dir, &package_path)];
+    let change_history_path = if resolved.flow == "update" {
+        if let Some(previous_yaml) = previous_generated_yaml.as_deref() {
+            write_sorla_change_history(
+                &output_dir,
+                &package_path,
+                "wizard-update",
+                previous_yaml,
+                &generated_yaml,
+                None,
+            )?
+            .map(|path| {
+                let relative = relative_to_output(&output_dir, &path);
+                written_files.push(relative.clone());
+                relative
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let generated_package_path = generated_dir.join(GENERATED_PACKAGE_FILENAME);
     fs::write(&generated_package_path, generated_yaml.as_bytes()).map_err(|err| {
         format!(
@@ -5663,6 +6724,7 @@ fn apply_answers_document(
         locale: resolved.locale.clone(),
         written_files,
         pack_path,
+        change_history_path,
         preserved_user_content,
     })
 }
@@ -5676,6 +6738,7 @@ impl From<ExecutionSummary> for ApplyAnswersOutput {
             locale: summary.locale,
             written_files: summary.written_files,
             pack_path: summary.pack_path,
+            change_history_path: summary.change_history_path,
             preserved_user_content: summary.preserved_user_content,
         }
     }
@@ -7089,8 +8152,40 @@ fn normalize_record_items_for_source(
             if source == "hybrid" {
                 normalize_hybrid_record_fields(&mut record.fields);
             }
+            apply_lifecycle_field_defaults(&mut record);
             record
         })
+        .collect()
+}
+
+fn apply_lifecycle_field_defaults(record: &mut RecordItemAnswer) {
+    let Some(default_status) = lifecycle_status_default(&record.name) else {
+        return;
+    };
+    if let Some(status) = record
+        .fields
+        .iter_mut()
+        .find(|field| field.name == "status")
+        && status.default.is_null()
+    {
+        status.default = serde_json::Value::String(default_status.to_string());
+    }
+}
+
+fn lifecycle_status_default(record_name: &str) -> Option<&'static str> {
+    match normalize_identifier(record_name).as_str() {
+        "tenancy" | "lease" => Some("active"),
+        "maintenancerequest" | "maintenance_request" => Some("open"),
+        "payment" | "rentpayment" | "rent_payment" => Some("settled"),
+        _ => None,
+    }
+}
+
+fn normalize_identifier(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
         .collect()
 }
 
@@ -7287,6 +8382,12 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
             .map(|records| records.items.clone())
             .unwrap_or_default(),
     );
+    let record_hierarchy = if answers.record_hierarchy.is_empty() {
+        infer_record_hierarchy_answers(&resolved_record_items)
+    } else {
+        answers.record_hierarchy.clone()
+    };
+    apply_lifecycle_endpoint_defaults(&mut agent_endpoint_values.items, &resolved_record_items);
     let (resolved_event_items, resolved_projection_items) = normalize_events_and_projections(
         answers
             .events
@@ -7333,6 +8434,7 @@ fn resolve_create_answers(answers: &AnswersDocument) -> Result<ResolvedAnswers, 
         external_ref_system,
         roles: answers.roles.clone(),
         record_items: resolved_record_items,
+        record_hierarchy,
         ontology: answers.ontology.clone(),
         semantic_aliases: answers.semantic_aliases.clone(),
         entity_linking: answers.entity_linking.clone(),
@@ -7482,6 +8584,12 @@ fn resolve_update_answers(
             })
             .unwrap_or_else(|| previous.record_items.clone()),
     );
+    let record_hierarchy = if answers.record_hierarchy.is_empty() {
+        infer_record_hierarchy_answers(&resolved_record_items)
+    } else {
+        answers.record_hierarchy.clone()
+    };
+    apply_lifecycle_endpoint_defaults(&mut agent_endpoint_values.items, &resolved_record_items);
     let event_items = answers
         .events
         .as_ref()
@@ -7553,6 +8661,7 @@ fn resolve_update_answers(
             answers.roles.clone()
         },
         record_items: resolved_record_items,
+        record_hierarchy,
         ontology: answers.ontology.clone().or(previous.ontology),
         semantic_aliases: answers
             .semantic_aliases
@@ -7634,6 +8743,53 @@ fn resolve_update_answers(
         include_agent_tools,
         artifacts,
     })
+}
+
+fn apply_lifecycle_endpoint_defaults(
+    endpoints: &mut [AgentEndpointItemAnswer],
+    records: &[RecordItemAnswer],
+) {
+    for endpoint in endpoints {
+        let Some(record_name) = endpoint_execution_record(endpoint) else {
+            continue;
+        };
+        let Some(default_status) = record_status_default(records, record_name)
+            .or_else(|| lifecycle_status_default(record_name))
+        else {
+            continue;
+        };
+        let Some(emits) = endpoint.emits.as_mut() else {
+            continue;
+        };
+        let serde_json::Value::Object(payload) = &mut emits.payload else {
+            continue;
+        };
+        payload
+            .entry("status".to_string())
+            .or_insert_with(|| serde_json::Value::String(default_status.to_string()));
+    }
+}
+
+fn endpoint_execution_record(endpoint: &AgentEndpointItemAnswer) -> Option<&str> {
+    endpoint
+        .execution
+        .as_ref()
+        .filter(|execution| {
+            execution.get("kind").and_then(serde_json::Value::as_str) == Some("record-create")
+        })
+        .and_then(|execution| execution.get("record"))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn record_status_default<'a>(
+    records: &'a [RecordItemAnswer],
+    record_name: &str,
+) -> Option<&'a str> {
+    records
+        .iter()
+        .find(|record| record.name == record_name)
+        .and_then(|record| record.fields.iter().find(|field| field.name == "status"))
+        .and_then(|field| field.default.as_str())
 }
 
 struct ResolvedAgentEndpointAnswers {
@@ -8106,6 +9262,310 @@ fn write_generated_block(path: &Path, generated_yaml: &str) -> Result<bool, Stri
     Ok(preserved_user_content)
 }
 
+fn extract_generated_block_yaml(contents: &str) -> Option<String> {
+    let start = contents.find(GENERATED_BEGIN)? + GENERATED_BEGIN.len();
+    let end = contents.find(GENERATED_END)?;
+    if end <= start {
+        return None;
+    }
+    Some(
+        contents[start..end]
+            .strip_prefix('\n')
+            .unwrap_or(&contents[start..end])
+            .to_string(),
+    )
+}
+
+fn write_sorla_change_history(
+    output_dir: &Path,
+    sorla_path: &Path,
+    mode: &str,
+    before_yaml: &str,
+    after_yaml: &str,
+    diff: Option<ConceptDiff>,
+) -> Result<Option<PathBuf>, String> {
+    if before_yaml == after_yaml {
+        return Ok(None);
+    }
+    let old_hash = format!("sha256:{}", sha256_hex_public(before_yaml.as_bytes()));
+    let new_hash = format!("sha256:{}", sha256_hex_public(after_yaml.as_bytes()));
+    let diff = diff.unwrap_or_else(|| summarize_sorla_yaml_changes(before_yaml, after_yaml));
+    let entry = SorlaChangeHistoryEntry {
+        schema: SORLA_CHANGE_HISTORY_SCHEMA.to_string(),
+        source_path: sorla_path.display().to_string(),
+        mode: mode.to_string(),
+        old_hash: old_hash.clone(),
+        new_hash: new_hash.clone(),
+        diff,
+        rollback: SorlaRollbackSnapshot {
+            strategy: "restore_before_yaml".to_string(),
+            restore_hash: old_hash.clone(),
+            restore_yaml: before_yaml.to_string(),
+        },
+        before_yaml: before_yaml.to_string(),
+        after_yaml: after_yaml.to_string(),
+    };
+    let old_short = short_hash_suffix(&old_hash);
+    let new_short = short_hash_suffix(&new_hash);
+    let history_dir = output_dir.join(".greentic-sorla").join("history");
+    fs::create_dir_all(&history_dir).map_err(|err| {
+        format!(
+            "failed to create change history directory {}: {err}",
+            history_dir.display()
+        )
+    })?;
+    let history_path = history_dir.join(format!("sorla-change-{old_short}-{new_short}.json"));
+    let contents = serde_json::to_vec_pretty(&entry).map_err(|err| err.to_string())?;
+    fs::write(&history_path, contents).map_err(|err| {
+        format!(
+            "failed to write change history file {}: {err}",
+            history_path.display()
+        )
+    })?;
+    Ok(Some(history_path))
+}
+
+fn short_hash_suffix(hash: &str) -> String {
+    hash.rsplit_once(':')
+        .map(|(_, value)| value)
+        .unwrap_or(hash)
+        .chars()
+        .take(12)
+        .collect()
+}
+
+fn summarize_sorla_yaml_changes(before_yaml: &str, after_yaml: &str) -> ConceptDiff {
+    let before = parse_package(before_yaml);
+    let after = parse_package(after_yaml);
+    let changes = match (before, after) {
+        (Ok(before), Ok(after)) => {
+            concept_changes_between_packages(&before.package, &after.package)
+        }
+        _ => vec![ConceptChange {
+            kind: ConceptChangeKind::Updated,
+            target: "sorla.yaml".to_string(),
+            label: "Updated SoRLa source".to_string(),
+            before: Some(
+                serde_json::json!({ "hash": format!("sha256:{}", sha256_hex_public(before_yaml.as_bytes())) }),
+            ),
+            after: Some(
+                serde_json::json!({ "hash": format!("sha256:{}", sha256_hex_public(after_yaml.as_bytes())) }),
+            ),
+        }],
+    };
+    ConceptDiff {
+        schema: CONCEPT_DIFF_SCHEMA.to_string(),
+        changes,
+    }
+}
+
+fn concept_changes_between_packages(
+    before: &sorla_ast::Package,
+    after: &sorla_ast::Package,
+) -> Vec<ConceptChange> {
+    let mut changes = Vec::new();
+    if before.package != after.package {
+        changes.push(ConceptChange {
+            kind: ConceptChangeKind::Updated,
+            target: "package".to_string(),
+            label: "Updated package metadata".to_string(),
+            before: Some(serde_json::to_value(&before.package).unwrap_or_default()),
+            after: Some(serde_json::to_value(&after.package).unwrap_or_default()),
+        });
+    }
+    collect_named_changes(
+        "record",
+        before
+            .records
+            .iter()
+            .map(|record| {
+                (
+                    record.name.clone(),
+                    serde_json::to_value(record).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .records
+            .iter()
+            .map(|record| {
+                (
+                    record.name.clone(),
+                    serde_json::to_value(record).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    for record in &before.records {
+        if let Some(after_record) = after
+            .records
+            .iter()
+            .find(|candidate| candidate.name == record.name)
+        {
+            collect_named_changes(
+                &format!("record.{}.field", record.name),
+                record
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.name.clone(),
+                            serde_json::to_value(field).unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
+                after_record
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.name.clone(),
+                            serde_json::to_value(field).unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
+                &mut changes,
+            );
+        }
+    }
+    collect_named_changes(
+        "event",
+        before
+            .events
+            .iter()
+            .map(|event| {
+                (
+                    event.name.clone(),
+                    serde_json::to_value(event).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .events
+            .iter()
+            .map(|event| {
+                (
+                    event.name.clone(),
+                    serde_json::to_value(event).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    collect_named_changes(
+        "projection",
+        before
+            .projections
+            .iter()
+            .map(|projection| {
+                (
+                    projection.name.clone(),
+                    serde_json::to_value(projection).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .projections
+            .iter()
+            .map(|projection| {
+                (
+                    projection.name.clone(),
+                    serde_json::to_value(projection).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    collect_named_changes(
+        "metric",
+        before
+            .metrics
+            .iter()
+            .map(|metric| {
+                (
+                    metric.name.clone(),
+                    serde_json::to_value(metric).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .metrics
+            .iter()
+            .map(|metric| {
+                (
+                    metric.name.clone(),
+                    serde_json::to_value(metric).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    collect_named_changes(
+        "agent_endpoint",
+        before
+            .agent_endpoints
+            .iter()
+            .map(|endpoint| {
+                (
+                    endpoint.id.clone(),
+                    serde_json::to_value(endpoint).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        after
+            .agent_endpoints
+            .iter()
+            .map(|endpoint| {
+                (
+                    endpoint.id.clone(),
+                    serde_json::to_value(endpoint).unwrap_or_default(),
+                )
+            })
+            .collect(),
+        &mut changes,
+    );
+    changes
+}
+
+fn collect_named_changes(
+    kind: &str,
+    before: BTreeMap<String, serde_json::Value>,
+    after: BTreeMap<String, serde_json::Value>,
+    changes: &mut Vec<ConceptChange>,
+) {
+    for (name, before_value) in &before {
+        match after.get(name) {
+            Some(after_value) if after_value != before_value => changes.push(ConceptChange {
+                kind: ConceptChangeKind::Updated,
+                target: format!("{kind}.{name}"),
+                label: format!("Updated {kind} {name}"),
+                before: Some(before_value.clone()),
+                after: Some(after_value.clone()),
+            }),
+            None => changes.push(ConceptChange {
+                kind: ConceptChangeKind::Removed,
+                target: format!("{kind}.{name}"),
+                label: format!("Removed {kind} {name}"),
+                before: Some(before_value.clone()),
+                after: None,
+            }),
+            _ => {}
+        }
+    }
+    for (name, after_value) in &after {
+        if !before.contains_key(name) {
+            changes.push(ConceptChange {
+                kind: ConceptChangeKind::Added,
+                target: format!("{kind}.{name}"),
+                label: format!("Added {kind} {name}"),
+                before: None,
+                after: Some(after_value.clone()),
+            });
+        }
+    }
+}
+
 fn render_package_yaml(resolved: &ResolvedAnswers) -> String {
     if has_rich_domain_answers(resolved) {
         return render_rich_package_yaml(resolved);
@@ -8297,6 +9757,7 @@ fn has_rich_domain_answers(resolved: &ResolvedAnswers) -> bool {
         || !resolved.event_items.is_empty()
         || !resolved.projection_items.is_empty()
         || resolved.operational_indexes.is_some()
+        || !resolved.record_hierarchy.is_empty()
         || !resolved.metric_items.is_empty()
         || !resolved.provider_requirements.is_empty()
         || !resolved.policies.is_empty()
@@ -8336,6 +9797,7 @@ fn render_rich_package_yaml(resolved: &ResolvedAnswers) -> String {
     render_events(resolved, &mut lines);
     render_projections(resolved, &mut lines);
     render_operational_indexes(resolved, &mut lines);
+    render_record_hierarchy(resolved, &mut lines);
     render_metrics(resolved, &mut lines);
     render_provider_requirements(resolved, &mut lines);
     render_named_section("policies", &resolved.policies, &mut lines);
@@ -8352,6 +9814,68 @@ fn render_operational_indexes(resolved: &ResolvedAnswers, lines: &mut Vec<String
     };
     lines.push("operational_indexes:".to_string());
     render_json_value(operational_indexes, 2, lines);
+}
+
+fn render_record_hierarchy(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
+    if resolved.record_hierarchy.is_empty() {
+        return;
+    }
+
+    lines.push("record_hierarchy:".to_string());
+    for (record, hierarchy) in &resolved.record_hierarchy {
+        lines.push(format!("  {}:", yaml_scalar_string(record)));
+        if hierarchy.main {
+            lines.push("    main: true".to_string());
+        }
+        if let Some(parent) = hierarchy
+            .parent
+            .as_deref()
+            .map(str::trim)
+            .filter(|parent| !parent.is_empty())
+        {
+            lines.push(format!("    parent: {}", yaml_scalar_string(parent)));
+        }
+        if let Some(field) = hierarchy
+            .field
+            .as_deref()
+            .map(str::trim)
+            .filter(|field| !field.is_empty())
+        {
+            lines.push(format!("    field: {}", yaml_scalar_string(field)));
+        }
+    }
+}
+
+fn infer_record_hierarchy_answers(
+    records: &[RecordItemAnswer],
+) -> BTreeMap<String, RecordHierarchyAnswer> {
+    let record_names = records
+        .iter()
+        .map(|record| record.name.as_str())
+        .collect::<BTreeSet<_>>();
+    records
+        .iter()
+        .map(|record| {
+            let parent = record.fields.iter().find_map(|field| {
+                let reference = field.references.as_ref()?;
+                record_names
+                    .contains(reference.record.as_str())
+                    .then(|| RecordHierarchyAnswer {
+                        main: false,
+                        parent: Some(reference.record.clone()),
+                        field: Some(field.name.clone()),
+                    })
+            });
+            (
+                record.name.clone(),
+                parent.unwrap_or(RecordHierarchyAnswer {
+                    main: true,
+                    parent: None,
+                    field: None,
+                }),
+            )
+        })
+        .collect()
 }
 
 fn render_roles(resolved: &ResolvedAnswers, lines: &mut Vec<String>) {
@@ -10223,6 +11747,7 @@ fn answers_document_from_qa_answers(answers: serde_json::Value) -> Result<Answer
             items: Vec::new(),
         }),
         operational_indexes: None,
+        record_hierarchy: BTreeMap::new(),
         metrics: Some(MetricAnswers {
             enabled: Some(false),
             items: Vec::new(),
@@ -11060,6 +12585,63 @@ mod tests {
     use clap::CommandFactory;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    #[cfg(feature = "cli")]
+    #[test]
+    fn greentic_llm_prompt_supports_multiple_providers() {
+        let supported = greentic_llm::ProviderKind::all()
+            .iter()
+            .map(greentic_llm::ProviderKind::as_str)
+            .collect::<Vec<_>>();
+
+        assert!(supported.contains(&"openai"));
+        assert!(supported.contains(&"anthropic"));
+        assert!(supported.contains(&"ollama"));
+        assert!(supported.contains(&"groq"));
+        assert!(prompt_llm_provider_error("bogus", "unknown provider").contains("anthropic"));
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn greentic_llm_prompt_converts_json_schema_to_system_instruction() {
+        let messages = prompt_llm_chat_messages(
+            "Return JSON.".to_string(),
+            vec![prompt::LlmMessage {
+                role: prompt::LlmRole::User,
+                content: "Build a plan.".to_string(),
+            }],
+            Some(prompt::LlmResponseFormat::JsonSchema {
+                name: "strict_test".to_string(),
+                schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "answer": { "type": "string" }
+                    },
+                    "required": ["answer"],
+                    "additionalProperties": false
+                }),
+                strict: true,
+            }),
+        );
+
+        assert_eq!(messages[0].role, greentic_llm::MessageRole::System);
+        assert!(messages[0].content.contains("schema `strict_test`"));
+        assert!(messages[0].content.contains("\"required\": ["));
+        assert_eq!(messages[1].role, greentic_llm::MessageRole::User);
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn greentic_llm_prompt_normalizes_provider_base_url() {
+        assert_eq!(
+            normalize_prompt_llm_base_url("https://api.openai.com/v1/chat/completions".to_string()),
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            normalize_prompt_llm_base_url("http://localhost:11434/".to_string()),
+            "http://localhost:11434"
+        );
+    }
+
     #[test]
     fn action_endpoint_inference_uses_join_record_for_link_actions() {
         let action = NamedAnswer {
@@ -11163,24 +12745,142 @@ mod tests {
         let cli = Cli::try_parse_from([
             "greentic-sorla",
             "prompt",
+            "Build a landlord tenant system",
             "--answers-out",
             "answers.json",
             "--llm-provider",
             "fake",
             "--llm-model",
             "fixture",
+            "--only-errors",
+            "--staged",
         ])
         .expect("prompt command parses");
         let Commands::Prompt(args) = cli.command else {
             panic!("expected prompt command");
         };
+        assert_eq!(
+            args.prompt_text.as_deref(),
+            Some("Build a landlord tenant system")
+        );
+        assert!(args.prompt_file.is_none());
         assert_eq!(args.answers_out, PathBuf::from("answers.json"));
         assert_eq!(args.llm_provider.as_deref(), Some("fake"));
         assert!(args.sorla_yaml.is_none());
+        assert!(args.only_errors);
+        assert!(args.staged);
+
+        let cli = Cli::try_parse_from([
+            "greentic-sorla",
+            "prompt",
+            "--prompt",
+            "prompt.txt",
+            "--llm-provider",
+            "fake",
+        ])
+        .expect("prompt file command parses");
+        let Commands::Prompt(args) = cli.command else {
+            panic!("expected prompt command");
+        };
+        assert!(args.prompt_text.is_none());
+        assert_eq!(args.prompt_file, Some(PathBuf::from("prompt.txt")));
+
+        let err = Cli::try_parse_from([
+            "greentic-sorla",
+            "prompt",
+            "inline prompt",
+            "--prompt",
+            "prompt.txt",
+            "--llm-provider",
+            "fake",
+        ])
+        .expect_err("prompt text and prompt file should conflict");
+        assert!(err.to_string().contains("cannot be used with"));
 
         let err = Cli::try_parse_from(["greentic-sorla", "prompt", "--no-llm"])
             .expect_err("prompt command should not accept --no-llm");
         assert!(err.to_string().contains("unexpected argument"));
+    }
+
+    #[test]
+    fn resumed_prompt_auto_generates_from_review_phases() {
+        fn state_with_phase(phase: prompt::PromptPhase) -> prompt::PromptSessionState {
+            prompt::PromptSessionState {
+                session_id: "session-1".to_string(),
+                phase,
+                llm: None,
+                business_prompt: Some("Build a system of record.".to_string()),
+                answers_so_far: Vec::new(),
+                questions: Vec::new(),
+                assumptions: Vec::new(),
+                draft_model: None,
+                staged_answers: false,
+            }
+        }
+
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::ReviewingDesignPlan))
+                .as_deref(),
+            Some("generate answers")
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(
+                prompt::PromptPhase::ReadyToGenerateAnswers
+            ))
+            .as_deref(),
+            Some("generate answers")
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::ReviewingDomainModel))
+                .as_deref(),
+            Some("generate answers")
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::GeneratingAnswers))
+                .as_deref(),
+            Some("generate answers")
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::AskingQuestions)),
+            None
+        );
+        assert_eq!(
+            resumed_auto_user_message(&state_with_phase(prompt::PromptPhase::Completed)),
+            None
+        );
+    }
+
+    #[test]
+    fn prompt_cli_reads_prompt_file() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let prompt_path = dir.join("prompt.txt");
+        fs::write(&prompt_path, "\nBuild a customer support SoR\n").unwrap();
+        let catalog = locale_catalog("en").unwrap_or_default();
+        let fallback = locale_catalog("en").unwrap_or_default();
+
+        assert_eq!(
+            read_prompt_file(
+                &prompt_path,
+                &catalog,
+                &fallback,
+                "business prompt must not be empty"
+            )
+            .unwrap(),
+            "Build a customer support SoR"
+        );
+
+        fs::write(&prompt_path, "   \n").unwrap();
+        assert_eq!(
+            read_prompt_file(
+                &prompt_path,
+                &catalog,
+                &fallback,
+                "business prompt must not be empty"
+            )
+            .unwrap_err(),
+            "business prompt must not be empty"
+        );
     }
 
     #[test]
@@ -11238,6 +12938,55 @@ mod tests {
     }
 
     #[test]
+    fn update_flow_writes_change_history_with_rollback_snapshot() {
+        let output_dir = unique_temp_dir().join("workspace");
+        fs::create_dir_all(&output_dir).unwrap();
+        let create_answers: AnswersDocument = serde_json::from_value(serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": output_dir,
+            "package": { "name": "history-demo", "version": "0.1.0" },
+            "providers": { "storage_category": "storage" },
+            "records": { "default_source": "native" },
+            "events": { "enabled": false },
+            "projections": { "mode": "current-state" },
+            "migrations": { "compatibility": "additive" },
+            "output": { "include_agent_tools": true }
+        }))
+        .unwrap();
+        apply_answers_document(create_answers, None).unwrap();
+
+        let update_answers: AnswersDocument = serde_json::from_value(serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "update",
+            "output_dir": output_dir,
+            "package": { "version": "0.2.0" },
+            "projections": { "mode": "audit-trail" }
+        }))
+        .unwrap();
+        let summary = apply_answers_document(update_answers, None).unwrap();
+        let history_path = summary
+            .change_history_path
+            .expect("update should write change history");
+        let history: SorlaChangeHistoryEntry =
+            serde_json::from_str(&fs::read_to_string(output_dir.join(&history_path)).unwrap())
+                .unwrap();
+
+        assert_eq!(history.schema, SORLA_CHANGE_HISTORY_SCHEMA);
+        assert_eq!(history.mode, "wizard-update");
+        assert_ne!(history.old_hash, history.new_hash);
+        assert_eq!(history.rollback.strategy, "restore_before_yaml");
+        assert_eq!(history.rollback.restore_yaml, history.before_yaml);
+        assert!(
+            history
+                .diff
+                .changes
+                .iter()
+                .any(|change| change.kind == ConceptChangeKind::Updated)
+        );
+    }
+
+    #[test]
     fn prompt_generated_answers_apply_through_public_facade() {
         struct FakeLlm;
 
@@ -11248,6 +12997,7 @@ mod tests {
             ) -> Result<prompt::LlmResponse, SorlaError> {
                 Ok(prompt::LlmResponse {
                     content: "{}".to_string(),
+                    usage: None,
                 })
             }
         }
@@ -11405,6 +13155,132 @@ mod tests {
 
         assert!(model.source_yaml.contains("name: bug_case_changed"));
         assert!(model.source_yaml.contains("source_event: bug_case_changed"));
+    }
+
+    #[test]
+    fn normalize_answers_accepts_v2_create_answers() {
+        let input = serde_json::json!({
+            "version": "sorla.answers.v2",
+            "mode": "create",
+            "intent": {
+                "summary": "Maintenance requests"
+            },
+            "domain": {
+                "records": [
+                    {
+                        "name": "request",
+                        "description": "A maintenance request",
+                        "fields": [
+                            { "name": "status", "field_type": "string", "required": true }
+                        ]
+                    },
+                    {
+                        "name": "quote",
+                        "description": "A contractor quote",
+                        "fields": [
+                            { "name": "amount", "field_type": "decimal", "required": true }
+                        ],
+                        "relationships": [
+                            {
+                                "name": "request_id",
+                                "target": "request",
+                                "cardinality": "many_to_one",
+                                "required": true
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        let model = normalize_answers(input, NormalizeOptions).expect("v2 answers normalize");
+        assert_eq!(model.package_name, "maintenance-requests-sor");
+        assert!(model.source_yaml.contains("name: request"));
+        assert!(model.source_yaml.contains("name: quote"));
+        assert!(model.source_yaml.contains("record_hierarchy:"));
+        assert!(model.source_yaml.contains("parent: request"));
+    }
+
+    #[test]
+    fn answers_v2_diagnostics_report_unknown_relationship_targets() {
+        let input = serde_json::json!({
+            "version": "sorla.answers.v2",
+            "mode": "create",
+            "intent": {
+                "summary": "Maintenance requests"
+            },
+            "domain": {
+                "records": [
+                    {
+                        "name": "quote",
+                        "description": "A contractor quote",
+                        "fields": [
+                            { "name": "amount", "field_type": "decimal", "required": true }
+                        ],
+                        "relationships": [
+                            {
+                                "name": "request_id",
+                                "target": "request",
+                                "cardinality": "many_to_one",
+                                "required": true
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        let diagnostics =
+            diagnostics_for_answers_input(&input).expect("v2 diagnostics should compile");
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "SORLA_UNKNOWN_RELATIONSHIP_TARGET"
+                && diagnostic.message.contains("request")
+        }));
+    }
+
+    #[test]
+    fn answers_v2_compiler_output_is_deterministic() {
+        let input = serde_json::json!({
+            "version": "sorla.answers.v2",
+            "mode": "create",
+            "intent": {
+                "summary": "Maintenance requests"
+            },
+            "domain": {
+                "records": [
+                    {
+                        "name": "request",
+                        "description": "A maintenance request",
+                        "fields": [
+                            { "name": "status", "field_type": "string", "required": true }
+                        ]
+                    }
+                ],
+                "lifecycle": [
+                    {
+                        "record": "request",
+                        "states": ["draft", "approved"],
+                        "transitions": [
+                            {
+                                "from": "draft",
+                                "to": "approved",
+                                "description": "Approve a request"
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+        let answers: prompt::AnswersV2 = serde_json::from_value(input).expect("v2 parse");
+
+        let first = compiler::compile_answers_v2(&answers).expect("first compile");
+        let second = compiler::compile_answers_v2(&answers).expect("second compile");
+
+        assert_eq!(
+            serde_json::to_value(first).expect("first to json"),
+            serde_json::to_value(second).expect("second to json")
+        );
     }
 
     #[test]
@@ -11852,6 +13728,7 @@ records:
                         "explanation": "Adds postcode to property."
                     })
                     .to_string(),
+                    usage: None,
                 })
             }
         }
@@ -12059,6 +13936,64 @@ metrics:
             serde_json::from_slice(&metrics_entry.bytes).expect("metrics JSON decodes");
         assert_eq!(metrics_json["schema"], "greentic.sorla.metrics.v1");
         assert_eq!(metrics_json["metrics"][0]["name"], "monthly_revenue");
+    }
+
+    #[test]
+    fn authorization_yaml_emits_role_and_policy_pack_entries() {
+        let source_yaml = r#"
+package:
+  name: authorization-demo
+  version: 0.2.0
+roles:
+  - id: property_manager
+    grants:
+      - tenancy.manage
+role_assignments:
+  - role: property_manager
+    team: building-ops
+records:
+  - name: Tenancy
+    source: native
+    fields:
+      - name: id
+        type: string
+      - name: building_id
+        type: string
+actions:
+  - name: AssignTenantToUnit
+events:
+  - name: TenancyAssigned
+    record: Tenancy
+policies:
+  - name: BuildingManagerTenancyPolicy
+    allow:
+      operations:
+        - AssignTenantToUnit
+      constraints:
+        - field: building_id
+          operator: equals
+          value:
+            context: team.building_ids
+"#
+        .trim_start()
+        .to_string();
+        let model = NormalizedSorlaModel {
+            package_name: "authorization-demo".to_string(),
+            package_version: "0.2.0".to_string(),
+            locale: "en".to_string(),
+            source_yaml,
+            normalized_answers: serde_json::Value::Null,
+        };
+
+        let entries =
+            build_gtpack_entries(&model, PackBuildOptions::default()).expect("entries build");
+        let paths = entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(paths.contains("assets/sorla/role-assignments.json"));
+        assert!(paths.contains("assets/sorla/policy-rules.json"));
+        assert!(paths.contains("assets/sorla/policy-rules.schema.json"));
     }
 
     #[test]
@@ -12647,6 +14582,7 @@ metrics:
         ])
         .expect("prompt help should localize");
         assert!(prompt_help.contains("Zet interactief een zakelijke prompt"));
+        assert!(prompt_help.contains("--prompt <FILE>"));
         assert!(prompt_help.contains("Bestand waar de gegenereerde JSON-antwoorden"));
         assert!(prompt_help.contains("LLM-provider-ID"));
     }
@@ -12944,6 +14880,60 @@ metrics:
     }
 
     #[test]
+    fn wizard_answers_accepts_v2_and_writes_diagnostics() {
+        let dir = unique_temp_dir();
+        let answers_path = dir.join("answers-v2.json");
+        let diagnostics_path = dir.join("diagnostics.json");
+        let summary = format!(
+            "Diagnostics PR Seven {}",
+            dir.file_name().unwrap().to_string_lossy().replace('_', " ")
+        );
+        let package_name = format!("{}-sor", slugify_identifier(&summary));
+        fs::write(
+            &answers_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "version": "sorla.answers.v2",
+                "mode": "create",
+                "intent": {
+                    "summary": summary
+                },
+                "domain": {
+                    "records": [
+                        {
+                            "name": "case",
+                            "description": "A support case",
+                            "fields": [
+                                { "name": "status", "field_type": "string", "required": true }
+                            ]
+                        }
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        run([
+            "greentic-sorla",
+            "wizard",
+            "--answers",
+            answers_path.to_str().unwrap(),
+            "--diagnostics-out",
+            diagnostics_path.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let output_dir = Path::new("target").join(format!("{package_name}-generated"));
+        assert!(output_dir.join("sorla.yaml").exists());
+        let source_yaml = fs::read_to_string(output_dir.join("sorla.yaml")).unwrap();
+        assert!(source_yaml.contains("name: case"));
+
+        let diagnostics: Vec<compiler::CompileDiagnostic> =
+            serde_json::from_str(&fs::read_to_string(diagnostics_path).unwrap()).unwrap();
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn landlord_tenant_pack_example_answers_generate_gtpack() {
         let dir = unique_temp_dir();
         let answers_path = dir.join("landlord-tenant-pack.json");
@@ -12989,8 +14979,10 @@ metrics:
         assert!(package_yaml.contains("name: building_id"));
         assert!(package_yaml.contains("default: active"));
         assert!(package_yaml.contains("default: settled"));
+        assert!(package_yaml.contains("default: open"));
         assert!(package_yaml.contains("paid_on: \"$input.paid_on\""));
         assert!(package_yaml.contains("status: settled"));
+        assert!(package_yaml.contains("status: open"));
         assert!(!package_yaml.contains("LandlordTenantSorRecord"));
         let artifacts = build_handoff_artifacts_from_yaml(&package_yaml)
             .expect("generated YAML should build handoff artifacts");
@@ -13006,6 +14998,19 @@ metrics:
         };
         assert_eq!(record_field_default("Tenancy", "status"), "active");
         assert_eq!(record_field_default("Payment", "status"), "settled");
+        assert_eq!(record_field_default("MaintenanceRequest", "status"), "open");
+        assert_eq!(
+            endpoint_emitted_status(&artifacts.ir, "assign_tenant_to_unit"),
+            "active"
+        );
+        assert_eq!(
+            endpoint_emitted_status(&artifacts.ir, "record_rent_payment"),
+            "settled"
+        );
+        assert_eq!(
+            endpoint_emitted_status(&artifacts.ir, "add_maintenance_request"),
+            "open"
+        );
         let metrics_json = artifacts
             .metrics_json
             .expect("metrics artifact should be generated");
@@ -13037,6 +15042,27 @@ metrics:
                 .iter()
                 .any(|dimension| dimension["field"] == "building_id")
         );
+        assert!(
+            metric("total_units")["dimensions"]
+                .as_array()
+                .expect("total_units dimensions")
+                .iter()
+                .any(|dimension| dimension["field"] == "building_id")
+        );
+        assert!(
+            metric("open_maintenance_records_per_building")["dimensions"]
+                .as_array()
+                .expect("open maintenance dimensions")
+                .iter()
+                .any(|dimension| dimension["field"] == "building_id")
+        );
+        assert!(
+            metric("monthly_tenancy_revenue")["dimensions"]
+                .as_array()
+                .expect("monthly revenue dimensions")
+                .iter()
+                .any(|dimension| dimension["field"] == "tenancy_id")
+        );
         assert_eq!(
             metric("monthly_tenancy_revenue")["time"]["field"],
             "paid_on"
@@ -13044,6 +15070,25 @@ metrics:
         assert_eq!(
             metric("monthly_tenancy_revenue")["time"]["grains"][0],
             "month"
+        );
+        let seed_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("tests")
+            .join("e2e")
+            .join("fixtures")
+            .join("landlord_seed_data.json");
+        let seed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(seed_path).expect("seed data reads"))
+                .expect("seed data parses");
+        assert!(evaluate_count_metric(metric("active_tenancies"), &seed) > 0);
+        assert!(evaluate_sum_metric(metric("monthly_tenancy_revenue"), &seed) > 0.0);
+        assert!(evaluate_count_metric(metric("open_maintenance_records_per_building"), &seed) > 0);
+        assert!(evaluate_count_metric(metric("total_tenants"), &seed) > 0);
+        assert!(evaluate_count_metric(metric("total_units"), &seed) > 0);
+        assert!(
+            grouped_occupancy_rates(&seed)
+                .values()
+                .any(|rate| *rate > 0.0)
         );
         assert_eq!(
             inspection
@@ -13059,6 +15104,92 @@ metrics:
                 .get("assets/sorla/mcp-tools.json"),
             Some(&true)
         );
+    }
+
+    fn endpoint_emitted_status(ir: &greentic_sorla_ir::CanonicalIr, endpoint_id: &str) -> String {
+        ir.agent_endpoints
+            .iter()
+            .find(|endpoint| endpoint.id == endpoint_id)
+            .and_then(|endpoint| endpoint.emits.as_ref())
+            .and_then(|emits| emits.payload.get("status"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("missing emitted status for `{endpoint_id}`"))
+            .to_string()
+    }
+
+    fn evaluate_count_metric(metric: &serde_json::Value, seed: &serde_json::Value) -> usize {
+        metric_records(metric, seed)
+            .iter()
+            .filter(|record| metric_filters_match(metric, record))
+            .count()
+    }
+
+    fn evaluate_sum_metric(metric: &serde_json::Value, seed: &serde_json::Value) -> f64 {
+        let Some(field) = metric["measure"]["field"].as_str() else {
+            return 0.0;
+        };
+        metric_records(metric, seed)
+            .iter()
+            .filter(|record| metric_filters_match(metric, record))
+            .filter_map(|record| record.get(field).and_then(serde_json::Value::as_f64))
+            .sum()
+    }
+
+    fn metric_records<'a>(
+        metric: &serde_json::Value,
+        seed: &'a serde_json::Value,
+    ) -> Vec<&'a serde_json::Value> {
+        let collection = metric["source"]["collection"]
+            .as_str()
+            .expect("metric source collection");
+        seed[collection]
+            .as_array()
+            .unwrap_or_else(|| panic!("missing seed collection `{collection}`"))
+            .iter()
+            .collect()
+    }
+
+    fn metric_filters_match(metric: &serde_json::Value, record: &serde_json::Value) -> bool {
+        metric["filters"].as_array().is_none_or(|filters| {
+            filters.iter().all(|filter| {
+                filter["operator"] == "equals"
+                    && filter["field"].as_str().and_then(|field| record.get(field))
+                        == filter.get("value")
+            })
+        })
+    }
+
+    fn grouped_occupancy_rates(seed: &serde_json::Value) -> BTreeMap<String, f64> {
+        let mut active_by_building: BTreeMap<String, usize> = BTreeMap::new();
+        for tenancy in seed["tenancies"].as_array().expect("tenancies seed") {
+            if tenancy["status"] == "active"
+                && let Some(building_id) = tenancy["building_id"].as_str()
+            {
+                *active_by_building
+                    .entry(building_id.to_string())
+                    .or_default() += 1;
+            }
+        }
+
+        let mut units_by_building: BTreeMap<String, usize> = BTreeMap::new();
+        for unit in seed["units"].as_array().expect("units seed") {
+            if let Some(building_id) = unit["building_id"].as_str() {
+                *units_by_building
+                    .entry(building_id.to_string())
+                    .or_default() += 1;
+            }
+        }
+
+        units_by_building
+            .into_iter()
+            .map(|(building_id, units)| {
+                let active = active_by_building
+                    .get(&building_id)
+                    .copied()
+                    .unwrap_or_default();
+                (building_id, active as f64 / units as f64)
+            })
+            .collect()
     }
 
     #[test]
@@ -13606,6 +15737,91 @@ metrics:
                 .and_then(|kind| kind.as_str()),
             Some("record_mutation")
         );
+    }
+
+    #[test]
+    fn create_flow_applies_lifecycle_defaults_to_record_create_endpoints() {
+        let output_dir = unique_temp_dir();
+        let answers = serde_json::json!({
+            "schema_version": "0.5",
+            "flow": "create",
+            "output_dir": output_dir,
+            "package": {
+                "name": "lifecycle-defaults",
+                "version": "0.1.0"
+            },
+            "records": {
+                "items": [
+                    {
+                        "name": "Tenancy",
+                        "fields": [
+                            {"name": "id", "type": "uuid"},
+                            {"name": "status", "type": "string"}
+                        ]
+                    },
+                    {
+                        "name": "MaintenanceRequest",
+                        "fields": [
+                            {"name": "id", "type": "uuid"},
+                            {"name": "status", "type": "string"}
+                        ]
+                    },
+                    {
+                        "name": "Payment",
+                        "fields": [
+                            {"name": "id", "type": "uuid"},
+                            {"name": "status", "type": "string"}
+                        ]
+                    }
+                ]
+            },
+            "agent_endpoints": {
+                "enabled": true,
+                "items": [
+                    {
+                        "id": "assign_tenant_to_unit",
+                        "title": "Assign tenant to unit",
+                        "intent": "Create an active tenancy.",
+                        "emits": {
+                            "event": "TenancyCreated",
+                            "stream": "tenancies",
+                            "payload": {"id": "$generated.tenancy_id"}
+                        },
+                        "execution": {"kind": "record-create", "record": "Tenancy"}
+                    },
+                    {
+                        "id": "add_maintenance_request",
+                        "title": "Add maintenance request",
+                        "intent": "Create an open maintenance request.",
+                        "emits": {
+                            "event": "MaintenanceRequestCreated",
+                            "stream": "maintenance",
+                            "payload": {"id": "$generated.maintenance_request_id"}
+                        },
+                        "execution": {"kind": "record-create", "record": "MaintenanceRequest"}
+                    },
+                    {
+                        "id": "record_rent_payment",
+                        "title": "Record rent payment",
+                        "intent": "Create a settled payment.",
+                        "emits": {
+                            "event": "PaymentRecorded",
+                            "stream": "payments",
+                            "payload": {"id": "$generated.payment_id"}
+                        },
+                        "execution": {"kind": "record-create", "record": "Payment"}
+                    }
+                ]
+            }
+        });
+
+        let model = normalize_answers(answers, NormalizeOptions).expect("answers normalize");
+        assert!(model.source_yaml.contains("default: active"));
+        assert!(model.source_yaml.contains("default: open"));
+        assert!(model.source_yaml.contains("default: settled"));
+        assert!(model.source_yaml.contains("status: active"));
+        assert!(model.source_yaml.contains("status: open"));
+        assert!(model.source_yaml.contains("status: settled"));
     }
 
     #[test]
