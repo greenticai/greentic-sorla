@@ -416,6 +416,14 @@ pub struct FieldIr {
     pub authority: Option<FieldAuthorityIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub references: Option<FieldReferenceIr>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_order: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_group: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1605,6 +1613,10 @@ fn sorted_fields(record: &greentic_sorla_lang::ast::Record) -> Vec<FieldIr> {
                 record: reference.record.clone(),
                 field: reference.field.clone(),
             }),
+            hidden: false,
+            display_order: None,
+            display_label: None,
+            display_group: None,
         })
         .collect();
     fields.sort_by(|left, right| left.name.cmp(&right.name));
@@ -2348,6 +2360,83 @@ migrations:
             operation,
             MigrationOperationIr::SplitRecord { into_records, .. } if into_records == &vec!["Person".to_string(), "Tenancy".to_string()]
         )));
+    }
+
+    fn minimal_field_ir(name: &str) -> FieldIr {
+        FieldIr {
+            name: name.to_string(),
+            i18n_key: None,
+            type_name: "string".to_string(),
+            required: false,
+            sensitive: false,
+            enum_values: vec![],
+            default: serde_json::Value::Null,
+            rules: FieldValidationRulesIr::default(),
+            authority: None,
+            references: None,
+            hidden: false,
+            display_order: None,
+            display_label: None,
+            display_group: None,
+        }
+    }
+
+    #[test]
+    fn hint_fields_omitted_when_default() {
+        let field = minimal_field_ir("test_field");
+        let json = serde_json::to_value(&field).unwrap();
+        let obj = json.as_object().unwrap();
+        assert!(
+            !obj.contains_key("hidden"),
+            "hidden should be omitted when false"
+        );
+        assert!(
+            !obj.contains_key("display_order"),
+            "display_order should be omitted when None"
+        );
+        assert!(
+            !obj.contains_key("display_label"),
+            "display_label should be omitted when None"
+        );
+        assert!(
+            !obj.contains_key("display_group"),
+            "display_group should be omitted when None"
+        );
+    }
+
+    #[test]
+    fn hint_fields_round_trip_json() {
+        let mut field = minimal_field_ir("labeled_field");
+        field.hidden = true;
+        field.display_order = Some(5);
+        field.display_label = Some("My Label".to_string());
+        field.display_group = Some("advanced".to_string());
+
+        let json = serde_json::to_string(&field).unwrap();
+        let decoded: FieldIr = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded.hidden, true);
+        assert_eq!(decoded.display_order, Some(5));
+        assert_eq!(decoded.display_label, Some("My Label".to_string()));
+        assert_eq!(decoded.display_group, Some("advanced".to_string()));
+    }
+
+    #[test]
+    fn hint_fields_round_trip_cbor() {
+        let mut field = minimal_field_ir("cbor_field");
+        field.hidden = true;
+        field.display_order = Some(3);
+        field.display_label = Some("CBOR Label".to_string());
+        field.display_group = Some("core".to_string());
+
+        let bytes = canonical_cbor(&field);
+        let decoded: FieldIr =
+            ciborium::de::from_reader(bytes.as_slice()).expect("cbor round-trip should succeed");
+
+        assert_eq!(decoded.hidden, true);
+        assert_eq!(decoded.display_order, Some(3));
+        assert_eq!(decoded.display_label, Some("CBOR Label".to_string()));
+        assert_eq!(decoded.display_group, Some("core".to_string()));
     }
 
     #[test]
