@@ -21,7 +21,7 @@ use greentic_sorla_lib::{
     DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypeOptions, NormalizeOptions,
     NormalizedSorlaModel, PackBuildOptions, ParseSorlaInput, PreviewOptions, ProposePatchInput,
     RendererCapabilities, ValidateOptions, apply_sorla_patch, build_gtpack_entries,
-    generate_concept_view, generate_preview,
+    build_gtpack_entries_with_hints, generate_concept_view, generate_preview,
     list_designer_node_types as list_designer_node_types_from_model, normalize_answers,
     parse_sorla_yaml, propose_patch_from_instruction,
 };
@@ -737,6 +737,12 @@ pub struct GenerateGtpackRequest {
     /// See `GenerateGtpackFromSorlaYamlRequest::include_content`.
     #[serde(default)]
     pub include_content: bool,
+    /// Per-field display overrides forwarded into the IR before packing.
+    /// Shape: `{ "<record>": { "<field>": { "hidden": bool, "display_order": u64,
+    ///   "display_label": str, "display_group": str } } }`.
+    /// Unknown records/fields are silently ignored.
+    #[serde(default)]
+    pub presentation_hints: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -804,12 +810,13 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
     // Package coords precedence: the explicit request `package` always wins over
     // any coords carried inside an answers document, so the host controls the
     // final pack id/version regardless of how the model was sourced.
-    let entries = match build_gtpack_entries(
+    let entries = match build_gtpack_entries_with_hints(
         &model,
         PackBuildOptions {
             name: Some(request.package.name.clone()),
             version: Some(request.package.version.clone()),
         },
+        request.presentation_hints.as_ref(),
     ) {
         Ok(entries) => entries,
         Err(err) => return artifact_error("sorla.gtpack.entries", err),
