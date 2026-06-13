@@ -23,9 +23,9 @@ use greentic_sorla_pack::{
     SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA, SORX_VALIDATION_SCHEMA,
     START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
     agent_endpoint_contract_warnings, build_handoff_artifacts_from_yaml,
-    generate_agent_endpoint_action_catalog_from_ir, generate_designer_node_types_from_ir,
-    generate_sorx_validation_manifest_from_ir, ontology_schema_json,
-    retrieval_bindings_schema_json, sorx_validation_schema_json,
+    build_handoff_artifacts_from_yaml_with_hints, generate_agent_endpoint_action_catalog_from_ir,
+    generate_designer_node_types_from_ir, generate_sorx_validation_manifest_from_ir,
+    ontology_schema_json, retrieval_bindings_schema_json, sorx_validation_schema_json,
 };
 #[cfg(feature = "pack-zip")]
 use greentic_sorla_pack::{build_sorla_gtpack, doctor_sorla_gtpack, inspect_sorla_gtpack};
@@ -4172,7 +4172,7 @@ pub fn build_gtpack_bytes(
             .clone()
             .unwrap_or_else(|| model.package_name.clone())
     );
-    let temp_path = deterministic_temp_path(&filename);
+    let temp_path = unique_temp_path(&filename);
     let summary = build_gtpack_file(model, &temp_path, options)?;
     let bytes = fs::read(&temp_path).map_err(|err| {
         format!(
@@ -4196,11 +4196,24 @@ pub fn build_gtpack_bytes(
     })
 }
 
+/// Build pack entries from a normalized SoRLa model.
+///
+/// Delegates to [`build_gtpack_entries_with_hints`] with no hints.
 pub fn build_gtpack_entries(
     model: &NormalizedSorlaModel,
-    _options: PackBuildOptions,
+    options: PackBuildOptions,
 ) -> Result<Vec<PackEntry>, SorlaError> {
-    let artifacts = build_handoff_artifacts_from_yaml(&model.source_yaml)?;
+    build_gtpack_entries_with_hints(model, options, None)
+}
+
+/// Like [`build_gtpack_entries`] but threads `hints` into the IR before
+/// building artifacts.  `None` hints produces identical output.
+pub fn build_gtpack_entries_with_hints(
+    model: &NormalizedSorlaModel,
+    _options: PackBuildOptions,
+    hints: Option<&serde_json::Value>,
+) -> Result<Vec<PackEntry>, SorlaError> {
+    let artifacts = build_handoff_artifacts_from_yaml_with_hints(&model.source_yaml, hints)?;
     let mut entries = Vec::new();
     entries.push(PackEntry {
         path: "assets/sorla/inspect.json".to_string(),
@@ -4277,7 +4290,7 @@ pub fn build_gtpack_file(
     output_path: &Path,
     options: PackBuildOptions,
 ) -> Result<PackBuildResult, SorlaError> {
-    let yaml_path = deterministic_temp_path("model.sorla.yaml");
+    let yaml_path = unique_temp_path("model.sorla.yaml");
     fs::write(&yaml_path, &model.source_yaml)
         .map_err(|err| format!("failed to write temporary SoRLa model: {err}"))?;
     let result = build_sorla_gtpack(&SorlaGtpackOptions {
@@ -4294,7 +4307,7 @@ pub fn build_gtpack_file(
 
 #[cfg(feature = "pack-zip")]
 pub fn inspect_gtpack_bytes(bytes: &[u8]) -> Result<SorlaGtpackInspection, SorlaError> {
-    let path = deterministic_temp_path("inspect.gtpack");
+    let path = unique_temp_path("inspect.gtpack");
     fs::write(&path, bytes).map_err(|err| format!("failed to write temporary gtpack: {err}"))?;
     let result = inspect_sorla_gtpack(&path);
     let _ = fs::remove_file(&path);
@@ -4303,7 +4316,7 @@ pub fn inspect_gtpack_bytes(bytes: &[u8]) -> Result<SorlaGtpackInspection, Sorla
 
 #[cfg(feature = "pack-zip")]
 pub fn doctor_gtpack_bytes(bytes: &[u8]) -> SorlaValidationReport {
-    let path = deterministic_temp_path("doctor.gtpack");
+    let path = unique_temp_path("doctor.gtpack");
     if let Err(err) = fs::write(&path, bytes) {
         return SorlaValidationReport {
             diagnostics: vec![SorlaDiagnostic {
@@ -4342,10 +4355,20 @@ pub fn doctor_gtpack_bytes(bytes: &[u8]) -> SorlaValidationReport {
     }
 }
 
-fn deterministic_temp_path(filename: &str) -> PathBuf {
+/// Build a unique temporary path for staging gtpack artifacts.
+///
+/// The path is namespaced by process id (for cross-process isolation) and a
+/// monotonic counter (for intra-process uniqueness). The counter is essential:
+/// without it, concurrent callers staging artifacts under the same logical
+/// filename (e.g. `inspect.gtpack`/`doctor.gtpack`) would write and read the
+/// same file in parallel, corrupting the in-flight ZIP and surfacing as a
+/// spurious "Invalid checksum" error under multi-threaded test runs.
+fn unique_temp_path(filename: &str) -> PathBuf {
+    static TEMP_PATH_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let safe_name = filename.replace(['/', '\\'], "_");
+    let sequence = TEMP_PATH_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "greentic-sorla-lib-{}-{safe_name}",
+        "greentic-sorla-lib-{}-{sequence}-{safe_name}",
         std::process::id()
     ))
 }
@@ -16069,6 +16092,83 @@ metrics:
         )
         .unwrap();
         assert!(lock.contains("\"locale\": \"nl\""));
+    }
+
+    #[test]
+    fn build_gtpack_entries_with_hints_propagates_to_model_cbor() {
+        let yaml = r#"
+package:
+  name: e2e-hints
+  version: 0.1.0
+records:
+  - name: Customer
+    fields:
+      - name: ssn
+        type: string
+      - name: email
+        type: string
+"#;
+        let model = NormalizedSorlaModel {
+            package_name: "e2e-hints".to_string(),
+            package_version: "0.1.0".to_string(),
+            locale: "en".to_string(),
+            source_yaml: yaml.to_string(),
+            normalized_answers: serde_json::Value::Null,
+        };
+        let hints = serde_json::json!({
+            "Customer": { "ssn": { "hidden": true } }
+        });
+
+        // WITH hints: model.cbor must have ssn.hidden = true
+        let entries_with =
+            build_gtpack_entries_with_hints(&model, PackBuildOptions::default(), Some(&hints))
+                .expect("should build with hints");
+        let model_cbor_with = entries_with
+            .iter()
+            .find(|e| e.path == "assets/sorla/model.cbor")
+            .expect("model.cbor must exist");
+        let ir_with: greentic_sorla_ir::CanonicalIr =
+            ciborium::de::from_reader(model_cbor_with.bytes.as_slice())
+                .expect("model.cbor must deserialize");
+        let customer_with = ir_with
+            .records
+            .iter()
+            .find(|r| r.name == "Customer")
+            .unwrap();
+        let ssn_with = customer_with
+            .fields
+            .iter()
+            .find(|f| f.name == "ssn")
+            .unwrap();
+        assert!(
+            ssn_with.hidden,
+            "ssn should be hidden in model.cbor when hints provided"
+        );
+
+        // WITHOUT hints: model.cbor must have ssn.hidden = false
+        let entries_without = build_gtpack_entries(&model, PackBuildOptions::default())
+            .expect("should build without hints");
+        let model_cbor_without = entries_without
+            .iter()
+            .find(|e| e.path == "assets/sorla/model.cbor")
+            .expect("model.cbor must exist");
+        let ir_without: greentic_sorla_ir::CanonicalIr =
+            ciborium::de::from_reader(model_cbor_without.bytes.as_slice())
+                .expect("model.cbor must deserialize");
+        let customer_without = ir_without
+            .records
+            .iter()
+            .find(|r| r.name == "Customer")
+            .unwrap();
+        let ssn_without = customer_without
+            .fields
+            .iter()
+            .find(|f| f.name == "ssn")
+            .unwrap();
+        assert!(
+            !ssn_without.hidden,
+            "ssn should not be hidden in model.cbor without hints"
+        );
     }
 
     fn unique_temp_dir() -> PathBuf {

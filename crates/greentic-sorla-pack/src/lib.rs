@@ -27,8 +27,8 @@ use greentic_sorla_ir::{
     AgentEndpointApprovalModeIr, AgentEndpointInputIr, AgentEndpointIr, AgentEndpointOutputIr,
     AgentEndpointRiskIr, CanonicalIr, EndpointAuthorizationIr, EntityLinkingIr, IrVersion,
     OntologyModelIr, OperationalIndexesIr, ProviderRequirementIr, RecordIr, RetrievalBindingsIr,
-    SemanticAliasesIr, ViewIr, agent_tools_json, canonical_cbor, canonical_hash_hex, inspect_ir,
-    lower_package,
+    SemanticAliasesIr, ViewIr, agent_tools_json, apply_presentation_hints, canonical_cbor,
+    canonical_hash_hex, inspect_ir, lower_package,
 };
 use greentic_sorla_lang::parser::parse_package;
 #[cfg(feature = "pack-zip")]
@@ -801,9 +801,25 @@ pub fn scaffold_manifest() -> PackageManifest {
     scaffold_handoff_manifest()
 }
 
+/// Build handoff artifacts from a SoRLa YAML string.
+///
+/// Delegates to [`build_handoff_artifacts_from_yaml_with_hints`] with no hints.
 pub fn build_handoff_artifacts_from_yaml(input: &str) -> Result<ArtifactSet, String> {
+    build_handoff_artifacts_from_yaml_with_hints(input, None)
+}
+
+/// Like [`build_handoff_artifacts_from_yaml`] but applies `hints` (if any) to
+/// the IR before building artifacts.  `None` hints produces identical output to
+/// the no-hints variant.
+pub fn build_handoff_artifacts_from_yaml_with_hints(
+    input: &str,
+    hints: Option<&serde_json::Value>,
+) -> Result<ArtifactSet, String> {
     let parsed = parse_package(input)?;
-    let ir = lower_package(&parsed.package);
+    let mut ir = lower_package(&parsed.package);
+    if let Some(hints) = hints {
+        apply_presentation_hints(&mut ir, hints);
+    }
     let mut package_manifest = scaffold_handoff_manifest();
     package_manifest.required_provider_categories = ir
         .provider_contract
@@ -9903,5 +9919,54 @@ agent_endpoints:
         )
         .expect("fixture should parse");
         lower_package(&parsed.package)
+    }
+
+    #[test]
+    fn build_handoff_with_hints_sets_field_hidden() {
+        let yaml = r#"
+package:
+  name: test-hints-pack
+  version: 0.1.0
+records:
+  - name: Customer
+    fields:
+      - name: ssn
+        type: string
+      - name: email
+        type: string
+"#;
+        let hints = serde_json::json!({
+            "Customer": {
+                "ssn": { "hidden": true }
+            }
+        });
+        let artifacts =
+            build_handoff_artifacts_from_yaml_with_hints(yaml, Some(&hints)).expect("should build");
+        let customer = artifacts
+            .ir
+            .records
+            .iter()
+            .find(|r| r.name == "Customer")
+            .unwrap();
+        let ssn = customer.fields.iter().find(|f| f.name == "ssn").unwrap();
+        assert!(ssn.hidden, "ssn should be hidden via hints");
+
+        // Without hints the field is not hidden
+        let artifacts_no_hints = build_handoff_artifacts_from_yaml(yaml).expect("should build");
+        let customer_no_hints = artifacts_no_hints
+            .ir
+            .records
+            .iter()
+            .find(|r| r.name == "Customer")
+            .unwrap();
+        let ssn_no_hints = customer_no_hints
+            .fields
+            .iter()
+            .find(|f| f.name == "ssn")
+            .unwrap();
+        assert!(
+            !ssn_no_hints.hidden,
+            "ssn should not be hidden without hints"
+        );
     }
 }

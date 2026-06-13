@@ -416,6 +416,14 @@ pub struct FieldIr {
     pub authority: Option<FieldAuthorityIr>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub references: Option<FieldReferenceIr>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_order: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_group: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1605,6 +1613,10 @@ fn sorted_fields(record: &greentic_sorla_lang::ast::Record) -> Vec<FieldIr> {
                 record: reference.record.clone(),
                 field: reference.field.clone(),
             }),
+            hidden: false,
+            display_order: None,
+            display_label: None,
+            display_group: None,
         })
         .collect();
     fields.sort_by(|left, right| left.name.cmp(&right.name));
@@ -1822,6 +1834,44 @@ pub fn agent_tools_json(ir: &CanonicalIr) -> String {
             .join(","),
     );
     serde_json::to_string_pretty(&tools).expect("agent tools json should serialize")
+}
+
+/// Apply per-field presentation hints to an already-lowered `CanonicalIr`.
+///
+/// The `hints` value must be a JSON object of the shape:
+/// `{ "<record_name>": { "<field_name>": { "hidden": bool, "display_order": u64,
+///   "display_label": str, "display_group": str } } }`.
+///
+/// Unknown records and fields are silently ignored.  Missing keys within a
+/// field-hint object leave the corresponding `FieldIr` property untouched.
+/// A `null` or non-object hints value is a no-op.
+pub fn apply_presentation_hints(ir: &mut CanonicalIr, hints: &serde_json::Value) {
+    let Some(hints_map) = hints.as_object() else {
+        return;
+    };
+    for record in &mut ir.records {
+        let Some(record_hints) = hints_map.get(&record.name).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        for field in &mut record.fields {
+            let Some(field_hints) = record_hints.get(&field.name).and_then(|v| v.as_object())
+            else {
+                continue;
+            };
+            if let Some(hidden) = field_hints.get("hidden").and_then(|v| v.as_bool()) {
+                field.hidden = hidden;
+            }
+            if let Some(order) = field_hints.get("display_order").and_then(|v| v.as_u64()) {
+                field.display_order = Some(order as u32);
+            }
+            if let Some(label) = field_hints.get("display_label").and_then(|v| v.as_str()) {
+                field.display_label = Some(label.to_string());
+            }
+            if let Some(group) = field_hints.get("display_group").and_then(|v| v.as_str()) {
+                field.display_group = Some(group.to_string());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2350,6 +2400,83 @@ migrations:
         )));
     }
 
+    fn minimal_field_ir(name: &str) -> FieldIr {
+        FieldIr {
+            name: name.to_string(),
+            i18n_key: None,
+            type_name: "string".to_string(),
+            required: false,
+            sensitive: false,
+            enum_values: vec![],
+            default: serde_json::Value::Null,
+            rules: FieldValidationRulesIr::default(),
+            authority: None,
+            references: None,
+            hidden: false,
+            display_order: None,
+            display_label: None,
+            display_group: None,
+        }
+    }
+
+    #[test]
+    fn hint_fields_omitted_when_default() {
+        let field = minimal_field_ir("test_field");
+        let json = serde_json::to_value(&field).unwrap();
+        let obj = json.as_object().unwrap();
+        assert!(
+            !obj.contains_key("hidden"),
+            "hidden should be omitted when false"
+        );
+        assert!(
+            !obj.contains_key("display_order"),
+            "display_order should be omitted when None"
+        );
+        assert!(
+            !obj.contains_key("display_label"),
+            "display_label should be omitted when None"
+        );
+        assert!(
+            !obj.contains_key("display_group"),
+            "display_group should be omitted when None"
+        );
+    }
+
+    #[test]
+    fn hint_fields_round_trip_json() {
+        let mut field = minimal_field_ir("labeled_field");
+        field.hidden = true;
+        field.display_order = Some(5);
+        field.display_label = Some("My Label".to_string());
+        field.display_group = Some("advanced".to_string());
+
+        let json = serde_json::to_string(&field).unwrap();
+        let decoded: FieldIr = serde_json::from_str(&json).unwrap();
+
+        assert!(decoded.hidden);
+        assert_eq!(decoded.display_order, Some(5));
+        assert_eq!(decoded.display_label, Some("My Label".to_string()));
+        assert_eq!(decoded.display_group, Some("advanced".to_string()));
+    }
+
+    #[test]
+    fn hint_fields_round_trip_cbor() {
+        let mut field = minimal_field_ir("cbor_field");
+        field.hidden = true;
+        field.display_order = Some(3);
+        field.display_label = Some("CBOR Label".to_string());
+        field.display_group = Some("core".to_string());
+
+        let bytes = canonical_cbor(&field);
+        let decoded: FieldIr =
+            ciborium::de::from_reader(bytes.as_slice()).expect("cbor round-trip should succeed");
+
+        assert!(decoded.hidden);
+        assert_eq!(decoded.display_order, Some(3));
+        assert_eq!(decoded.display_label, Some("CBOR Label".to_string()));
+        assert_eq!(decoded.display_group, Some("core".to_string()));
+    }
+
     #[test]
     fn lowers_ontology_deterministically() {
         let parsed = parse_package(
@@ -2487,5 +2614,98 @@ retrieval_bindings:
             ["entity.link", "evidence.query"]
         );
         assert_eq!(retrieval.scopes[0].id, "customer_evidence");
+    }
+
+    // ── apply_presentation_hints tests ─────────────────────────────────────
+
+    fn make_minimal_ir_with_customer() -> CanonicalIr {
+        let parsed = parse_package(
+            r#"
+package:
+  name: test-hints
+  version: 0.1.0
+records:
+  - name: Customer
+    fields:
+      - name: ssn
+        type: string
+      - name: email
+        type: string
+"#,
+        )
+        .expect("fixture parses");
+        lower_package(&parsed.package)
+    }
+
+    #[test]
+    fn apply_hints_sets_matching_field_properties() {
+        let hints = serde_json::json!({
+            "Customer": {
+                "ssn": { "hidden": true },
+                "email": {
+                    "display_order": 1u32,
+                    "display_label": "Email address",
+                    "display_group": "Contact"
+                }
+            }
+        });
+        let mut ir = make_minimal_ir_with_customer();
+        apply_presentation_hints(&mut ir, &hints);
+        let customer = ir.records.iter().find(|r| r.name == "Customer").unwrap();
+        let ssn = customer.fields.iter().find(|f| f.name == "ssn").unwrap();
+        assert!(ssn.hidden);
+        let email = customer.fields.iter().find(|f| f.name == "email").unwrap();
+        assert_eq!(email.display_order, Some(1));
+        assert_eq!(email.display_label.as_deref(), Some("Email address"));
+        assert_eq!(email.display_group.as_deref(), Some("Contact"));
+    }
+
+    #[test]
+    fn apply_hints_ignores_unknown_record() {
+        let hints = serde_json::json!({ "NonExistent": { "field": { "hidden": true } } });
+        let mut ir = make_minimal_ir_with_customer();
+        let before = ir.clone();
+        apply_presentation_hints(&mut ir, &hints);
+        assert_eq!(ir, before);
+    }
+
+    #[test]
+    fn apply_hints_ignores_unknown_field() {
+        let hints = serde_json::json!({ "Customer": { "no_such_field": { "hidden": true } } });
+        let mut ir = make_minimal_ir_with_customer();
+        let before = ir.clone();
+        apply_presentation_hints(&mut ir, &hints);
+        assert_eq!(ir, before);
+    }
+
+    #[test]
+    fn apply_hints_absent_keys_leave_field_untouched() {
+        let hints = serde_json::json!({ "Customer": { "email": {} } });
+        let mut ir = make_minimal_ir_with_customer();
+        apply_presentation_hints(&mut ir, &hints);
+        let customer = ir.records.iter().find(|r| r.name == "Customer").unwrap();
+        let email = customer.fields.iter().find(|f| f.name == "email").unwrap();
+        assert!(!email.hidden);
+        assert_eq!(email.display_order, None);
+        assert_eq!(email.display_label, None);
+        assert_eq!(email.display_group, None);
+    }
+
+    #[test]
+    fn apply_hints_null_is_noop() {
+        let hints = serde_json::Value::Null;
+        let mut ir = make_minimal_ir_with_customer();
+        let before = ir.clone();
+        apply_presentation_hints(&mut ir, &hints);
+        assert_eq!(ir, before);
+    }
+
+    #[test]
+    fn apply_hints_empty_object_is_noop() {
+        let hints = serde_json::json!({});
+        let mut ir = make_minimal_ir_with_customer();
+        let before = ir.clone();
+        apply_presentation_hints(&mut ir, &hints);
+        assert_eq!(ir, before);
     }
 }
