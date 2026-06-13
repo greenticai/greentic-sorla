@@ -4172,7 +4172,7 @@ pub fn build_gtpack_bytes(
             .clone()
             .unwrap_or_else(|| model.package_name.clone())
     );
-    let temp_path = deterministic_temp_path(&filename);
+    let temp_path = unique_temp_path(&filename);
     let summary = build_gtpack_file(model, &temp_path, options)?;
     let bytes = fs::read(&temp_path).map_err(|err| {
         format!(
@@ -4290,7 +4290,7 @@ pub fn build_gtpack_file(
     output_path: &Path,
     options: PackBuildOptions,
 ) -> Result<PackBuildResult, SorlaError> {
-    let yaml_path = deterministic_temp_path("model.sorla.yaml");
+    let yaml_path = unique_temp_path("model.sorla.yaml");
     fs::write(&yaml_path, &model.source_yaml)
         .map_err(|err| format!("failed to write temporary SoRLa model: {err}"))?;
     let result = build_sorla_gtpack(&SorlaGtpackOptions {
@@ -4307,7 +4307,7 @@ pub fn build_gtpack_file(
 
 #[cfg(feature = "pack-zip")]
 pub fn inspect_gtpack_bytes(bytes: &[u8]) -> Result<SorlaGtpackInspection, SorlaError> {
-    let path = deterministic_temp_path("inspect.gtpack");
+    let path = unique_temp_path("inspect.gtpack");
     fs::write(&path, bytes).map_err(|err| format!("failed to write temporary gtpack: {err}"))?;
     let result = inspect_sorla_gtpack(&path);
     let _ = fs::remove_file(&path);
@@ -4316,7 +4316,7 @@ pub fn inspect_gtpack_bytes(bytes: &[u8]) -> Result<SorlaGtpackInspection, Sorla
 
 #[cfg(feature = "pack-zip")]
 pub fn doctor_gtpack_bytes(bytes: &[u8]) -> SorlaValidationReport {
-    let path = deterministic_temp_path("doctor.gtpack");
+    let path = unique_temp_path("doctor.gtpack");
     if let Err(err) = fs::write(&path, bytes) {
         return SorlaValidationReport {
             diagnostics: vec![SorlaDiagnostic {
@@ -4355,10 +4355,20 @@ pub fn doctor_gtpack_bytes(bytes: &[u8]) -> SorlaValidationReport {
     }
 }
 
-fn deterministic_temp_path(filename: &str) -> PathBuf {
+/// Build a unique temporary path for staging gtpack artifacts.
+///
+/// The path is namespaced by process id (for cross-process isolation) and a
+/// monotonic counter (for intra-process uniqueness). The counter is essential:
+/// without it, concurrent callers staging artifacts under the same logical
+/// filename (e.g. `inspect.gtpack`/`doctor.gtpack`) would write and read the
+/// same file in parallel, corrupting the in-flight ZIP and surfacing as a
+/// spurious "Invalid checksum" error under multi-threaded test runs.
+fn unique_temp_path(filename: &str) -> PathBuf {
+    static TEMP_PATH_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let safe_name = filename.replace(['/', '\\'], "_");
+    let sequence = TEMP_PATH_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "greentic-sorla-lib-{}-{safe_name}",
+        "greentic-sorla-lib-{}-{sequence}-{safe_name}",
         std::process::id()
     ))
 }

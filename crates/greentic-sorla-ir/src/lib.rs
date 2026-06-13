@@ -2453,7 +2453,7 @@ migrations:
         let json = serde_json::to_string(&field).unwrap();
         let decoded: FieldIr = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(decoded.hidden, true);
+        assert!(decoded.hidden);
         assert_eq!(decoded.display_order, Some(5));
         assert_eq!(decoded.display_label, Some("My Label".to_string()));
         assert_eq!(decoded.display_group, Some("advanced".to_string()));
@@ -2471,7 +2471,7 @@ migrations:
         let decoded: FieldIr =
             ciborium::de::from_reader(bytes.as_slice()).expect("cbor round-trip should succeed");
 
-        assert_eq!(decoded.hidden, true);
+        assert!(decoded.hidden);
         assert_eq!(decoded.display_order, Some(3));
         assert_eq!(decoded.display_label, Some("CBOR Label".to_string()));
         assert_eq!(decoded.display_group, Some("core".to_string()));
