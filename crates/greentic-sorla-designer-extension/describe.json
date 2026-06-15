@@ -47,22 +47,22 @@
   },
   "contributions": {
     "tools": [
-      { "name": "parse_sorla_yaml", "export": "invoke-tool" },
-      { "name": "generate_concept_view", "export": "invoke-tool" },
-      { "name": "apply_sorla_patch", "export": "invoke-tool" },
-      { "name": "propose_patch_from_instruction", "export": "invoke-tool" },
-      { "name": "validate_sorla_yaml", "export": "invoke-tool" },
-      { "name": "generate_gtpack_from_sorla_yaml", "export": "invoke-tool" },
-      { "name": "generate_model_from_prompt", "export": "invoke-tool" },
-      { "name": "validate_model", "export": "invoke-tool" },
-      { "name": "improve_model", "export": "invoke-tool" },
-      { "name": "explain_model", "export": "invoke-tool" },
-      { "name": "generate_gtpack", "export": "invoke-tool" },
-      { "name": "start_prompt_session", "export": "invoke-tool" },
-      { "name": "continue_prompt_session", "export": "invoke-tool" },
-      { "name": "generate_prompt_answers", "export": "invoke-tool" },
-      { "name": "list_designer_node_types", "export": "invoke-tool" },
-      { "name": "generate_flow_node_from_node_type", "export": "invoke-tool" }
+      { "name": "parse_sorla_yaml", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "generate_concept_view", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "apply_sorla_patch", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "propose_patch_from_instruction", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "validate_sorla_yaml", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "generate_gtpack_from_sorla_yaml", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "generate_model_from_prompt", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "validate_model", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "improve_model", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "explain_model", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "generate_gtpack", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "start_prompt_session", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "continue_prompt_session", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "generate_prompt_answers", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "list_designer_node_types", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "generate_flow_node_from_node_type", "export": "greentic:extension-design/tools.invoke-tool" }
     ]
   }
 }
