@@ -1,0 +1,18 @@
+name: validate-describe
+on:
+  push:
+    paths: ["crates/greentic-sorla-designer-extension/describe.json", ".github/workflows/validate-describe.yml"]
+  pull_request:
+    paths: ["crates/greentic-sorla-designer-extension/describe.json", ".github/workflows/validate-describe.yml"]
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate describe.json governance
+        uses: greenticai/greentic-designer-sdk/.github/actions/validate-extension@research
+        with:
+          dir: "crates/greentic-sorla-designer-extension"
+          gtdx-ref: v1.2.8-research
