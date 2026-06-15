@@ -25,7 +25,7 @@ The extension tools are:
 - `explain_model`
 - `generate_gtpack`
 - `list_sorla_endpoint_node_types`
-- `generate_flow_node_from_node_type`
+- `generate_flow_node_from_sorla_endpoint`
 
 The adapter also exposes deterministic prompting and knowledge helpers:
 
@@ -52,7 +52,7 @@ Packs also include `assets/sorla/agent-endpoint-action-catalog.json`, a
 design-time catalog view over the same canonical agent endpoints. It is useful
 for search and prompt assistance, but it is not a runtime action registry.
 
-`generate_flow_node_from_node_type` validates the requested node type, required
+`generate_flow_node_from_sorla_endpoint` validates the requested node type, required
 endpoint input mappings, component binding, and locked endpoint reference before
 returning a generic flow node JSON object. The generated node carries
 `endpoint_ref` metadata with endpoint ID, package version, package name, and

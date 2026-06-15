@@ -1,5 +1,5 @@
 use greentic_sorla_designer_extension::{
-    generate_flow_node_from_node_type, generate_model_from_prompt, list_sorla_endpoint_node_types,
+    generate_flow_node_from_sorla_endpoint, generate_model_from_prompt, list_sorla_endpoint_node_types,
 };
 use greentic_sorla_lib::{PackBuildOptions, build_gtpack_entries};
 
@@ -45,7 +45,7 @@ fn designer_node_type_to_locked_endpoint() {
     assert_eq!(listed["diagnostics"].as_array().unwrap().len(), 0);
     assert_eq!(listed["nodeTypes"], pack_node_types["nodeTypes"]);
 
-    let flow = generate_flow_node_from_node_type(serde_json::json!({
+    let flow = generate_flow_node_from_sorla_endpoint(serde_json::json!({
         "model": generated["model"].clone(),
         "node_type_id": "sorla.agent-endpoint.add_evidence",
         "step_id": "add_evidence_step",
@@ -65,7 +65,7 @@ fn designer_node_type_to_locked_endpoint() {
     );
     assert_eq!(flow["flowNode"]["metadata"]["contract_hash"], contract_hash);
 
-    let missing = generate_flow_node_from_node_type(serde_json::json!({
+    let missing = generate_flow_node_from_sorla_endpoint(serde_json::json!({
         "model": generated["model"].clone(),
         "node_type_id": "sorla.agent-endpoint.add_evidence",
         "step_id": "add_evidence_step",

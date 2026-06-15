@@ -248,7 +248,7 @@ pub fn list_tools() -> Vec<DesignerTool> {
             "List Designer node types generated from SoRLa agent endpoints.",
         ),
         tool(
-            "generate_flow_node_from_node_type",
+            "generate_flow_node_from_sorla_endpoint",
             "Generate a generic flow node from a locked SoRLa Designer node type.",
         ),
     ]
@@ -318,7 +318,7 @@ pub fn invoke_tool(name: &str, args_json: &str) -> Result<String, String> {
         "continue_prompt_session" => continue_prompt_session(input),
         "generate_prompt_answers" => generate_prompt_answers(input),
         "list_sorla_endpoint_node_types" => list_sorla_endpoint_node_types(input),
-        "generate_flow_node_from_node_type" => generate_flow_node_from_node_type(input),
+        "generate_flow_node_from_sorla_endpoint" => generate_flow_node_from_sorla_endpoint(input),
         other => {
             return Err(format!("unknown SoRLa Designer tool `{other}`"));
         }
@@ -1127,7 +1127,7 @@ pub fn list_sorla_endpoint_node_types(input: serde_json::Value) -> serde_json::V
     }
 }
 
-pub fn generate_flow_node_from_node_type(input: serde_json::Value) -> serde_json::Value {
+pub fn generate_flow_node_from_sorla_endpoint(input: serde_json::Value) -> serde_json::Value {
     let request = match serde_json::from_value::<GenerateFlowNodeRequest>(input) {
         Ok(request) => request,
         Err(err) => return flow_node_error("designer.input", err.to_string()),
@@ -1585,7 +1585,7 @@ mod tests {
                 "continue_prompt_session",
                 "generate_prompt_answers",
                 "list_sorla_endpoint_node_types",
-                "generate_flow_node_from_node_type"
+                "generate_flow_node_from_sorla_endpoint"
             ]
         );
     }
@@ -2103,7 +2103,7 @@ records:
         let generated = generate_model_from_prompt(serde_json::json!({
             "prompt": "Create supplier contract risk management"
         }));
-        let output = generate_flow_node_from_node_type(serde_json::json!({
+        let output = generate_flow_node_from_sorla_endpoint(serde_json::json!({
             "model": generated["model"].clone(),
             "node_type_id": "sorla.agent-endpoint.add_evidence",
             "step_id": "add_evidence_step",
@@ -2137,7 +2137,7 @@ records:
         let generated = generate_model_from_prompt(serde_json::json!({
             "prompt": "Create supplier contract risk management"
         }));
-        let by_endpoint = generate_flow_node_from_node_type(serde_json::json!({
+        let by_endpoint = generate_flow_node_from_sorla_endpoint(serde_json::json!({
             "model": generated["model"].clone(),
             "endpoint_id": "add_evidence",
             "step_id": "add_evidence_by_endpoint",
@@ -2152,7 +2152,7 @@ records:
             "sorla.agent-endpoint.add_evidence"
         );
 
-        let by_label = generate_flow_node_from_node_type(serde_json::json!({
+        let by_label = generate_flow_node_from_sorla_endpoint(serde_json::json!({
             "model": generated["model"].clone(),
             "label": "Add Evidence",
             "step_id": "add_evidence_by_label",
@@ -2173,7 +2173,7 @@ records:
         let generated = generate_model_from_prompt(serde_json::json!({
             "prompt": "Create supplier contract risk management"
         }));
-        let missing = generate_flow_node_from_node_type(serde_json::json!({
+        let missing = generate_flow_node_from_sorla_endpoint(serde_json::json!({
             "model": generated["model"].clone(),
             "step_id": "add_evidence_step",
             "value_mappings": {}
@@ -2184,7 +2184,7 @@ records:
             "designer.node_type.selection_missing"
         );
 
-        let unknown_endpoint = generate_flow_node_from_node_type(serde_json::json!({
+        let unknown_endpoint = generate_flow_node_from_sorla_endpoint(serde_json::json!({
             "model": generated["model"].clone(),
             "endpoint_id": "unknown_endpoint",
             "step_id": "add_evidence_step",
@@ -2229,7 +2229,7 @@ records:
         let generated = generate_model_from_prompt(serde_json::json!({
             "prompt": "Create supplier contract risk management"
         }));
-        let output = generate_flow_node_from_node_type(serde_json::json!({
+        let output = generate_flow_node_from_sorla_endpoint(serde_json::json!({
             "model": generated["model"].clone(),
             "node_type_id": "sorla.agent-endpoint.add_evidence",
             "step_id": "add_evidence_step",
