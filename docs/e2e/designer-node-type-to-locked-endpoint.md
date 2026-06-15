@@ -6,7 +6,7 @@ node type metadata and generic flow-node JSON.
 ```text
 SoRLa agent endpoint
   -> assets/sorla/designer-node-types.json
-  -> list_designer_node_types
+  -> list_sorla_endpoint_node_types
   -> generate_flow_node_from_node_type
   -> locked endpoint_ref
 ```

@@ -61,7 +61,7 @@
       { "name": "start_prompt_session", "export": "greentic:extension-design/tools.invoke-tool" },
       { "name": "continue_prompt_session", "export": "greentic:extension-design/tools.invoke-tool" },
       { "name": "generate_prompt_answers", "export": "greentic:extension-design/tools.invoke-tool" },
-      { "name": "list_designer_node_types", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "list_sorla_endpoint_node_types", "export": "greentic:extension-design/tools.invoke-tool" },
       { "name": "generate_flow_node_from_node_type", "export": "greentic:extension-design/tools.invoke-tool" }
     ]
   }

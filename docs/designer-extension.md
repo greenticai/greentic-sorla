@@ -24,7 +24,7 @@ The extension tools are:
 - `improve_model`
 - `explain_model`
 - `generate_gtpack`
-- `list_designer_node_types`
+- `list_sorla_endpoint_node_types`
 - `generate_flow_node_from_node_type`
 
 The adapter also exposes deterministic prompting and knowledge helpers:
@@ -45,7 +45,7 @@ prompt or structured draft
 ```
 
 Designer node types are generated from SoRLa agent endpoints, not from a
-separate business-action catalog. `list_designer_node_types` returns the generic
+separate business-action catalog. `list_sorla_endpoint_node_types` returns the generic
 `nodeTypes` contribution shape from the normalized model using the same
 generator that writes `assets/sorla/designer-node-types.json` into packs.
 Packs also include `assets/sorla/agent-endpoint-action-catalog.json`, a

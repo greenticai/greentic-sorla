@@ -244,7 +244,7 @@ pub fn list_tools() -> Vec<DesignerTool> {
             "Generate wizard answers JSON from a completed prompt session.",
         ),
         tool(
-            "list_designer_node_types",
+            "list_sorla_endpoint_node_types",
             "List Designer node types generated from SoRLa agent endpoints.",
         ),
         tool(
@@ -317,7 +317,7 @@ pub fn invoke_tool(name: &str, args_json: &str) -> Result<String, String> {
         "start_prompt_session" => start_prompt_session(input),
         "continue_prompt_session" => continue_prompt_session(input),
         "generate_prompt_answers" => generate_prompt_answers(input),
-        "list_designer_node_types" => list_designer_node_types(input),
+        "list_sorla_endpoint_node_types" => list_sorla_endpoint_node_types(input),
         "generate_flow_node_from_node_type" => generate_flow_node_from_node_type(input),
         other => {
             return Err(format!("unknown SoRLa Designer tool `{other}`"));
@@ -1107,7 +1107,7 @@ fn prompt_error(code: &str, message: impl Into<String>) -> serde_json::Value {
     })
 }
 
-pub fn list_designer_node_types(input: serde_json::Value) -> serde_json::Value {
+pub fn list_sorla_endpoint_node_types(input: serde_json::Value) -> serde_json::Value {
     let request = match serde_json::from_value::<ListDesignerNodeTypesRequest>(input) {
         Ok(request) => request,
         Err(err) => return node_type_error("designer.input", err.to_string()),
@@ -1584,7 +1584,7 @@ mod tests {
                 "start_prompt_session",
                 "continue_prompt_session",
                 "generate_prompt_answers",
-                "list_designer_node_types",
+                "list_sorla_endpoint_node_types",
                 "generate_flow_node_from_node_type"
             ]
         );
@@ -2081,7 +2081,7 @@ records:
         let generated = generate_model_from_prompt(serde_json::json!({
             "prompt": "Create supplier contract risk management"
         }));
-        let output = list_designer_node_types(serde_json::json!({
+        let output = list_sorla_endpoint_node_types(serde_json::json!({
             "model": generated["model"].clone()
         }));
         assert_eq!(output["diagnostics"].as_array().unwrap().len(), 0);

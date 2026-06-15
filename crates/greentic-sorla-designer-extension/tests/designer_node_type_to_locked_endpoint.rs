@@ -1,5 +1,5 @@
 use greentic_sorla_designer_extension::{
-    generate_flow_node_from_node_type, generate_model_from_prompt, list_designer_node_types,
+    generate_flow_node_from_node_type, generate_model_from_prompt, list_sorla_endpoint_node_types,
 };
 use greentic_sorla_lib::{PackBuildOptions, build_gtpack_entries};
 
@@ -39,7 +39,7 @@ fn designer_node_type_to_locked_endpoint() {
     assert!(contract_hash.starts_with("sha256:"));
     assert_eq!(contract_hash.len(), "sha256:".len() + 64);
 
-    let listed = list_designer_node_types(serde_json::json!({
+    let listed = list_sorla_endpoint_node_types(serde_json::json!({
         "model": generated["model"].clone()
     }));
     assert_eq!(listed["diagnostics"].as_array().unwrap().len(), 0);
