@@ -208,7 +208,7 @@ pub fn list_tools() -> Vec<DesignerTool> {
             "Validate sorla.yaml and return diagnostics.",
         ),
         tool(
-            "generate_gtpack_from_sorla_yaml",
+            "build_gtpack_from_yaml",
             "Plan deterministic .gtpack entries from sorla.yaml for host packaging.",
         ),
         tool(
@@ -308,7 +308,7 @@ pub fn invoke_tool(name: &str, args_json: &str) -> Result<String, String> {
         "apply_sorla_patch" => apply_sorla_patch_tool(input),
         "propose_patch_from_instruction" => propose_patch_from_instruction_tool(input),
         "validate_sorla_yaml" => validate_sorla_yaml(input),
-        "generate_gtpack_from_sorla_yaml" => generate_gtpack_from_sorla_yaml(input),
+        "build_gtpack_from_yaml" => build_gtpack_from_yaml(input),
         "generate_model_from_prompt" => generate_model_from_prompt(input),
         "validate_model" => validate_model(input),
         "improve_model" => improve_model(input),
@@ -610,7 +610,7 @@ pub fn validate_content(content_type: &str, content_json: &str) -> serde_json::V
     }
 }
 
-pub fn generate_gtpack_from_sorla_yaml(input: serde_json::Value) -> serde_json::Value {
+pub fn build_gtpack_from_yaml(input: serde_json::Value) -> serde_json::Value {
     let request = match serde_json::from_value::<GenerateGtpackFromSorlaYamlRequest>(input) {
         Ok(request) => request,
         Err(err) => return artifact_error("designer.input", err.to_string()),
@@ -1575,7 +1575,7 @@ mod tests {
                 "apply_sorla_patch",
                 "propose_patch_from_instruction",
                 "validate_sorla_yaml",
-                "generate_gtpack_from_sorla_yaml",
+                "build_gtpack_from_yaml",
                 "generate_model_from_prompt",
                 "validate_model",
                 "improve_model",
@@ -2007,7 +2007,7 @@ records:
         .trim_start();
 
         let out = invoke_tool(
-            "generate_gtpack_from_sorla_yaml",
+            "build_gtpack_from_yaml",
             &serde_json::json!({
                 "source_yaml": fixture_yaml,
                 "pack_name": "designer-yaml-demo",
@@ -2036,7 +2036,7 @@ records:
         // Without include_content, content_base64 must be absent and the
         // host-packaging-required diagnostic returns.
         let out = invoke_tool(
-            "generate_gtpack_from_sorla_yaml",
+            "build_gtpack_from_yaml",
             &serde_json::json!({
                 "source_yaml": fixture_yaml,
                 "pack_name": "designer-yaml-demo",

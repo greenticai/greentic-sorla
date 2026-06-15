@@ -13,7 +13,7 @@ YAML-first tools:
 - `apply_sorla_patch`
 - `propose_patch_from_instruction`
 - `validate_sorla_yaml`
-- `generate_gtpack_from_sorla_yaml`
+- `build_gtpack_from_yaml`
 
 Existing prompt/session, normalized-model, gtpack-entry, Designer node-type,
 and locked flow-node tools remain available. The WASM-safe gtpack tools return

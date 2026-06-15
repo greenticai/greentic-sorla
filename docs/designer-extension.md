@@ -18,7 +18,7 @@ The extension tools are:
 - `apply_sorla_patch`
 - `propose_patch_from_instruction`
 - `validate_sorla_yaml`
-- `generate_gtpack_from_sorla_yaml`
+- `build_gtpack_from_yaml`
 - `generate_model_from_prompt`
 - `validate_model`
 - `improve_model`

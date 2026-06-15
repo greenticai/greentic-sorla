@@ -52,7 +52,7 @@
       { "name": "apply_sorla_patch", "export": "greentic:extension-design/tools.invoke-tool" },
       { "name": "propose_patch_from_instruction", "export": "greentic:extension-design/tools.invoke-tool" },
       { "name": "validate_sorla_yaml", "export": "greentic:extension-design/tools.invoke-tool" },
-      { "name": "generate_gtpack_from_sorla_yaml", "export": "greentic:extension-design/tools.invoke-tool" },
+      { "name": "build_gtpack_from_yaml", "export": "greentic:extension-design/tools.invoke-tool" },
       { "name": "generate_model_from_prompt", "export": "greentic:extension-design/tools.invoke-tool" },
       { "name": "validate_model", "export": "greentic:extension-design/tools.invoke-tool" },
       { "name": "improve_model", "export": "greentic:extension-design/tools.invoke-tool" },
