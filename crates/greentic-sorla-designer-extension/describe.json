@@ -10,7 +10,7 @@
   "metadata": {
     "id": "greentic.sorla",
     "name": "SoRLa Designer",
-    "version": "0.1.16",
+    "version": "1.2.0-research",
     "summary": "Author and update SoRLa systems-of-record from a guided prompt session.",
     "description": "Author and update SoRLa systems-of-record from a guided prompt session.",
     "author": { "name": "Greentic AI", "email": "team@greentic.ai" },
@@ -35,7 +35,7 @@
     "components": {
       "sorla": {
         "gtpack": {
-          "file": "runtime/component-sorla-designer-extension.gtpack",
+          "file": "extension.wasm",
           "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
           "pack_id": "greentic.sorla",
           "component_version": "0.1.16"
