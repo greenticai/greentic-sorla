@@ -18,6 +18,27 @@ name = "greentic_sorla_designer_extension"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+base64 = "0.22"
 greentic-sorla-lib = { workspace = true, features = ["wasm"] }
 serde.workspace = true
 serde_json.workspace = true
+wit-bindgen = "0.44"
+wit-bindgen-rt = "0.44"
+
+[dev-dependencies]
+# Validates describe.json against the published extension contract shape.
+# Pinned exactly: the `1.2.x-research` line is pre-release, and a non-exact
+# requirement would resolve forward to any future stable 1.2.0.
+greentic-extension-sdk-contract = "=1.2.7-research"
+
+[package.metadata.component]
+package = "greentic:sorla-designer-extension"
+
+[package.metadata.component.target]
+path = "wit"
+world = "design-extension"
+
+[package.metadata.component.target.dependencies]
+"greentic:extension-base"   = { path = "wit-deps/extension-base.wit" }
+"greentic:extension-host"   = { path = "wit-deps/extension-host.wit" }
+"greentic:extension-design" = { path = "wit-deps/extension-design.wit" }

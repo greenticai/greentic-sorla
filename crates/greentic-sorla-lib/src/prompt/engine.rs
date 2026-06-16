@@ -137,6 +137,7 @@ where
             assumptions: Vec::new(),
             draft_model: None,
             staged_answers: false,
+            update_package: None,
         })
     }
 
@@ -530,11 +531,11 @@ fn sor_design_draft_is_substantial(draft: &SorDesignDraft) -> bool {
         || record_fields >= 4
         || draft.actions.len() >= 2
         || draft.events.len() >= 2
-        || draft.projections.len() >= 1
-        || draft.metrics.len() >= 1
-        || draft.policies.len() >= 1
-        || draft.approvals.len() >= 1
-        || draft.provider_requirements.len() >= 1
+        || !draft.projections.is_empty()
+        || !draft.metrics.is_empty()
+        || !draft.policies.is_empty()
+        || !draft.approvals.is_empty()
+        || !draft.provider_requirements.is_empty()
 }
 
 fn planner_system_prompt(_wizard_schema: &str) -> String {
@@ -1132,20 +1133,20 @@ fn normalize_package_defaults(answers: &mut serde_json::Value) {
     else {
         return;
     };
-    if !package
+    if package
         .get("name")
         .and_then(serde_json::Value::as_str)
-        .is_some_and(|name| !name.trim().is_empty())
+        .is_none_or(|name| name.trim().is_empty())
     {
         package.insert(
             "name".to_string(),
             serde_json::Value::String("prompt-generated-sor".to_string()),
         );
     }
-    if !package
+    if package
         .get("version")
         .and_then(serde_json::Value::as_str)
-        .is_some_and(|version| !version.trim().is_empty())
+        .is_none_or(|version| version.trim().is_empty())
     {
         package.insert(
             "version".to_string(),
@@ -1157,10 +1158,10 @@ fn normalize_package_defaults(answers: &mut serde_json::Value) {
 fn normalize_missing_names(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
-            let missing_name = !map
+            let missing_name = map
                 .get("name")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|name| !name.trim().is_empty());
+                .is_none_or(|name| name.trim().is_empty());
             if missing_name && let Some(name) = inferred_object_name(map) {
                 map.insert("name".to_string(), serde_json::Value::String(name));
             }
@@ -1171,10 +1172,10 @@ fn normalize_missing_names(value: &mut serde_json::Value) {
         serde_json::Value::Array(items) => {
             for (index, item) in items.iter_mut().enumerate() {
                 if let serde_json::Value::Object(map) = item {
-                    let missing_name = !map
+                    let missing_name = map
                         .get("name")
                         .and_then(serde_json::Value::as_str)
-                        .is_some_and(|name| !name.trim().is_empty());
+                        .is_none_or(|name| name.trim().is_empty());
                     if missing_name {
                         let name = inferred_object_name(map)
                             .unwrap_or_else(|| format!("item_{}", index + 1));
@@ -1332,12 +1333,12 @@ fn normalize_metric_items(
                 .flatten()
         });
 
-        let needs_source_object = !map
+        let needs_source_object = map
             .get("source")
             .and_then(serde_json::Value::as_object)
             .and_then(|source| source.get("name"))
             .and_then(serde_json::Value::as_str)
-            .is_some_and(|name| !name.trim().is_empty());
+            .is_none_or(|name| name.trim().is_empty());
         if needs_source_object && let Some(source_record) = &inferred_source_record {
             map.insert(
                 "source".to_string(),
@@ -1348,12 +1349,12 @@ fn normalize_metric_items(
         let aggregate = string_field(map, "aggregate")
             .or_else(|| string_field(map, "aggregation"))
             .or_else(|| string_field(map, "measure"));
-        let measure_missing = !map
+        let measure_missing = map
             .get("measure")
             .and_then(serde_json::Value::as_object)
             .and_then(|measure| measure.get("aggregate"))
             .and_then(serde_json::Value::as_str)
-            .is_some_and(|aggregate| !aggregate.trim().is_empty());
+            .is_none_or(|aggregate| aggregate.trim().is_empty());
         if measure_missing && let Some(aggregate) = aggregate {
             let field = string_field(map, "field");
             map.insert(
@@ -1381,10 +1382,10 @@ fn normalize_metric_items(
                 if !has_grain {
                     time.insert("grain".to_string(), serde_json::Value::String(grain));
                 }
-                if !time
+                if time
                     .get("field")
                     .and_then(serde_json::Value::as_str)
-                    .is_some_and(|field| !field.trim().is_empty())
+                    .is_none_or(|field| field.trim().is_empty())
                 {
                     time.insert("field".to_string(), serde_json::Value::String(time_field));
                 }
@@ -1426,20 +1427,20 @@ fn normalize_metric_filters(
         let Some(filter) = filter.as_object_mut() else {
             continue;
         };
-        if !filter
+        if filter
             .get("field")
             .and_then(serde_json::Value::as_str)
-            .is_some_and(|field| !field.trim().is_empty())
+            .is_none_or(|field| field.trim().is_empty())
         {
             filter.insert(
                 "field".to_string(),
                 serde_json::Value::String(inferred_field.clone()),
             );
         }
-        if !filter
+        if filter
             .get("operator")
             .and_then(serde_json::Value::as_str)
-            .is_some_and(|operator| !operator.trim().is_empty())
+            .is_none_or(|operator| operator.trim().is_empty())
         {
             filter.insert(
                 "operator".to_string(),
@@ -1461,8 +1462,8 @@ fn normalize_metric_dependencies(answers: &mut serde_json::Value) {
         .filter_map(|metric| metric.get("name").and_then(serde_json::Value::as_str))
         .map(str::to_string)
         .collect::<Vec<_>>();
-    for index in 0..metrics.len() {
-        let Some(metric) = metrics[index].as_object_mut() else {
+    for (index, item) in metrics.iter_mut().enumerate() {
+        let Some(metric) = item.as_object_mut() else {
             continue;
         };
         let metric_name = metric
@@ -1579,10 +1580,10 @@ fn normalize_operational_indexes_defaults(answers: &mut serde_json::Value) {
     else {
         return;
     };
-    let missing_schema = !indexes
+    let missing_schema = indexes
         .get("schema")
         .and_then(serde_json::Value::as_str)
-        .is_some_and(|schema| !schema.trim().is_empty());
+        .is_none_or(|schema| schema.trim().is_empty());
     if missing_schema {
         indexes.insert(
             "schema".to_string(),
@@ -4701,6 +4702,7 @@ mod tests {
                 ..SorDesignDraft::default()
             }),
             staged_answers: false,
+            update_package: None,
         };
 
         let output = engine
@@ -4897,6 +4899,7 @@ mod tests {
             assumptions: Vec::new(),
             draft_model: Some(metrics_draft("track revenue metrics", &[])),
             staged_answers: true,
+            update_package: None,
         };
 
         let answers = engine

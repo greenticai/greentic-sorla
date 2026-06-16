@@ -146,6 +146,27 @@ jobs:
           jq -e '.exposure_policy.default_visibility != "public_candidate"' "${tmp_dir}/inspect.json" >/dev/null
           jq -e '.compatibility.state_mode == "isolated_required"' "${tmp_dir}/validation-inspect.json" >/dev/null
 
+  publish-designer-extension:
+    if: github.ref_type == 'tag'
+    name: Publish designer extension to Greentic Store
+    needs: [release_validation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to Greentic Store
+        uses: greenticai/greentic-designer-extension-action@v2
+        with:
+          # Pre-release pin for the contract 1.2.x line — exact version required
+          # because cargo `^1.2.0-research` would resolve forward to any future
+          # stable 1.2.0. Mirror this with the dev-dependency pin in
+          # crates/greentic-sorla-designer-extension/Cargo.toml.
+          gtdx-version: "=1.2.7-research"
+          manifest: crates/greentic-sorla-designer-extension/Cargo.toml
+          store-url: https://store.greentic.cloud
+          store-token: ${{ secrets.GREENTIC_STORE_TOKEN }}
+          version: ${{ github.ref_name }}
+          rust-toolchain: "1.95.0"
+
   publish_crates:
     if: github.ref_type == 'tag'
     name: Publish to crates.io

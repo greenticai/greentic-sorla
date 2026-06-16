@@ -1,7 +1,21 @@
+// Generated WIT bindings + world export glue are wasm-only. The native rlib
+// build (used by the unit tests and the sibling integration tests) keeps the
+// pure JSON-boundary API and never pulls in `wit-bindgen`'s wasm runtime.
+#[cfg(target_arch = "wasm32")]
+#[allow(warnings)]
+mod bindings;
+#[cfg(target_arch = "wasm32")]
+mod component;
+
+use base64::Engine as _;
 use greentic_sorla_lib::prompt::{
-    DefaultPromptAuthoringEngine, LlmCapability, LlmCapabilityConfig, LlmRequest, LlmResponse,
-    PromptAuthoringEngine, PromptSessionConfig, PromptSessionState, PromptTurnInput,
+    DefaultPromptAuthoringEngine, LlmCapability, LlmCapabilityConfig, PromptAuthoringEngine,
+    PromptSessionConfig, PromptSessionState, PromptTurnInput, UpdatePackageRef,
 };
+// Only the native deterministic stub (`DesignerPromptLlm`) names these; the
+// wasm build routes through `crate::component::HostLlm` instead.
+#[cfg(not(target_arch = "wasm32"))]
+use greentic_sorla_lib::prompt::{LlmRequest, LlmResponse};
 use greentic_sorla_lib::{
     ApplyPatchInput, ConceptViewInput, ConceptViewMode, DEFAULT_DESIGNER_COMPONENT_OPERATION,
     DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypeOptions, NormalizeOptions,
@@ -240,6 +254,39 @@ pub fn list_tools() -> Vec<DesignerTool> {
     ]
 }
 
+/// Runtime contexts per tool: chat-exposed tools advertise "flow" (the chat
+/// loop's context); studio-only tools advertise "studio" so the designer's
+/// chat tool-def builder filters them out while by-name invocation keeps
+/// working for the /sorla studio routes.
+pub fn tool_runtime_contexts(tool: &str) -> Vec<String> {
+    match tool {
+        "start_prompt_session"
+        | "continue_prompt_session"
+        | "generate_prompt_answers"
+        | "parse_sorla_yaml"
+        | "validate_sorla_yaml"
+        | "propose_patch_from_instruction" => {
+            vec!["flow".to_string()]
+        }
+        _ => vec!["studio".to_string()],
+    }
+}
+
+/// LLM capability used by the prompt-authoring engine. On wasm the designer
+/// host owns provider/model/credentials (resolved per tenant from the declared
+/// `sorla_composer` role), so we delegate through the host's `llm` import. On
+/// native (tests, CLI) we keep the deterministic in-crate stub so the existing
+/// suites stay reproducible.
+#[cfg(target_arch = "wasm32")]
+fn prompt_llm() -> impl LlmCapability {
+    crate::component::HostLlm
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn prompt_llm() -> impl LlmCapability {
+    DesignerPromptLlm
+}
+
 fn tool(name: &'static str, description: &'static str) -> DesignerTool {
     DesignerTool {
         name,
@@ -429,6 +476,12 @@ pub struct GenerateGtpackFromSorlaYamlRequest {
     pub source_yaml: String,
     pub pack_name: String,
     pub pack_version: String,
+    /// When true, each pack entry carries its raw bytes as `content_base64`
+    /// (STANDARD engine) so the host can ZIP directly without re-deriving the
+    /// content. When false (default) only the deterministic metadata is returned
+    /// and the host-packaging-required diagnostic is emitted.
+    #[serde(default)]
+    pub include_content: bool,
 }
 
 pub fn parse_sorla_yaml_tool(input: serde_json::Value) -> serde_json::Value {
@@ -498,7 +551,7 @@ pub fn propose_patch_from_instruction_tool(input: serde_json::Value) -> serde_js
         Ok(request) => request,
         Err(err) => return yaml_tool_error("designer.input", err.to_string()),
     };
-    match propose_patch_from_instruction(request, &DesignerPromptLlm) {
+    match propose_patch_from_instruction(request, &prompt_llm()) {
         Ok(output) => serde_json::json!({
             "patch_proposal": output.patch,
             "explanation": output.explanation,
@@ -598,6 +651,7 @@ pub fn generate_gtpack_from_sorla_yaml(input: serde_json::Value) -> serde_json::
         request.pack_version,
         entries,
         parsed.diagnostics,
+        request.include_content,
     )
 }
 
@@ -668,10 +722,21 @@ pub fn explain_model(input: serde_json::Value) -> serde_json::Value {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct GenerateGtpackRequest {
-    pub model: NormalizedSorlaModel,
+    /// A pre-normalized model. Optional for backward compatibility with existing
+    /// callers; exactly one of `model` or `answers` must be provided.
+    #[serde(default)]
+    pub model: Option<NormalizedSorlaModel>,
+    /// A completed prompt-session answers document. The designer's build route
+    /// holds the session's `answers.json` rather than a normalized model, so this
+    /// lets the host build a gtpack straight from it.
+    #[serde(default)]
+    pub answers: Option<serde_json::Value>,
     pub package: ArtifactPackage,
     #[serde(default)]
     pub options: ArtifactOptions,
+    /// See `GenerateGtpackFromSorlaYamlRequest::include_content`.
+    #[serde(default)]
+    pub include_content: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -702,7 +767,29 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
         Ok(request) => request,
         Err(err) => return artifact_error("designer.input", err.to_string()),
     };
-    let report = greentic_sorla_lib::validate_model(&request.model, ValidateOptions);
+    // Resolve the working model from exactly one of `model` (already normalized)
+    // or `answers` (a completed prompt-session document, normalized here via the
+    // same `normalize_answers` seam the wizard uses).
+    let model = match (request.model, request.answers) {
+        (Some(model), None) => model,
+        (None, Some(answers)) => match normalize_answers(answers, NormalizeOptions) {
+            Ok(model) => model,
+            Err(err) => return artifact_error("sorla.normalize", err),
+        },
+        (Some(_), Some(_)) => {
+            return artifact_error(
+                "designer.input",
+                "provide exactly one of `model` or `answers`, not both",
+            );
+        }
+        (None, None) => {
+            return artifact_error(
+                "designer.input",
+                "provide exactly one of `model` or `answers`",
+            );
+        }
+    };
+    let report = greentic_sorla_lib::validate_model(&model, ValidateOptions);
     if report.has_errors() {
         return serde_json::json!({
             "schema": "greentic.sorla.gtpack-plan.v1",
@@ -713,9 +800,12 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
             "preview_json": null
         });
     }
-    let preview = generate_preview(&request.model, PreviewOptions).ok();
+    let preview = generate_preview(&model, PreviewOptions).ok();
+    // Package coords precedence: the explicit request `package` always wins over
+    // any coords carried inside an answers document, so the host controls the
+    // final pack id/version regardless of how the model was sourced.
     let entries = match build_gtpack_entries(
-        &request.model,
+        &model,
         PackBuildOptions {
             name: Some(request.package.name.clone()),
             version: Some(request.package.version.clone()),
@@ -730,8 +820,13 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
         request.package.version,
         entries,
         report.diagnostics,
+        request.include_content,
     );
     if let Some(object) = output.as_object_mut() {
+        object.insert(
+            "sorla_yaml".to_string(),
+            serde_json::Value::String(model.source_yaml.clone()),
+        );
         object.insert(
             "preview_json".to_string(),
             if request.options.include_designer_preview {
@@ -757,7 +852,8 @@ pub fn generate_gtpack(input: serde_json::Value) -> serde_json::Value {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct StartPromptSessionRequest {
-    pub llm: LlmCapabilityConfig,
+    #[serde(default)]
+    pub llm: Option<LlmCapabilityConfig>,
     #[serde(default)]
     pub locale: Option<String>,
     #[serde(default)]
@@ -768,6 +864,26 @@ pub struct StartPromptSessionRequest {
     pub package_version_hint: Option<String>,
     #[serde(default)]
     pub business_prompt: Option<String>,
+    /// When present, the session updates this existing `sorla.yaml` instead of
+    /// authoring a greenfield package. The extension wraps it into the engine's
+    /// business prompt and stamps generated answers with `flow: "update"`.
+    #[serde(default)]
+    pub existing_sorla_yaml: Option<String>,
+}
+
+/// Default LLM capability used when a designer caller omits `llm`. The host
+/// resolves the concrete provider at runtime, so this sentinel only needs to
+/// name the host seam.
+fn host_llm_capability_config() -> LlmCapabilityConfig {
+    // Mirror greentic-sorla-lib's `default_patch_llm_config`: name the host LLM
+    // capability seam so the host can resolve a concrete provider at runtime.
+    LlmCapabilityConfig {
+        provider: "host".to_string(),
+        model: None,
+        api_key: None,
+        endpoint: None,
+        capability_id: Some(greentic_sorla_lib::prompt::DEFAULT_LLM_CAPABILITY_ID.to_string()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -786,14 +902,66 @@ pub fn start_prompt_session(input: serde_json::Value) -> serde_json::Value {
         Ok(request) => request,
         Err(err) => return prompt_error("designer.input", err.to_string()),
     };
-    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    let engine = DefaultPromptAuthoringEngine::new(prompt_llm());
     let config = PromptSessionConfig {
         locale: request.locale,
         schema_version: request.schema_version,
         package_name_hint: request.package_name_hint,
         package_version_hint: request.package_version_hint,
-        llm: request.llm,
+        llm: request.llm.unwrap_or_else(host_llm_capability_config),
     };
+
+    // Update-of-existing flow: the designer hands us the current sorla.yaml, we
+    // wrap it into the engine's business prompt and remember the package
+    // coordinates so the generated answers can be stamped as an update.
+    if let Some(existing_yaml) = request.existing_sorla_yaml {
+        let parsed = match parse_sorla_yaml(ParseSorlaInput {
+            source_yaml: existing_yaml.clone(),
+            source_path: None,
+        }) {
+            Ok(parsed) => parsed,
+            Err(err) => return prompt_error("sorla.prompt.update_target", err),
+        };
+        let package = match parsed.model.package.as_ref() {
+            Some(package) => package,
+            None => {
+                return prompt_error(
+                    "sorla.prompt.update_target",
+                    "existing sorla.yaml must declare a package name and version to update",
+                );
+            }
+        };
+        let update_ref = UpdatePackageRef {
+            name: package.name.clone(),
+            version: package.version.clone(),
+        };
+        let prompt = match request.business_prompt {
+            Some(prompt) if !prompt.trim().is_empty() => prompt,
+            _ => {
+                return prompt_error(
+                    "sorla.prompt.update_target",
+                    "business_prompt describing the requested change is required when updating an existing package",
+                );
+            }
+        };
+        let wrapped = greentic_sorla_lib::prompt_update_business_prompt_text(
+            &prompt,
+            &update_ref.name,
+            &update_ref.version,
+            &existing_yaml,
+            "session",
+        );
+        let mut session = match engine.start_session(config) {
+            Ok(session) => session,
+            Err(err) => return prompt_error("sorla.prompt.start", err),
+        };
+        session.update_package = Some(update_ref);
+        return prompt_turn_json(engine.next_turn(PromptTurnInput {
+            session,
+            user_message: wrapped,
+        }));
+    }
+
     let session = match engine.start_session(config) {
         Ok(session) => session,
         Err(err) => return prompt_error("sorla.prompt.start", err),
@@ -820,7 +988,7 @@ pub fn continue_prompt_session(input: serde_json::Value) -> serde_json::Value {
         Ok(request) => request,
         Err(err) => return prompt_error("designer.input", err.to_string()),
     };
-    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    let engine = DefaultPromptAuthoringEngine::new(prompt_llm());
     prompt_turn_json(engine.next_turn(PromptTurnInput {
         session: request.session,
         user_message: request.user_message,
@@ -832,20 +1000,34 @@ pub fn generate_prompt_answers(input: serde_json::Value) -> serde_json::Value {
         Ok(request) => request,
         Err(err) => return prompt_error("designer.input", err.to_string()),
     };
-    let engine = DefaultPromptAuthoringEngine::new(DesignerPromptLlm);
+    let engine = DefaultPromptAuthoringEngine::new(prompt_llm());
     match engine.generate_answers(request.session.clone()) {
-        Ok(answers) => serde_json::json!({
-            "status": "valid",
-            "session": request.session,
-            "answers_json": answers,
-            "diagnostics": []
-        }),
+        Ok(mut answers) => {
+            if let Some(pkg) = &request.session.update_package {
+                answers["flow"] = serde_json::Value::String("update".into());
+                answers["package"] = serde_json::json!({
+                    "name": pkg.name,
+                    "version": pkg.version
+                });
+            }
+            serde_json::json!({
+                "status": "valid",
+                "session": request.session,
+                "answers_json": answers,
+                "diagnostics": []
+            })
+        }
         Err(err) => prompt_error("sorla.prompt.answers", err),
     }
 }
 
+/// Deterministic stub LLM used only by the native build (tests, CLI). The wasm
+/// component routes through the designer host's `llm` import instead — see
+/// `prompt_llm` and `crate::component::HostLlm`.
+#[cfg(not(target_arch = "wasm32"))]
 struct DesignerPromptLlm;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl LlmCapability for DesignerPromptLlm {
     fn complete(&self, request: LlmRequest) -> Result<LlmResponse, greentic_sorla_lib::SorlaError> {
         if request.system_prompt.contains("semantic patches") {
@@ -873,10 +1055,12 @@ impl LlmCapability for DesignerPromptLlm {
                     "explanation": "Adds a postcode field to the property record."
                 })
                 .to_string(),
+                usage: None,
             });
         }
         Ok(LlmResponse {
             content: "{}".to_string(),
+            usage: None,
         })
     }
 }
@@ -1126,22 +1310,33 @@ fn pack_entries_output(
     pack_version: String,
     entries: Vec<greentic_sorla_lib::PackEntry>,
     mut diagnostics: Vec<greentic_sorla_lib::SorlaDiagnostic>,
+    include_content: bool,
 ) -> serde_json::Value {
-    diagnostics.insert(0, greentic_sorla_lib::SorlaDiagnostic {
-        severity: greentic_sorla_lib::DiagnosticSeverity::Warning,
-        code: "sorla.gtpack.host_packaging_required".to_string(),
-        message: "WASM extension returned deterministic pack entries; host/native packaging must produce ZIP bytes.".to_string(),
-        path: None,
-        suggestion: Some("Package the returned entries with the native greentic-sorla-lib pack-zip feature when .gtpack bytes are required.".to_string()),
-    });
+    // With content bytes attached the host can ZIP the entries directly, so the
+    // host-packaging-required warning only applies to the metadata-only path.
+    if !include_content {
+        diagnostics.insert(0, greentic_sorla_lib::SorlaDiagnostic {
+            severity: greentic_sorla_lib::DiagnosticSeverity::Warning,
+            code: "sorla.gtpack.host_packaging_required".to_string(),
+            message: "WASM extension returned deterministic pack entries; host/native packaging must produce ZIP bytes.".to_string(),
+            path: None,
+            suggestion: Some("Package the returned entries with the native greentic-sorla-lib pack-zip feature when .gtpack bytes are required.".to_string()),
+        });
+    }
     let pack_entries = entries
         .iter()
         .map(|entry| {
-            serde_json::json!({
+            let mut value = serde_json::json!({
                 "path": entry.path,
                 "sha256": entry.sha256,
                 "size": entry.bytes.len()
-            })
+            });
+            if include_content {
+                value["content_base64"] = serde_json::Value::String(
+                    base64::engine::general_purpose::STANDARD.encode(&entry.bytes),
+                );
+            }
+            value
         })
         .collect::<Vec<_>>();
     serde_json::json!({
@@ -1389,6 +1584,76 @@ mod tests {
     }
 
     #[test]
+    fn describe_json_parses_against_contract() {
+        let raw = include_str!("../describe.json");
+        let parsed: greentic_extension_sdk_contract::DescribeJson =
+            serde_json::from_str(raw).expect("describe.json matches contract");
+        assert_eq!(parsed.api_version, "greentic.ai/v2");
+        assert_eq!(parsed.metadata.id, "greentic.sorla");
+        // The host `llm` import is the only privileged seam this extension uses,
+        // so the sole declared permission is the `sorla_composer` LLM role
+        // (round-tripped through the camelCase `llmRoles` wire key).
+        assert_eq!(
+            parsed.runtime.permissions.llm_roles,
+            vec!["sorla_composer".to_string()]
+        );
+        assert!(parsed.runtime.permissions.network.is_empty());
+        assert!(parsed.runtime.permissions.secrets.is_empty());
+        // All 16 design-time tools must be advertised in the canonical order.
+        let described_tools = parsed
+            .contributions
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>();
+        let listed_tools = list_tools()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+        assert_eq!(described_tools, listed_tools);
+    }
+
+    #[test]
+    fn tool_runtime_contexts_split_chat_and_studio_tools() {
+        // The six chat-loop tools advertise the "flow" context; everything else
+        // is studio-only. Keep this list in lockstep with `tool_runtime_contexts`.
+        let flow_tools = [
+            "start_prompt_session",
+            "continue_prompt_session",
+            "generate_prompt_answers",
+            "parse_sorla_yaml",
+            "validate_sorla_yaml",
+            "propose_patch_from_instruction",
+        ];
+        for tool in flow_tools {
+            assert_eq!(
+                tool_runtime_contexts(tool),
+                vec!["flow".to_string()],
+                "{tool} should be a flow (chat) tool"
+            );
+        }
+
+        // Every advertised tool resolves to a non-empty context list, and any
+        // tool not in the flow set is studio-only.
+        for tool in list_tools() {
+            let contexts = tool_runtime_contexts(tool.name);
+            assert!(
+                !contexts.is_empty(),
+                "{} must advertise at least one runtime context",
+                tool.name
+            );
+            if !flow_tools.contains(&tool.name) {
+                assert_eq!(
+                    contexts,
+                    vec!["studio".to_string()],
+                    "{} should be studio-only",
+                    tool.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn yaml_first_tools_parse_view_validate_patch_and_dispatch() {
         let source_yaml = r#"
 package:
@@ -1529,6 +1794,73 @@ records:
     }
 
     #[test]
+    fn prompt_session_update_flow_stamps_answers() {
+        let existing_yaml = r#"
+package:
+  name: designer-yaml-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+        .trim_start();
+
+        let start = start_prompt_session(serde_json::json!({
+            "llm": { "provider": "fake" },
+            "business_prompt": "Add a postcode field to the property record.",
+            "existing_sorla_yaml": existing_yaml
+        }));
+        assert_eq!(start["status"], "needs_input");
+        assert!(start["session"]["update_package"].is_object());
+        assert_eq!(
+            start["session"]["update_package"]["name"],
+            "designer-yaml-demo"
+        );
+        assert_eq!(start["session"]["update_package"]["version"], "0.1.0");
+        assert!(
+            start["session"]["business_prompt"]
+                .as_str()
+                .unwrap()
+                .contains("Update the existing Greentic SoRLa package")
+        );
+
+        // Drive the session to completion using the deterministic fake engine.
+        let mut turn = start;
+        for answer in [
+            "yes",
+            "joint",
+            "yes, payments are immutable",
+            "yes, suppliers do the work",
+            "supplier work requires approval",
+        ] {
+            turn = continue_prompt_session(serde_json::json!({
+                "session": turn["session"].clone(),
+                "user_message": answer
+            }));
+        }
+        // The update target rides through every turn.
+        assert_eq!(
+            turn["session"]["update_package"]["name"],
+            "designer-yaml-demo"
+        );
+
+        let generated = generate_prompt_answers(serde_json::json!({
+            "session": turn["session"].clone()
+        }));
+        assert_eq!(generated["status"], "valid");
+        assert_eq!(generated["answers_json"]["flow"], "update");
+        assert_eq!(
+            generated["answers_json"]["package"]["name"],
+            "designer-yaml-demo"
+        );
+        assert_eq!(generated["answers_json"]["package"]["version"], "0.1.0");
+    }
+
+    #[test]
     fn prompt_generation_returns_valid_model() {
         let output = generate_model_from_prompt(serde_json::json!({
             "prompt": "Create supplier contract risk management"
@@ -1648,6 +1980,93 @@ records:
         assert_eq!(first, second);
         assert!(!first.to_ascii_lowercase().contains("password"));
         assert!(!first.to_ascii_lowercase().contains("tenant_id"));
+    }
+
+    #[test]
+    fn generate_gtpack_includes_content_when_requested() {
+        // Reuse the same YAML fixture the other gtpack-from-yaml flows exercise.
+        let fixture_yaml = r#"
+package:
+  name: designer-yaml-demo
+  version: 0.1.0
+records:
+  - name: property
+    source: native
+    fields:
+      - name: property_id
+        type: string
+        required: true
+"#
+        .trim_start();
+
+        let out = invoke_tool(
+            "generate_gtpack_from_sorla_yaml",
+            &serde_json::json!({
+                "source_yaml": fixture_yaml,
+                "pack_name": "designer-yaml-demo",
+                "pack_version": "0.1.0",
+                "include_content": true
+            })
+            .to_string(),
+        )
+        .expect("ok");
+        let out: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let entry = &out["pack_entries"][0];
+        let encoded = entry["content_base64"].as_str().expect("content_base64");
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .expect("STANDARD base64 decodes");
+        assert_eq!(entry["size"].as_u64().unwrap() as usize, bytes.len());
+        // With content the host can package directly, so the warning is dropped.
+        let codes: Vec<&str> = out["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|d| d["code"].as_str())
+            .collect();
+        assert!(!codes.contains(&"sorla.gtpack.host_packaging_required"));
+
+        // Without include_content, content_base64 must be absent and the
+        // host-packaging-required diagnostic returns.
+        let out = invoke_tool(
+            "generate_gtpack_from_sorla_yaml",
+            &serde_json::json!({
+                "source_yaml": fixture_yaml,
+                "pack_name": "designer-yaml-demo",
+                "pack_version": "0.1.0"
+            })
+            .to_string(),
+        )
+        .expect("ok");
+        let out: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(out["pack_entries"][0]["content_base64"].is_null());
+        assert_eq!(
+            out["diagnostics"][0]["code"],
+            "sorla.gtpack.host_packaging_required"
+        );
+    }
+
+    #[test]
+    fn generate_gtpack_accepts_answers_document() {
+        let answers = supplier_contract_answers(&GenerateModelRequest {
+            prompt: "Create supplier contract risk management".to_string(),
+            constraints: GenerateConstraints::default(),
+            draft_json: None,
+        });
+        let out = invoke_tool(
+            "generate_gtpack",
+            &serde_json::json!({
+                "answers": answers,
+                "package": { "name": "supplier-contract", "version": "0.1.0" },
+                "include_content": true
+            })
+            .to_string(),
+        )
+        .expect("ok");
+        let out: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(out["schema"], "greentic.sorla.gtpack-plan.v1");
+        assert!(out["sorla_yaml"].as_str().is_some());
+        assert!(out["pack_entries"][0]["content_base64"].as_str().is_some());
     }
 
     #[test]
