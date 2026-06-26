@@ -1,0 +1,68 @@
+{
+  "$schema": "https://store.greentic.cloud/schemas/describe-v2.json",
+  "apiVersion": "greentic.ai/v2",
+  "kind": "DesignExtension",
+  "compat": {
+    "min_designer_version": ">=1.2.0",
+    "min_runner_version": "^0.12.0",
+    "contract_version": "1.2.0"
+  },
+  "metadata": {
+    "id": "greentic.sorla",
+    "name": "SoRLa Designer",
+    "version": "1.2.0-research",
+    "summary": "Author and update SoRLa systems-of-record from a guided prompt session.",
+    "description": "Author and update SoRLa systems-of-record from a guided prompt session.",
+    "author": { "name": "Greentic AI", "email": "team@greentic.ai" },
+    "license": "MIT"
+  },
+  "engine": {
+    "greenticDesigner": ">=1.2.0",
+    "extRuntime": "^1.2.0"
+  },
+  "capabilities": {
+    "offered": [
+      { "id": "greentic:sorla/design", "version": "1.0.0" },
+      { "id": "greentic:sorla/patch", "version": "1.0.0" }
+    ],
+    "required": []
+  },
+  "runtime": {
+    "memoryLimitMB": 32,
+    "permissions": {
+      "llmRoles": ["sorla_composer"]
+    },
+    "components": {
+      "sorla": {
+        "gtpack": {
+          "file": "extension.wasm",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "pack_id": "greentic.sorla",
+          "component_version": "0.1.16"
+        },
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "world": "greentic:sorla-designer-extension/design-extension"
+      }
+    }
+  },
+  "contributions": {
+    "tools": [
+      { "name": "parse_sorla_yaml", "export": "invoke-tool" },
+      { "name": "generate_concept_view", "export": "invoke-tool" },
+      { "name": "apply_sorla_patch", "export": "invoke-tool" },
+      { "name": "propose_patch_from_instruction", "export": "invoke-tool" },
+      { "name": "validate_sorla_yaml", "export": "invoke-tool" },
+      { "name": "generate_gtpack_from_sorla_yaml", "export": "invoke-tool" },
+      { "name": "generate_model_from_prompt", "export": "invoke-tool" },
+      { "name": "validate_model", "export": "invoke-tool" },
+      { "name": "improve_model", "export": "invoke-tool" },
+      { "name": "explain_model", "export": "invoke-tool" },
+      { "name": "generate_gtpack", "export": "invoke-tool" },
+      { "name": "start_prompt_session", "export": "invoke-tool" },
+      { "name": "continue_prompt_session", "export": "invoke-tool" },
+      { "name": "generate_prompt_answers", "export": "invoke-tool" },
+      { "name": "list_designer_node_types", "export": "invoke-tool" },
+      { "name": "generate_flow_node_from_node_type", "export": "invoke-tool" }
+    ]
+  }
+}

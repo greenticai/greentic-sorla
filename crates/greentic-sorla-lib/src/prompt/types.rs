@@ -34,6 +34,14 @@ pub struct PromptSessionConfig {
     pub llm: LlmCapabilityConfig,
 }
 
+/// Identity of the package being updated, carried so answer generation can
+/// stamp `flow: "update"` + the original package coordinates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatePackageRef {
+    pub name: String,
+    pub version: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PromptSessionState {
     pub session_id: String,
@@ -48,6 +56,8 @@ pub struct PromptSessionState {
     pub draft_model: Option<SorDesignDraft>,
     #[serde(default)]
     pub staged_answers: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_package: Option<UpdatePackageRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,12 +183,55 @@ mod tests {
                 ..SorDesignDraft::default()
             }),
             staged_answers: true,
+            update_package: None,
         };
 
         let encoded = serde_json::to_string(&state).expect("state serializes");
         let decoded: PromptSessionState =
             serde_json::from_str(&encoded).expect("state deserializes");
         assert_eq!(decoded, state);
+    }
+
+    #[test]
+    fn session_state_update_package_roundtrips_and_defaults() {
+        let state = PromptSessionState {
+            session_id: "session-1".to_string(),
+            phase: PromptPhase::AwaitingBusinessPrompt,
+            llm: None,
+            business_prompt: None,
+            answers_so_far: Vec::new(),
+            questions: Vec::new(),
+            assumptions: Vec::new(),
+            draft_model: None,
+            staged_answers: false,
+            update_package: None,
+        };
+
+        // Legacy compat: a serialization without `update_package` deserializes to None.
+        let mut json = serde_json::to_value(&state).expect("state serializes");
+        assert!(
+            json.get("update_package").is_none(),
+            "None update_package should be skipped on serialize"
+        );
+        if let Some(map) = json.as_object_mut() {
+            map.remove("update_package");
+        }
+        let decoded: PromptSessionState =
+            serde_json::from_value(json).expect("legacy state deserializes");
+        assert!(decoded.update_package.is_none());
+
+        // Roundtrip with an update target set.
+        let updating = PromptSessionState {
+            update_package: Some(UpdatePackageRef {
+                name: "landlord-tenant".to_string(),
+                version: "0.2.0".to_string(),
+            }),
+            ..state
+        };
+        let encoded = serde_json::to_string(&updating).expect("update state serializes");
+        let roundtripped: PromptSessionState =
+            serde_json::from_str(&encoded).expect("update state deserializes");
+        assert_eq!(roundtripped, updating);
     }
 
     #[test]
