@@ -2562,6 +2562,7 @@ fn greentic_pack_manifest_cbor(
         signatures: PackSignatures::default(),
         bootstrap: None,
         extensions: Some(extensions),
+        agents: BTreeMap::new(),
     };
     encode_pack_manifest(&manifest)
         .map_err(|err| format!("failed to encode Greentic pack manifest: {err}"))
