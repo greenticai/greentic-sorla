@@ -677,7 +677,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf044036a9d87f059698002c11f72f0f46f1fcc3228b3bc1fd1a3a621653f2ff"
 dependencies = [
  "greentic-interfaces-guest",
- "greentic-types",
+ "greentic-types 0.5.3",
  "qa-spec",
  "serde",
  "serde_cbor",
@@ -1440,6 +1440,7 @@ version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
+ "crc32fast",
  "miniz_oxide",
  "zlib-rs",
 ]
@@ -1728,7 +1729,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57b57ff54329cc825cc37a5d3f5839b6c45fc2460ef9de12ee9d282f45f9f22e"
 dependencies = [
- "greentic-types",
+ "greentic-types 0.5.3",
  "serde",
  "serde_json",
  "toml 1.1.2+spec-1.1.0",
@@ -1747,7 +1748,7 @@ dependencies = [
  "greentic-config-types",
  "greentic-interfaces-guest",
  "greentic-secrets-lib",
- "greentic-types",
+ "greentic-types 0.5.3",
  "oci-distribution",
  "reqwest 0.13.4",
  "rpassword",
@@ -1794,7 +1795,7 @@ dependencies = [
  "greentic-interfaces-host",
  "greentic-interfaces-wasmtime",
  "greentic-qa-lib",
- "greentic-types",
+ "greentic-types 0.5.3",
  "handlebars",
  "include_dir",
  "indexmap",
@@ -1840,7 +1841,7 @@ checksum = "5d4fc902124d374030b0b4845d3dcb9aa0db65271c39b28f58eb43db783bfef2"
 dependencies = [
  "anyhow",
  "constant_time_eq 0.4.2",
- "greentic-types",
+ "greentic-types 0.5.3",
  "semver",
  "thiserror 2.0.18",
  "time",
@@ -1857,7 +1858,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ae851adc13682dbb8e246f3c9a556121525c9e0205a423f4860fb24afbf34eb8"
 dependencies = [
  "greentic-interfaces",
- "greentic-types",
+ "greentic-types 0.5.3",
  "wit-bindgen 0.57.1",
  "wit-bindgen-core 0.57.1",
  "wit-bindgen-rust 0.57.1",
@@ -1870,7 +1871,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5fc39b674096535f025ec52a125b9348c7751442670c8886956482a2ca14954"
 dependencies = [
  "greentic-interfaces",
- "greentic-types",
+ "greentic-types 0.5.3",
  "serde",
  "serde_json",
  "wasmtime",
@@ -1923,7 +1924,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.2",
  "greentic-flow",
- "greentic-types",
+ "greentic-types 0.5.3",
  "hex",
  "indexmap",
  "pkcs8",
@@ -1979,7 +1980,7 @@ dependencies = [
  "greentic-secrets-api",
  "greentic-secrets-provider-dev",
  "greentic-secrets-spec",
- "greentic-types",
+ "greentic-types 0.5.3",
  "hkdf",
  "lru",
  "once_cell",
@@ -2006,7 +2007,7 @@ dependencies = [
  "greentic-secrets-core",
  "greentic-secrets-provider-dev",
  "greentic-secrets-spec",
- "greentic-types",
+ "greentic-types 0.5.3",
 ]
 
 [[package]]
@@ -2033,7 +2034,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d53eae0820853253dc6760c7c7044ec5d97922200e7abc0a57d363432da0993d"
 dependencies = [
  "async-trait",
- "greentic-types",
+ "greentic-types 0.5.3",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -2108,7 +2109,7 @@ dependencies = [
  "greentic-pack-lib",
  "greentic-sorla-ir",
  "greentic-sorla-lang",
- "greentic-types",
+ "greentic-types 1.1.0",
  "semver",
  "serde",
  "serde_json",
@@ -2153,9 +2154,9 @@ dependencies = [
 
 [[package]]
 name = "greentic-types"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27d3246d833a9d0c3c44694c9381df09df6361754f9590e922bfad0829a6d789"
+checksum = "20d524811eebe7fc0c12078b960771be4aed9a1b10f55f80cd6b3e79549c0260"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2179,6 +2180,30 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "unic-langid",
+]
+
+[[package]]
+name = "greentic-types"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4c3b9f4b88628d803db2c4841184cccd34059f167fcc295d9c341eecef28ef6"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "chrono",
+ "ciborium",
+ "constant_time_eq 0.4.2",
+ "fnv",
+ "indexmap",
+ "semver",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "serde_with",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "time",
  "unic-langid",
 ]
 
