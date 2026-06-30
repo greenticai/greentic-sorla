@@ -24,7 +24,7 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "1.1.0-dev.0"
+version = "1.1.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/greenticai/greentic-sorla"
@@ -46,15 +46,15 @@ categories = [
 ciborium = "0.2"
 criterion = "0.8"
 greentic-llm = "1.2.0-research"
-greentic-pack = { package = "greentic-pack-lib", version = ">=1.1.0-dev, <1.2.0-0" }
-greentic-qa-lib = ">=1.1.0-dev, <1.2.0-0"
-greentic-sorla-cli = { package = "greentic-sorla", version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-cli" }
-greentic-sorla-ir = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-ir" }
-greentic-sorla-lang = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-lang" }
-greentic-sorla-lib = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-lib", default-features = false }
-greentic-sorla-designer-extension = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-designer-extension" }
-greentic-sorla-pack = { version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-pack", default-features = false }
-greentic-types = ">=1.1.0-dev, <1.2.0-0"
+greentic-pack = { package = "greentic-pack-lib", version = ">=1.1.0-0, <1.2.0-0" }
+greentic-qa-lib = ">=1.1.0-0, <1.2.0-0"
+greentic-sorla-cli = { package = "greentic-sorla", version = ">=1.1.0-0, <1.2.0-0", path = "crates/greentic-sorla-cli" }
+greentic-sorla-ir = { version = ">=1.1.0-0, <1.2.0-0", path = "crates/greentic-sorla-ir" }
+greentic-sorla-lang = { version = ">=1.1.0-0, <1.2.0-0", path = "crates/greentic-sorla-lang" }
+greentic-sorla-lib = { version = ">=1.1.0-0, <1.2.0-0", path = "crates/greentic-sorla-lib", default-features = false }
+greentic-sorla-designer-extension = { version = ">=1.1.0-0, <1.2.0-0", path = "crates/greentic-sorla-designer-extension" }
+greentic-sorla-pack = { version = ">=1.1.0-0, <1.2.0-0", path = "crates/greentic-sorla-pack", default-features = false }
+greentic-types = ">=1.1.0-0, <1.2.0-0"
 semver = "1"
 serde_json = "1"
 serde_yaml = "0.9"
