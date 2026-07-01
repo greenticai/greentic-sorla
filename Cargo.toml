@@ -45,7 +45,7 @@ categories = [
 [workspace.dependencies]
 ciborium = "0.2"
 criterion = "0.8"
-greentic-llm = "1.2.0-research"
+greentic-llm = ">=1.1.0-dev, <1.2.0-0"
 greentic-pack = { package = "greentic-pack-lib", version = ">=1.1.0-dev, <1.2.0-0" }
 greentic-qa-lib = ">=1.1.0-dev, <1.2.0-0"
 greentic-sorla-cli = { package = "greentic-sorla", version = ">=1.1.0-dev, <1.2.0-0", path = "crates/greentic-sorla-cli" }
@@ -74,9 +74,3 @@ version = "1"
 features = [
     "derive",
 ]
-
-# The extension contract crate publishes its `1.2.x-research` line via git tags
-# on the designer SDK monorepo rather than crates.io. Redirect the dev-dependency
-# pin (`=1.2.7-research`) to the matching tag.
-[patch.crates-io]
-greentic-extension-sdk-contract = { git = "https://github.com/greenticai/greentic-designer-sdk.git", tag = "v1.2.7-research" }

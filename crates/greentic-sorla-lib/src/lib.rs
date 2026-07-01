@@ -6066,6 +6066,7 @@ fn default_prompt_llm_model(provider: greentic_llm::ProviderKind) -> String {
         greentic_llm::ProviderKind::Groq => "llama-3.1-70b-versatile",
         greentic_llm::ProviderKind::Perplexity => "sonar-pro",
         greentic_llm::ProviderKind::Xai => "grok-2-latest",
+        _ => provider.as_str(),
     }
     .to_string()
 }
@@ -6097,6 +6098,8 @@ fn prompt_llm_credential(
         api_key,
         base_url,
         expires_at: None,
+        api_version: None,
+        aws_profile: None,
     })
 }
 
@@ -6112,6 +6115,7 @@ fn provider_api_key_env(provider: greentic_llm::ProviderKind) -> Option<&'static
         greentic_llm::ProviderKind::Groq => Some("GROQ_API_KEY"),
         greentic_llm::ProviderKind::Perplexity => Some("PERPLEXITY_API_KEY"),
         greentic_llm::ProviderKind::Xai => Some("XAI_API_KEY"),
+        _ => None,
     }
 }
 
@@ -6139,6 +6143,8 @@ fn prompt_llm_chat_messages(
         role: greentic_llm::MessageRole::System,
         content: prompt_llm_system_prompt(system_prompt, response_format),
         images: vec![],
+        tool_calls: vec![],
+        tool_call_id: None,
     }];
     chat_messages.extend(
         messages
@@ -6151,6 +6157,8 @@ fn prompt_llm_chat_messages(
                 },
                 content: message.content,
                 images: vec![],
+                tool_calls: vec![],
+                tool_call_id: None,
             }),
     );
     chat_messages
