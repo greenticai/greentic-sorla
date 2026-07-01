@@ -1585,27 +1585,42 @@ mod tests {
 
     #[test]
     fn describe_json_parses_against_contract() {
+        // This previously deserialized describe.json into
+        // `greentic_extension_sdk_contract::DescribeJson`, but every stable
+        // release of that crate (1.1.0, 1.1.1) transitively exact-pins
+        // `greentic-types =1.2.0-research.1` — a research-lane version that
+        // cannot coexist with this workspace's stable greentic-types. Until the
+        // designer SDK ships a clean stable contract crate, validate the same
+        // describe.json invariants structurally against the raw JSON shape.
         let raw = include_str!("../describe.json");
-        let parsed: greentic_extension_sdk_contract::DescribeJson =
-            serde_json::from_str(raw).expect("describe.json matches contract");
-        assert_eq!(parsed.api_version, "greentic.ai/v2");
-        assert_eq!(parsed.metadata.id, "greentic.sorla");
+        let parsed: serde_json::Value =
+            serde_json::from_str(raw).expect("describe.json is valid JSON");
+        assert_eq!(parsed["apiVersion"], "greentic.ai/v2");
+        assert_eq!(parsed["metadata"]["id"], "greentic.sorla");
         // The host `llm` import is the only privileged seam this extension uses,
         // so the sole declared permission is the `sorla_composer` LLM role
-        // (round-tripped through the camelCase `llmRoles` wire key).
+        // (the camelCase `llmRoles` wire key).
         assert_eq!(
-            parsed.runtime.permissions.llm_roles,
-            vec!["sorla_composer".to_string()]
+            parsed["runtime"]["permissions"]["llmRoles"],
+            serde_json::json!(["sorla_composer"])
         );
-        assert!(parsed.runtime.permissions.network.is_empty());
-        assert!(parsed.runtime.permissions.secrets.is_empty());
+        // No network or secret seams are requested (absent or empty).
+        let network = &parsed["runtime"]["permissions"]["network"];
+        assert!(network.is_null() || network.as_array().is_some_and(|a| a.is_empty()));
+        let secrets = &parsed["runtime"]["permissions"]["secrets"];
+        assert!(secrets.is_null() || secrets.as_array().is_some_and(|a| a.is_empty()));
         // All 16 design-time tools must be advertised in the canonical order.
-        let described_tools = parsed
-            .contributions
-            .tools
+        let described_tools: Vec<String> = parsed["contributions"]["tools"]
+            .as_array()
+            .expect("contributions.tools is an array")
             .iter()
-            .map(|tool| tool.name.as_str())
-            .collect::<Vec<_>>();
+            .map(|tool| {
+                tool["name"]
+                    .as_str()
+                    .expect("tool name is a string")
+                    .to_string()
+            })
+            .collect();
         let listed_tools = list_tools()
             .into_iter()
             .map(|tool| tool.name)

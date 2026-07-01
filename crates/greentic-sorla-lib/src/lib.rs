@@ -4172,7 +4172,7 @@ pub fn build_gtpack_bytes(
             .clone()
             .unwrap_or_else(|| model.package_name.clone())
     );
-    let temp_path = deterministic_temp_path(&filename);
+    let temp_path = unique_temp_path(&filename);
     let summary = build_gtpack_file(model, &temp_path, options)?;
     let bytes = fs::read(&temp_path).map_err(|err| {
         format!(
@@ -4277,7 +4277,7 @@ pub fn build_gtpack_file(
     output_path: &Path,
     options: PackBuildOptions,
 ) -> Result<PackBuildResult, SorlaError> {
-    let yaml_path = deterministic_temp_path("model.sorla.yaml");
+    let yaml_path = unique_temp_path("model.sorla.yaml");
     fs::write(&yaml_path, &model.source_yaml)
         .map_err(|err| format!("failed to write temporary SoRLa model: {err}"))?;
     let result = build_sorla_gtpack(&SorlaGtpackOptions {
@@ -4294,7 +4294,7 @@ pub fn build_gtpack_file(
 
 #[cfg(feature = "pack-zip")]
 pub fn inspect_gtpack_bytes(bytes: &[u8]) -> Result<SorlaGtpackInspection, SorlaError> {
-    let path = deterministic_temp_path("inspect.gtpack");
+    let path = unique_temp_path("inspect.gtpack");
     fs::write(&path, bytes).map_err(|err| format!("failed to write temporary gtpack: {err}"))?;
     let result = inspect_sorla_gtpack(&path);
     let _ = fs::remove_file(&path);
@@ -4303,7 +4303,7 @@ pub fn inspect_gtpack_bytes(bytes: &[u8]) -> Result<SorlaGtpackInspection, Sorla
 
 #[cfg(feature = "pack-zip")]
 pub fn doctor_gtpack_bytes(bytes: &[u8]) -> SorlaValidationReport {
-    let path = deterministic_temp_path("doctor.gtpack");
+    let path = unique_temp_path("doctor.gtpack");
     if let Err(err) = fs::write(&path, bytes) {
         return SorlaValidationReport {
             diagnostics: vec![SorlaDiagnostic {
@@ -4342,10 +4342,14 @@ pub fn doctor_gtpack_bytes(bytes: &[u8]) -> SorlaValidationReport {
     }
 }
 
-fn deterministic_temp_path(filename: &str) -> PathBuf {
+fn unique_temp_path(filename: &str) -> PathBuf {
+    // Sequence counter keeps concurrent callers (e.g. parallel tests in one
+    // process) from clobbering each other's temporary files.
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let safe_name = filename.replace(['/', '\\'], "_");
     std::env::temp_dir().join(format!(
-        "greentic-sorla-lib-{}-{safe_name}",
+        "greentic-sorla-lib-{}-{sequence}-{safe_name}",
         std::process::id()
     ))
 }
@@ -6062,6 +6066,7 @@ fn default_prompt_llm_model(provider: greentic_llm::ProviderKind) -> String {
         greentic_llm::ProviderKind::Groq => "llama-3.1-70b-versatile",
         greentic_llm::ProviderKind::Perplexity => "sonar-pro",
         greentic_llm::ProviderKind::Xai => "grok-2-latest",
+        _ => provider.as_str(),
     }
     .to_string()
 }
@@ -6093,6 +6098,8 @@ fn prompt_llm_credential(
         api_key,
         base_url,
         expires_at: None,
+        api_version: None,
+        aws_profile: None,
     })
 }
 
@@ -6108,6 +6115,7 @@ fn provider_api_key_env(provider: greentic_llm::ProviderKind) -> Option<&'static
         greentic_llm::ProviderKind::Groq => Some("GROQ_API_KEY"),
         greentic_llm::ProviderKind::Perplexity => Some("PERPLEXITY_API_KEY"),
         greentic_llm::ProviderKind::Xai => Some("XAI_API_KEY"),
+        _ => None,
     }
 }
 
@@ -6135,6 +6143,8 @@ fn prompt_llm_chat_messages(
         role: greentic_llm::MessageRole::System,
         content: prompt_llm_system_prompt(system_prompt, response_format),
         images: vec![],
+        tool_calls: vec![],
+        tool_call_id: None,
     }];
     chat_messages.extend(
         messages
@@ -6147,6 +6157,8 @@ fn prompt_llm_chat_messages(
                 },
                 content: message.content,
                 images: vec![],
+                tool_calls: vec![],
+                tool_call_id: None,
             }),
     );
     chat_messages
@@ -6524,6 +6536,7 @@ fn run_interactive_wizard_with_provider(
             debug: false,
         },
         verbose: false,
+        env_id: String::new(),
     })
     .map_err(format_qa_error)?;
 
@@ -14642,13 +14655,19 @@ metrics:
 
     #[test]
     fn embedded_i18n_catalogs_are_available_without_filesystem_lookups() {
-        let resolved = load_interactive_i18n("es").expect("embedded locale should load");
+        let english = load_interactive_i18n("en").expect("embedded en locale should load");
         assert_eq!(
-            resolved.get("wizard.title").map(String::as_str),
+            english.get("wizard.title").map(String::as_str),
+            Some("SoRLa wizard")
+        );
+
+        let spanish = load_interactive_i18n("es").expect("embedded es locale should load");
+        assert_eq!(
+            spanish.get("wizard.title").map(String::as_str),
             Some("Asistente de SoRLa")
         );
         assert_eq!(
-            resolved.get("wizard.flow.label").map(String::as_str),
+            spanish.get("wizard.flow.label").map(String::as_str),
             Some("Flujo del asistente")
         );
     }

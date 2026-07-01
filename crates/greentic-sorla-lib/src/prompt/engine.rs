@@ -1462,8 +1462,8 @@ fn normalize_metric_dependencies(answers: &mut serde_json::Value) {
         .filter_map(|metric| metric.get("name").and_then(serde_json::Value::as_str))
         .map(str::to_string)
         .collect::<Vec<_>>();
-    for (index, item) in metrics.iter_mut().enumerate() {
-        let Some(metric) = item.as_object_mut() else {
+    for (index, metric_value) in metrics.iter_mut().enumerate() {
+        let Some(metric) = metric_value.as_object_mut() else {
             continue;
         };
         let metric_name = metric
