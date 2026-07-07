@@ -1,5 +1,6 @@
 use greentic_sorla_designer_extension::{
-    generate_flow_node_from_sorla_endpoint, generate_model_from_prompt, list_sorla_endpoint_node_types,
+    generate_flow_node_from_sorla_endpoint, generate_model_from_prompt,
+    list_sorla_endpoint_node_types,
 };
 use greentic_sorla_lib::{PackBuildOptions, build_gtpack_entries};
 
