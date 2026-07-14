@@ -10,11 +10,12 @@
   "metadata": {
     "id": "greentic.sorla",
     "name": "SoRLa Designer",
-    "version": "1.2.0-research",
+    "version": "1.2.1-research",
     "summary": "Author and update SoRLa systems-of-record from a guided prompt session.",
     "description": "Author and update SoRLa systems-of-record from a guided prompt session.",
     "author": { "name": "Greentic AI", "email": "team@greentic.ai" },
-    "license": "MIT"
+    "license": "MIT",
+    "icon": "assets/icon.svg"
   },
   "capabilities": {
     "offered": [
