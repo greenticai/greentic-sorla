@@ -281,7 +281,7 @@ fn assert_schema_shape(v1: &CanonicalIr, v2: &CanonicalIr) -> Result<(), String>
         migration.idempotence_key.as_deref(),
         Some("landlord-tenant-v2-fields")
     );
-    assert_eq!(migration.backfills.len(), 11);
+    assert_eq!(migration.backfills.len(), 12);
     assert_eq!(
         endpoint_emit_event(v2, "create_tenant")?,
         "TenantCreated".to_string()
