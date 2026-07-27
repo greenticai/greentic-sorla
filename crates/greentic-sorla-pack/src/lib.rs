@@ -725,12 +725,20 @@ pub struct AgentEndpointActionCatalogAction {
     pub provider_requirements: Vec<ProviderRequirementIr>,
     pub backing: DesignerNodeBacking,
     pub design: AgentEndpointActionCatalogDesign,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub examples: Vec<AgentEndpointActionCatalogExample>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentEndpointActionCatalogDesign {
     pub aliases: Vec<String>,
     pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentEndpointActionCatalogExample {
+    pub when: String,
+    pub input: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1204,6 +1212,14 @@ pub fn generate_agent_endpoint_action_catalog_from_ir(
                     aliases: design_aliases_for_endpoint(endpoint),
                     tags: vec!["sorla".to_string(), "agent-endpoint".to_string()],
                 },
+                examples: endpoint
+                    .examples
+                    .iter()
+                    .map(|example| AgentEndpointActionCatalogExample {
+                        when: example.summary.clone(),
+                        input: example.input.clone(),
+                    })
+                    .collect(),
             }
         })
         .collect::<Vec<_>>();
@@ -7138,6 +7154,19 @@ record_hierarchy:
         assert_eq!(
             action_catalog.actions[0].endpoint_ref.contract_hash,
             format!("sha256:{}", canonical_hash_hex(&ir))
+        );
+        assert_eq!(
+            action_catalog.actions[0].examples[0].when,
+            "Capture an inbound website lead."
+        );
+        assert_eq!(
+            action_catalog.actions[0].examples[0].input,
+            serde_json::json!({
+                "email": "buyer@example.com",
+                "company_name": "Example Co",
+                "company_size": "enterprise",
+                "problem_to_solve": "Improve qualification speed",
+            })
         );
         assert!(
             built
