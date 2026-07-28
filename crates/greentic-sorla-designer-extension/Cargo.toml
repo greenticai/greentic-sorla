@@ -22,7 +22,7 @@ base64 = "0.22"
 greentic-sorla-lib = { workspace = true, features = ["wasm"] }
 serde.workspace = true
 serde_json.workspace = true
-wit-bindgen = "0.57"
+wit-bindgen = "0.60"
 wit-bindgen-rt = "0.44"
 
 [package.metadata.component]
