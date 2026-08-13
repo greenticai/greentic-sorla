@@ -1597,6 +1597,17 @@ mod tests {
             serde_json::from_str(raw).expect("describe.json is valid JSON");
         assert_eq!(parsed["apiVersion"], "greentic.ai/v2");
         assert_eq!(parsed["metadata"]["id"], "greentic.sorla");
+        // `compat` is the sole source of version constraints; the `engine` block
+        // is deprecated and `gtdx lint` rejects a describe that still carries it
+        // (`E_ENGINE_DEPRECATED`). Note this is the *describe* engine block —
+        // `extension_manifest()` keeps its own `engine` for the v1 WIT manifest.
+        assert!(
+            parsed.get("engine").is_none(),
+            "describe.json must not carry the deprecated engine block"
+        );
+        assert_eq!(parsed["compat"]["min_designer_version"], ">=1.2.0");
+        assert_eq!(parsed["compat"]["min_runner_version"], "^0.12.0");
+        assert_eq!(parsed["compat"]["contract_version"], "1.2.0");
         // The host `llm` import is the only privileged seam this extension uses,
         // so the sole declared permission is the `sorla_composer` LLM role
         // (the camelCase `llmRoles` wire key).

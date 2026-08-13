@@ -16,10 +16,6 @@
     "author": { "name": "Greentic AI", "email": "team@greentic.ai" },
     "license": "MIT"
   },
-  "engine": {
-    "greenticDesigner": ">=1.2.0",
-    "extRuntime": "^1.2.0"
-  },
   "capabilities": {
     "offered": [
       { "id": "greentic:sorla/design", "version": "1.0.0" },
