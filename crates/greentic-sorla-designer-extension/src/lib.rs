@@ -1629,6 +1629,31 @@ mod tests {
     }
 
     #[test]
+    fn describe_json_tool_exports_are_fully_qualified() {
+        // `gtdx lint` rejects a bare member name such as "invoke-tool"
+        // (`E_EXPORT_FORM`): each `export` must be a fully-qualified
+        // `greentic:extension-design/<interface>.<member>` reference. The
+        // interface and member here mirror `wit/world.wit`, which exports
+        // `greentic:extension-design/tools@0.2.0`, and `component.rs`, which
+        // implements `tools::Guest::invoke_tool`. The version suffix is not
+        // part of the reference — the runtime resolves the interface version
+        // itself.
+        let parsed: serde_json::Value =
+            serde_json::from_str(include_str!("../describe.json")).expect("describe.json parses");
+        let tools = parsed["contributions"]["tools"]
+            .as_array()
+            .expect("contributions.tools is an array");
+        for tool in tools {
+            let name = tool["name"].as_str().expect("tool name is a string");
+            assert_eq!(
+                tool["export"].as_str(),
+                Some("greentic:extension-design/tools.invoke-tool"),
+                "{name} must declare a fully-qualified export"
+            );
+        }
+    }
+
+    #[test]
     fn describe_json_declares_full_tool_metadata() {
         // For a `greentic.ai/v2` extension the runtime never calls the wasm
         // `list-tools` export: describe.json is the only source of tool

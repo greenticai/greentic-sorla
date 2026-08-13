@@ -49,7 +49,7 @@
     "tools": [
       {
         "name": "parse_sorla_yaml",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "flow"
         ],
@@ -58,7 +58,7 @@
       },
       {
         "name": "generate_concept_view",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -67,7 +67,7 @@
       },
       {
         "name": "apply_sorla_patch",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -76,7 +76,7 @@
       },
       {
         "name": "propose_patch_from_instruction",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "flow"
         ],
@@ -85,7 +85,7 @@
       },
       {
         "name": "validate_sorla_yaml",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "flow"
         ],
@@ -94,7 +94,7 @@
       },
       {
         "name": "generate_gtpack_from_sorla_yaml",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -103,7 +103,7 @@
       },
       {
         "name": "generate_model_from_prompt",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -112,7 +112,7 @@
       },
       {
         "name": "validate_model",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -121,7 +121,7 @@
       },
       {
         "name": "improve_model",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -130,7 +130,7 @@
       },
       {
         "name": "explain_model",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -139,7 +139,7 @@
       },
       {
         "name": "generate_gtpack",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -148,7 +148,7 @@
       },
       {
         "name": "start_prompt_session",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "flow"
         ],
@@ -157,7 +157,7 @@
       },
       {
         "name": "continue_prompt_session",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "flow"
         ],
@@ -166,7 +166,7 @@
       },
       {
         "name": "generate_prompt_answers",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "flow"
         ],
@@ -175,7 +175,7 @@
       },
       {
         "name": "list_designer_node_types",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
@@ -184,7 +184,7 @@
       },
       {
         "name": "generate_flow_node_from_node_type",
-        "export": "invoke-tool",
+        "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
         ],
