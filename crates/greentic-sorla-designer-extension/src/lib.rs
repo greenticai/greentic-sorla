@@ -1629,6 +1629,56 @@ mod tests {
     }
 
     #[test]
+    fn describe_json_declares_full_tool_metadata() {
+        // For a `greentic.ai/v2` extension the runtime never calls the wasm
+        // `list-tools` export: describe.json is the only source of tool
+        // metadata. A field omitted here is absent for the tool's whole life,
+        // so every advertised tool must carry description, input_schema, and
+        // capabilities — and capabilities must stay in lockstep with
+        // `tool_runtime_contexts`.
+        let parsed: serde_json::Value =
+            serde_json::from_str(include_str!("../describe.json")).expect("describe.json parses");
+        let tools = parsed["contributions"]["tools"]
+            .as_array()
+            .expect("contributions.tools is an array");
+        for tool in tools {
+            let name = tool["name"].as_str().expect("tool name is a string");
+
+            let description = tool["description"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{name} must declare a description"));
+            assert!(
+                !description.trim().is_empty(),
+                "{name} must declare a non-empty description"
+            );
+
+            // `input_schema` is a JSON Schema serialized as a *string*, not a
+            // JSON object — a raw object does not decode against the contract.
+            let schema = tool["input_schema"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{name} must declare an input_schema string"));
+            let schema: serde_json::Value = serde_json::from_str(schema)
+                .unwrap_or_else(|err| panic!("{name} input_schema must be valid JSON: {err}"));
+            assert_eq!(
+                schema["type"], "object",
+                "{name} input_schema must describe an object"
+            );
+
+            let capabilities = tool["capabilities"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{name} must declare capabilities"))
+                .iter()
+                .map(|value| value.as_str().expect("capability is a string").to_string())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                capabilities,
+                tool_runtime_contexts(name),
+                "{name} describe capabilities must match tool_runtime_contexts"
+            );
+        }
+    }
+
+    #[test]
     fn tool_runtime_contexts_split_chat_and_studio_tools() {
         // The six chat-loop tools advertise the "flow" context; everything else
         // is studio-only. Keep this list in lockstep with `tool_runtime_contexts`.

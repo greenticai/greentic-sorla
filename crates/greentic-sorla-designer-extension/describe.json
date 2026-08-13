@@ -47,22 +47,150 @@
   },
   "contributions": {
     "tools": [
-      { "name": "parse_sorla_yaml", "export": "invoke-tool" },
-      { "name": "generate_concept_view", "export": "invoke-tool" },
-      { "name": "apply_sorla_patch", "export": "invoke-tool" },
-      { "name": "propose_patch_from_instruction", "export": "invoke-tool" },
-      { "name": "validate_sorla_yaml", "export": "invoke-tool" },
-      { "name": "generate_gtpack_from_sorla_yaml", "export": "invoke-tool" },
-      { "name": "generate_model_from_prompt", "export": "invoke-tool" },
-      { "name": "validate_model", "export": "invoke-tool" },
-      { "name": "improve_model", "export": "invoke-tool" },
-      { "name": "explain_model", "export": "invoke-tool" },
-      { "name": "generate_gtpack", "export": "invoke-tool" },
-      { "name": "start_prompt_session", "export": "invoke-tool" },
-      { "name": "continue_prompt_session", "export": "invoke-tool" },
-      { "name": "generate_prompt_answers", "export": "invoke-tool" },
-      { "name": "list_designer_node_types", "export": "invoke-tool" },
-      { "name": "generate_flow_node_from_node_type", "export": "invoke-tool" }
+      {
+        "name": "parse_sorla_yaml",
+        "export": "invoke-tool",
+        "capabilities": [
+          "flow"
+        ],
+        "description": "Parse sorla.yaml into a stable design model. Returns the normalized model, diagnostics, and the source hash.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"source_yaml\":{\"type\":\"string\",\"description\":\"The full sorla.yaml document source text.\"},\"source_path\":{\"type\":\"string\",\"description\":\"Optional path the YAML came from; used for diagnostics only.\"}},\"required\":[\"source_yaml\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "generate_concept_view",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Generate a presentation-neutral concept view from sorla.yaml. Returns the concept view plus parse diagnostics.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"source_yaml\":{\"type\":\"string\",\"description\":\"The full sorla.yaml document source text.\"},\"mode\":{\"type\":\"string\",\"enum\":[\"overview\",\"review\",\"edit\",\"cli\",\"designer\"],\"default\":\"designer\",\"description\":\"Concept-view rendering mode.\"},\"renderer_capabilities\":{\"type\":\"object\",\"description\":\"What the caller's renderer can draw. Omit to use the built-in defaults.\",\"properties\":{\"cards\":{\"type\":\"boolean\"},\"tables\":{\"type\":\"boolean\"},\"graphs\":{\"type\":\"boolean\"},\"forms\":{\"type\":\"boolean\"},\"charts\":{\"type\":\"boolean\"},\"cli_tables\":{\"type\":\"boolean\"}},\"required\":[\"cards\",\"tables\",\"graphs\",\"forms\",\"charts\",\"cli_tables\"]}},\"required\":[\"source_yaml\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "apply_sorla_patch",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Apply a semantic patch to sorla.yaml and return diff plus refreshed view. Returns the updated YAML, old/new hashes, diagnostics, the concept diff, and the refreshed concept view.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"source_yaml\":{\"type\":\"string\",\"description\":\"The full sorla.yaml document source text.\"},\"patch\":{\"type\":\"object\",\"description\":\"A greentic.sorla.patch.v1 semantic patch document.\",\"properties\":{\"schema\":{\"type\":\"string\",\"const\":\"greentic.sorla.patch.v1\"},\"source\":{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\",\"enum\":[\"sorla-yaml\"]},\"path\":{\"type\":\"string\"},\"base_hash\":{\"type\":\"string\",\"description\":\"Hash of the sorla.yaml the patch was authored against.\"}},\"required\":[\"kind\",\"base_hash\"]},\"author\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"kind\":{\"type\":\"string\"}}},\"intent\":{\"type\":\"string\",\"description\":\"Human-readable intent of the patch.\"},\"operations\":{\"type\":\"array\",\"description\":\"Ordered patch operations; each is tagged by its `op` discriminator.\",\"items\":{\"type\":\"object\",\"properties\":{\"op\":{\"type\":\"string\",\"enum\":[\"add_record\",\"rename_record\",\"delete_record\",\"add_field\",\"update_field\",\"remove_field\"]},\"record\":{\"description\":\"Record name for add_field / update_field / remove_field; the record object for add_record.\"},\"name\":{\"type\":\"string\",\"description\":\"Target name for delete_record / update_field / remove_field.\"},\"from\":{\"type\":\"string\",\"description\":\"rename_record: current record name.\"},\"to\":{\"type\":\"string\",\"description\":\"rename_record: new record name.\"},\"field\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"type\":{\"type\":\"string\",\"description\":\"Field type name.\"},\"i18n_key\":{\"type\":\"string\"},\"required\":{\"type\":\"boolean\",\"default\":false},\"sensitive\":{\"type\":\"boolean\",\"default\":false},\"enum_values\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"name\",\"type\"],\"description\":\"add_field: the field to add.\"},\"type_name\":{\"type\":\"string\",\"description\":\"update_field: new field type.\"},\"required\":{\"type\":\"boolean\",\"description\":\"update_field: new required flag.\"},\"sensitive\":{\"type\":\"boolean\",\"description\":\"update_field: new sensitive flag.\"},\"enum_values\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"op\"]}}},\"required\":[\"schema\",\"source\",\"operations\"]}},\"required\":[\"source_yaml\",\"patch\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "propose_patch_from_instruction",
+        "export": "invoke-tool",
+        "capabilities": [
+          "flow"
+        ],
+        "description": "Ask an LLM capability to propose a semantic SoRLa patch. Returns the proposed patch, an explanation, risks, and a preview diff; it does not modify the source.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"source_yaml\":{\"type\":\"string\",\"description\":\"The full sorla.yaml document source text.\"},\"instruction\":{\"type\":\"string\",\"description\":\"Natural-language description of the change to propose.\"},\"llm\":{\"type\":\"object\",\"description\":\"LLM capability seam. Omit to let the host resolve the declared `sorla_composer` role.\",\"properties\":{\"provider\":{\"type\":\"string\",\"description\":\"Provider id; use \\\"host\\\" to delegate to the designer host.\"},\"model\":{\"type\":\"string\"},\"endpoint\":{\"type\":\"string\"},\"capability_id\":{\"type\":\"string\"}},\"required\":[\"provider\"]}},\"required\":[\"source_yaml\",\"instruction\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "validate_sorla_yaml",
+        "export": "invoke-tool",
+        "capabilities": [
+          "flow"
+        ],
+        "description": "Validate sorla.yaml and return diagnostics. Returns `valid` (false when any diagnostic has severity \"error\") and the diagnostic list.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"source_yaml\":{\"type\":\"string\",\"description\":\"The full sorla.yaml document source text.\"},\"source_path\":{\"type\":\"string\",\"description\":\"Optional path the YAML came from; used for diagnostics only.\"}},\"required\":[\"source_yaml\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "generate_gtpack_from_sorla_yaml",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Plan deterministic .gtpack entries from sorla.yaml for host packaging. Returns the pack entry metadata; the host performs the actual archiving.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"source_yaml\":{\"type\":\"string\",\"description\":\"The full sorla.yaml document source text.\"},\"pack_name\":{\"type\":\"string\",\"description\":\"Pack id to stamp; used as a fallback when sorla.yaml declares no package.\"},\"pack_version\":{\"type\":\"string\",\"description\":\"Pack version to stamp; used as a fallback when sorla.yaml declares no package.\"},\"include_content\":{\"type\":\"boolean\",\"default\":false,\"description\":\"When true each entry also carries its raw bytes as base64 `content_base64` so the host can ZIP directly.\"}},\"required\":[\"source_yaml\",\"pack_name\",\"pack_version\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "generate_model_from_prompt",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Generate a deterministic Sorla model draft from a prompt. Returns the normalized model with validation diagnostics and a preview.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"prompt\":{\"type\":\"string\",\"description\":\"Business description of the system of record to draft. Must not be empty.\"},\"constraints\":{\"type\":\"object\",\"description\":\"Which optional model sections to include in the draft.\",\"properties\":{\"include_ontology\":{\"type\":\"boolean\",\"default\":true},\"include_agent_endpoints\":{\"type\":\"boolean\",\"default\":true},\"include_retrieval_bindings\":{\"type\":\"boolean\",\"default\":false}},\"additionalProperties\":false},\"draft_json\":{\"description\":\"Optional existing draft to seed generation (any JSON value).\"}},\"required\":[\"prompt\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "validate_model",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Validate a Sorla model and return diagnostics plus preview.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"model\":{\"type\":\"object\",\"description\":\"A normalized SoRLa model (greentic_sorla_lib::NormalizedSorlaModel).\",\"properties\":{\"package_name\":{\"type\":\"string\"},\"package_version\":{\"type\":\"string\"},\"locale\":{\"type\":\"string\",\"description\":\"BCP-47-ish locale tag, e.g. \\\"en\\\".\"},\"source_yaml\":{\"type\":\"string\",\"description\":\"The sorla.yaml source the model was normalized from.\"},\"normalized_answers\":{\"description\":\"Normalized wizard answers document (any JSON value).\"}},\"required\":[\"package_name\",\"package_version\",\"locale\",\"source_yaml\",\"normalized_answers\"]}},\"required\":[\"model\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "improve_model",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Apply deterministic improvements to a Sorla model draft. Returns the validated model plus a `changes` list recording the instruction.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"model\":{\"type\":\"object\",\"description\":\"A normalized SoRLa model (greentic_sorla_lib::NormalizedSorlaModel).\",\"properties\":{\"package_name\":{\"type\":\"string\"},\"package_version\":{\"type\":\"string\"},\"locale\":{\"type\":\"string\",\"description\":\"BCP-47-ish locale tag, e.g. \\\"en\\\".\"},\"source_yaml\":{\"type\":\"string\",\"description\":\"The sorla.yaml source the model was normalized from.\"},\"normalized_answers\":{\"description\":\"Normalized wizard answers document (any JSON value).\"}},\"required\":[\"package_name\",\"package_version\",\"locale\",\"source_yaml\",\"normalized_answers\"]},\"instruction\":{\"type\":\"string\",\"description\":\"Natural-language improvement instruction to record against the model.\"}},\"required\":[\"model\",\"instruction\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "explain_model",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Explain the Sorla model as structured sections. Returns a summary sentence, preview cards as `sections`, and the full preview.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"model\":{\"type\":\"object\",\"description\":\"A normalized SoRLa model (greentic_sorla_lib::NormalizedSorlaModel).\",\"properties\":{\"package_name\":{\"type\":\"string\"},\"package_version\":{\"type\":\"string\"},\"locale\":{\"type\":\"string\",\"description\":\"BCP-47-ish locale tag, e.g. \\\"en\\\".\"},\"source_yaml\":{\"type\":\"string\",\"description\":\"The sorla.yaml source the model was normalized from.\"},\"normalized_answers\":{\"description\":\"Normalized wizard answers document (any JSON value).\"}},\"required\":[\"package_name\",\"package_version\",\"locale\",\"source_yaml\",\"normalized_answers\"]}},\"required\":[\"model\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "generate_gtpack",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Generate deterministic Sorla pack-entry metadata from a normalized model. Provide exactly one of `model` (already normalized) or `answers` (a completed prompt-session answers document); the explicit `package` coordinates always win over any coordinates inside `answers`.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"model\":{\"type\":\"object\",\"description\":\"A pre-normalized model. Mutually exclusive with `answers`.\",\"properties\":{\"package_name\":{\"type\":\"string\"},\"package_version\":{\"type\":\"string\"},\"locale\":{\"type\":\"string\",\"description\":\"BCP-47-ish locale tag, e.g. \\\"en\\\".\"},\"source_yaml\":{\"type\":\"string\",\"description\":\"The sorla.yaml source the model was normalized from.\"},\"normalized_answers\":{\"description\":\"Normalized wizard answers document (any JSON value).\"}},\"required\":[\"package_name\",\"package_version\",\"locale\",\"source_yaml\",\"normalized_answers\"]},\"answers\":{\"description\":\"A completed prompt-session answers document, normalized here. Mutually exclusive with `model`.\"},\"package\":{\"type\":\"object\",\"description\":\"Pack coordinates to stamp onto the generated entries.\",\"properties\":{\"name\":{\"type\":\"string\"},\"version\":{\"type\":\"string\"}},\"required\":[\"name\",\"version\"],\"additionalProperties\":false},\"options\":{\"type\":\"object\",\"properties\":{\"include_validation_metadata\":{\"type\":\"boolean\",\"default\":true},\"include_designer_preview\":{\"type\":\"boolean\",\"default\":true}},\"additionalProperties\":false},\"include_content\":{\"type\":\"boolean\",\"default\":false,\"description\":\"When true each entry also carries its raw bytes as base64 `content_base64`.\"}},\"required\":[\"package\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "start_prompt_session",
+        "export": "invoke-tool",
+        "capabilities": [
+          "flow"
+        ],
+        "description": "Start an interactive prompt-to-answers authoring session. Call with no arguments to open a greenfield session, with `business_prompt` to take the first turn immediately, or with `existing_sorla_yaml` plus `business_prompt` to author an update to an existing package.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"business_prompt\":{\"type\":\"string\",\"description\":\"Business description to take the first turn with. Required when `existing_sorla_yaml` is set.\"},\"existing_sorla_yaml\":{\"type\":\"string\",\"description\":\"Current sorla.yaml to update instead of authoring greenfield. Must declare a package name and version.\"},\"locale\":{\"type\":\"string\"},\"schema_version\":{\"type\":\"string\"},\"package_name_hint\":{\"type\":\"string\"},\"package_version_hint\":{\"type\":\"string\"},\"llm\":{\"type\":\"object\",\"description\":\"LLM capability seam. Omit to let the host resolve the declared `sorla_composer` role.\",\"properties\":{\"provider\":{\"type\":\"string\",\"description\":\"Provider id; use \\\"host\\\" to delegate to the designer host.\"},\"model\":{\"type\":\"string\"},\"endpoint\":{\"type\":\"string\"},\"capability_id\":{\"type\":\"string\"}},\"required\":[\"provider\"]}},\"additionalProperties\":false}"
+      },
+      {
+        "name": "continue_prompt_session",
+        "export": "invoke-tool",
+        "capabilities": [
+          "flow"
+        ],
+        "description": "Advance an interactive prompt-to-answers authoring session. Pass the `session` returned by the previous turn unchanged, plus the user's reply.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"session\":{\"type\":\"object\",\"description\":\"The `session` object returned verbatim by start_prompt_session / continue_prompt_session. Pass it back unchanged; do not synthesize it.\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"phase\":{\"type\":\"string\",\"enum\":[\"awaiting-business-prompt\",\"extracting-domain-model\",\"reviewing-domain-model\",\"asking-targeted-questions\",\"compiling-expanded-plan\",\"reviewing-expanded-plan\",\"generating-answers\",\"asking-questions\",\"reviewing-design-plan\",\"ready-to-generate-answers\",\"completed\"]}},\"required\":[\"session_id\",\"phase\"],\"additionalProperties\":true},\"user_message\":{\"type\":\"string\",\"description\":\"The user's reply for this turn.\"}},\"required\":[\"session\",\"user_message\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "generate_prompt_answers",
+        "export": "invoke-tool",
+        "capabilities": [
+          "flow"
+        ],
+        "description": "Generate wizard answers JSON from a completed prompt session. Pass the `session` from the last turn; update sessions are stamped with flow \"update\" and the original package coordinates.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"session\":{\"type\":\"object\",\"description\":\"The `session` object returned verbatim by start_prompt_session / continue_prompt_session. Pass it back unchanged; do not synthesize it.\",\"properties\":{\"session_id\":{\"type\":\"string\"},\"phase\":{\"type\":\"string\",\"enum\":[\"awaiting-business-prompt\",\"extracting-domain-model\",\"reviewing-domain-model\",\"asking-targeted-questions\",\"compiling-expanded-plan\",\"reviewing-expanded-plan\",\"generating-answers\",\"asking-questions\",\"reviewing-design-plan\",\"ready-to-generate-answers\",\"completed\"]}},\"required\":[\"session_id\",\"phase\"],\"additionalProperties\":true}},\"required\":[\"session\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "list_designer_node_types",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "List Designer node types generated from SoRLa agent endpoints.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"model\":{\"type\":\"object\",\"description\":\"A normalized SoRLa model (greentic_sorla_lib::NormalizedSorlaModel).\",\"properties\":{\"package_name\":{\"type\":\"string\"},\"package_version\":{\"type\":\"string\"},\"locale\":{\"type\":\"string\",\"description\":\"BCP-47-ish locale tag, e.g. \\\"en\\\".\"},\"source_yaml\":{\"type\":\"string\",\"description\":\"The sorla.yaml source the model was normalized from.\"},\"normalized_answers\":{\"description\":\"Normalized wizard answers document (any JSON value).\"}},\"required\":[\"package_name\",\"package_version\",\"locale\",\"source_yaml\",\"normalized_answers\"]},\"component_ref\":{\"type\":\"string\",\"default\":\"oci://ghcr.io/greenticai/components/component-sorx-business:stable\",\"description\":\"Component reference bound into the generated node types.\"},\"operation\":{\"type\":\"string\",\"default\":\"invoke_locked_action\",\"description\":\"Component operation bound into the generated node types.\"}},\"required\":[\"model\"],\"additionalProperties\":false}"
+      },
+      {
+        "name": "generate_flow_node_from_node_type",
+        "export": "invoke-tool",
+        "capabilities": [
+          "studio"
+        ],
+        "description": "Generate a generic flow node from a locked SoRLa Designer node type. Select the node type by exactly one of `node_type_id`, `endpoint_id`, or `label`; every required endpoint input must appear in `value_mappings` or the call returns diagnostics.",
+        "input_schema": "{\"type\":\"object\",\"properties\":{\"model\":{\"type\":\"object\",\"description\":\"A normalized SoRLa model (greentic_sorla_lib::NormalizedSorlaModel).\",\"properties\":{\"package_name\":{\"type\":\"string\"},\"package_version\":{\"type\":\"string\"},\"locale\":{\"type\":\"string\",\"description\":\"BCP-47-ish locale tag, e.g. \\\"en\\\".\"},\"source_yaml\":{\"type\":\"string\",\"description\":\"The sorla.yaml source the model was normalized from.\"},\"normalized_answers\":{\"description\":\"Normalized wizard answers document (any JSON value).\"}},\"required\":[\"package_name\",\"package_version\",\"locale\",\"source_yaml\",\"normalized_answers\"]},\"step_id\":{\"type\":\"string\",\"description\":\"Flow step id for the generated node.\"},\"node_type_id\":{\"type\":\"string\",\"description\":\"Exact Designer node type id.\"},\"endpoint_id\":{\"type\":\"string\",\"description\":\"SoRLa agent endpoint id to resolve to one node type.\"},\"label\":{\"type\":\"string\",\"description\":\"Node type label to resolve to one node type.\"},\"value_mappings\":{\"type\":\"object\",\"description\":\"Endpoint input name -> value expression. Must cover every required input.\",\"additionalProperties\":{\"type\":\"string\"}},\"component_ref\":{\"type\":\"string\",\"default\":\"oci://ghcr.io/greenticai/components/component-sorx-business:stable\",\"description\":\"Component reference bound into the generated node types.\"},\"operation\":{\"type\":\"string\",\"default\":\"invoke_locked_action\",\"description\":\"Component operation bound into the generated node types.\"}},\"required\":[\"model\",\"step_id\"],\"additionalProperties\":false}"
+      }
     ]
   }
 }
