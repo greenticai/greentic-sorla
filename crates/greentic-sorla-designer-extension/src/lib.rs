@@ -208,7 +208,7 @@ pub fn list_tools() -> Vec<DesignerTool> {
             "Validate sorla.yaml and return diagnostics.",
         ),
         tool(
-            "generate_gtpack_from_sorla_yaml",
+            "plan_gtpack_from_sorla_yaml",
             "Plan deterministic .gtpack entries from sorla.yaml for host packaging.",
         ),
         tool(
@@ -308,7 +308,12 @@ pub fn invoke_tool(name: &str, args_json: &str) -> Result<String, String> {
         "apply_sorla_patch" => apply_sorla_patch_tool(input),
         "propose_patch_from_instruction" => propose_patch_from_instruction_tool(input),
         "validate_sorla_yaml" => validate_sorla_yaml(input),
-        "generate_gtpack_from_sorla_yaml" => generate_gtpack_from_sorla_yaml(input),
+        // `generate_gtpack_from_sorla_yaml` is the pre-rename name, kept as a
+        // dispatch-only alias so a caller pinned to it does not break. Only
+        // `plan_gtpack_from_sorla_yaml` is advertised in describe.json.
+        "plan_gtpack_from_sorla_yaml" | "generate_gtpack_from_sorla_yaml" => {
+            plan_gtpack_from_sorla_yaml(input)
+        }
         "generate_model_from_prompt" => generate_model_from_prompt(input),
         "validate_model" => validate_model(input),
         "improve_model" => improve_model(input),
@@ -472,7 +477,7 @@ pub struct GenerateConceptViewRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct GenerateGtpackFromSorlaYamlRequest {
+pub struct PlanGtpackFromSorlaYamlRequest {
     pub source_yaml: String,
     pub pack_name: String,
     pub pack_version: String,
@@ -610,8 +615,8 @@ pub fn validate_content(content_type: &str, content_json: &str) -> serde_json::V
     }
 }
 
-pub fn generate_gtpack_from_sorla_yaml(input: serde_json::Value) -> serde_json::Value {
-    let request = match serde_json::from_value::<GenerateGtpackFromSorlaYamlRequest>(input) {
+pub fn plan_gtpack_from_sorla_yaml(input: serde_json::Value) -> serde_json::Value {
+    let request = match serde_json::from_value::<PlanGtpackFromSorlaYamlRequest>(input) {
         Ok(request) => request,
         Err(err) => return artifact_error("designer.input", err.to_string()),
     };
@@ -734,7 +739,7 @@ pub struct GenerateGtpackRequest {
     pub package: ArtifactPackage,
     #[serde(default)]
     pub options: ArtifactOptions,
-    /// See `GenerateGtpackFromSorlaYamlRequest::include_content`.
+    /// See `PlanGtpackFromSorlaYamlRequest::include_content`.
     #[serde(default)]
     pub include_content: bool,
 }
@@ -1568,7 +1573,7 @@ mod tests {
                 "apply_sorla_patch",
                 "propose_patch_from_instruction",
                 "validate_sorla_yaml",
-                "generate_gtpack_from_sorla_yaml",
+                "plan_gtpack_from_sorla_yaml",
                 "generate_model_from_prompt",
                 "validate_model",
                 "improve_model",
@@ -1597,6 +1602,17 @@ mod tests {
             serde_json::from_str(raw).expect("describe.json is valid JSON");
         assert_eq!(parsed["apiVersion"], "greentic.ai/v2");
         assert_eq!(parsed["metadata"]["id"], "greentic.sorla");
+        // `compat` is the sole source of version constraints; the `engine` block
+        // is deprecated and `gtdx lint` rejects a describe that still carries it
+        // (`E_ENGINE_DEPRECATED`). Note this is the *describe* engine block —
+        // `extension_manifest()` keeps its own `engine` for the v1 WIT manifest.
+        assert!(
+            parsed.get("engine").is_none(),
+            "describe.json must not carry the deprecated engine block"
+        );
+        assert_eq!(parsed["compat"]["min_designer_version"], ">=1.2.0");
+        assert_eq!(parsed["compat"]["min_runner_version"], "^0.12.0");
+        assert_eq!(parsed["compat"]["contract_version"], "1.2.0");
         // The host `llm` import is the only privileged seam this extension uses,
         // so the sole declared permission is the `sorla_composer` LLM role
         // (the camelCase `llmRoles` wire key).
@@ -1626,6 +1642,45 @@ mod tests {
             .map(|tool| tool.name)
             .collect::<Vec<_>>();
         assert_eq!(described_tools, listed_tools);
+    }
+
+    #[test]
+    fn legacy_gtpack_yaml_tool_name_still_dispatches() {
+        // `plan_gtpack_from_sorla_yaml` was renamed from
+        // `generate_gtpack_from_sorla_yaml` to clear `E_TOOL_NAMING` (the old
+        // name was a prefix of `generate_gtpack` on a `_` boundary). The old
+        // name stays dispatchable so a caller pinned to it does not break, but
+        // it is deliberately absent from describe.json and `list_tools`.
+        let args = serde_json::json!({
+            "source_yaml": "package:\n  name: alias-demo\n  version: 0.1.0\n",
+            "pack_name": "alias-demo",
+            "pack_version": "0.1.0"
+        })
+        .to_string();
+
+        let renamed =
+            invoke_tool("plan_gtpack_from_sorla_yaml", &args).expect("new name dispatches");
+        let legacy = invoke_tool("generate_gtpack_from_sorla_yaml", &args)
+            .expect("old name still dispatches");
+        assert_eq!(renamed, legacy);
+
+        // The alias is dispatch-only: it must not be advertised anywhere.
+        assert!(
+            !list_tools()
+                .iter()
+                .any(|tool| tool.name == "generate_gtpack_from_sorla_yaml"),
+            "the legacy name must not be advertised in list_tools"
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(include_str!("../describe.json")).expect("describe.json parses");
+        let names: Vec<&str> = parsed["contributions"]["tools"]
+            .as_array()
+            .expect("contributions.tools is an array")
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        assert!(names.contains(&"plan_gtpack_from_sorla_yaml"));
+        assert!(!names.contains(&"generate_gtpack_from_sorla_yaml"));
     }
 
     #[test]
@@ -2090,7 +2145,7 @@ records:
         .trim_start();
 
         let out = invoke_tool(
-            "generate_gtpack_from_sorla_yaml",
+            "plan_gtpack_from_sorla_yaml",
             &serde_json::json!({
                 "source_yaml": fixture_yaml,
                 "pack_name": "designer-yaml-demo",
@@ -2119,7 +2174,7 @@ records:
         // Without include_content, content_base64 must be absent and the
         // host-packaging-required diagnostic returns.
         let out = invoke_tool(
-            "generate_gtpack_from_sorla_yaml",
+            "plan_gtpack_from_sorla_yaml",
             &serde_json::json!({
                 "source_yaml": fixture_yaml,
                 "pack_name": "designer-yaml-demo",
