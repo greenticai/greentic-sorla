@@ -89,7 +89,7 @@
         "input_schema": "{\"type\":\"object\",\"properties\":{\"source_yaml\":{\"type\":\"string\",\"description\":\"The full sorla.yaml document source text.\"},\"source_path\":{\"type\":\"string\",\"description\":\"Optional path the YAML came from; used for diagnostics only.\"}},\"required\":[\"source_yaml\"],\"additionalProperties\":false}"
       },
       {
-        "name": "generate_gtpack_from_sorla_yaml",
+        "name": "plan_gtpack_from_sorla_yaml",
         "export": "greentic:extension-design/tools.invoke-tool",
         "capabilities": [
           "studio"
