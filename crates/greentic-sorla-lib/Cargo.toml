@@ -19,8 +19,9 @@ name = "greentic_sorla_lib"
 [features]
 default = ["std", "pack-zip", "cli"]
 std = []
-wasm = []
-pack-zip = ["greentic-sorla-pack/pack-zip"]
+wasm = ["pack-manifest"]
+pack-manifest = ["greentic-sorla-pack/pack-manifest"]
+pack-zip = ["pack-manifest", "greentic-sorla-pack/pack-zip"]
 cli = ["dep:greentic-llm", "dep:greentic-qa-lib", "dep:tokio"]
 
 [dependencies]
