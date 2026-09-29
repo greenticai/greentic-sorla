@@ -348,6 +348,18 @@ where
         ) {
             Ok(answers) => Ok(answers),
             Err(validation_error) => {
+                // The draft is the plan the author just reviewed, and the
+                // staged path already turns it into answers deterministically.
+                // Prefer that over another planner refresh: a model that
+                // cannot honour the answers schema (an enum it invents, a
+                // required field it drops) fails the same way on the second
+                // pass, after several more minutes of calls.
+                // A draft with no records carries no plan to fall back to.
+                if !draft.records.is_empty()
+                    && let Ok(answers) = generate_staged_answers_from_draft(&draft)
+                {
+                    return Ok(answers);
+                }
                 apply_planner_output_if_needed(&self.llm, &llm_config, &mut session, false)?;
                 let refreshed_draft = session
                     .draft_model
@@ -5094,6 +5106,60 @@ mod tests {
 
         assert_eq!(answers["package"]["name"], "redrafted-sor");
         assert_eq!(engine.llm.calls.get(), 5);
+    }
+
+    struct AlwaysInvalidAnswersLlm {
+        calls: Cell<usize>,
+    }
+
+    impl LlmCapability for AlwaysInvalidAnswersLlm {
+        fn complete(&self, request: LlmRequest) -> Result<LlmResponse, SorlaError> {
+            assert!(
+                !request.system_prompt.contains("planning step"),
+                "a valid draft must not trigger a planner refresh"
+            );
+            self.calls.set(self.calls.get() + 1);
+            Ok(LlmResponse {
+                content: serde_json::json!({
+                    "records": { "default_source": "support_ticket_system", "items": [] }
+                })
+                .to_string(),
+                usage: None,
+            })
+        }
+    }
+
+    #[test]
+    fn answer_generation_falls_back_to_the_reviewed_draft() {
+        let engine = DefaultPromptAuthoringEngine::new(AlwaysInvalidAnswersLlm {
+            calls: Cell::new(0),
+        });
+        let mut session = engine.start_session(config()).unwrap();
+        session.business_prompt = Some("Track a waiting list.".to_string());
+        session.llm = Some(LlmCapabilityConfig {
+            provider: "openai".to_string(),
+            model: None,
+            api_key: None,
+            endpoint: None,
+            capability_id: None,
+        });
+        session.draft_model = Some(SorDesignDraft {
+            summary: "Support ticket system of record".to_string(),
+            records: vec![record(
+                "ticket",
+                "A support ticket",
+                &[field("id", "uuid"), field("title", "string")],
+            )],
+            ..SorDesignDraft::default()
+        });
+
+        let answers = engine
+            .generate_answers(session)
+            .expect("the reviewed draft yields valid answers");
+
+        validate_answers_document(&answers).expect("fallback answers validate");
+        // One generation plus two repairs, then the draft: no planner call.
+        assert_eq!(engine.llm.calls.get(), 3);
     }
 
     #[test]
