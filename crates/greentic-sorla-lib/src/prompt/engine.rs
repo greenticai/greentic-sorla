@@ -977,6 +977,65 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
 fn normalize_answers_json_for_validation(answers: &mut serde_json::Value) {
     normalize_answers_json_value(answers, &mut Vec::new());
     normalize_answers_document_defaults(answers);
+    strip_inapplicable_field_rules(answers);
+}
+
+/// Drops field rules that constrain nothing or cannot apply to the field's type.
+///
+/// A model answering against the draft schema tends to fill EVERY rule
+/// property: `precision: 0` on a uuid, `after: ""` on a string. The validator
+/// rightly refuses those, and because the draft carries the same values into
+/// `answers_from_draft`, the reviewed-draft fallback failed on them too. Only
+/// values that are empty or illegal for the type are removed; a real rule on a
+/// type that accepts it is kept as written.
+fn strip_inapplicable_field_rules(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let field_type = map
+                .get("type")
+                .or_else(|| map.get("type_name"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            if let Some(field_type) = field_type
+                && let Some(serde_json::Value::Object(rules)) = map.get_mut("rules")
+            {
+                sanitize_field_rules(&field_type, rules);
+                if rules.is_empty() {
+                    map.remove("rules");
+                }
+            }
+            for child in map.values_mut() {
+                strip_inapplicable_field_rules(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                strip_inapplicable_field_rules(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn sanitize_field_rules(field_type: &str, rules: &mut serde_json::Map<String, serde_json::Value>) {
+    rules.retain(|_, value| match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::String(text) => !text.trim().is_empty(),
+        _ => true,
+    });
+    if field_type != "decimal" {
+        rules.remove("precision");
+        rules.remove("scale");
+    }
+    if !matches!(field_type, "string" | "uuid" | "email" | "url" | "enum") {
+        rules.remove("min_length");
+        rules.remove("max_length");
+        rules.remove("pattern");
+    }
+    if !matches!(field_type, "date" | "time" | "datetime" | "timestamp") {
+        rules.remove("before");
+        rules.remove("after");
+    }
 }
 
 fn normalize_answers_json_value(value: &mut serde_json::Value, path: &mut Vec<String>) {
@@ -5444,5 +5503,64 @@ mod tests {
         );
         crate::normalize_answers(answers, NormalizeOptions)
             .expect("operational indexes schema should be defaulted");
+    }
+}
+
+#[cfg(test)]
+mod placeholder_rule_tests {
+    use super::*;
+
+    fn placeholder_rules() -> serde_json::Value {
+        serde_json::json!({
+            "after": "", "before": "", "max": "", "min": "", "pattern": "",
+            "max_length": 1_000_000, "min_length": 0,
+            "precision": 0, "scale": 0, "unique": true
+        })
+    }
+
+    #[test]
+    fn placeholder_rules_are_stripped_per_field_type() {
+        let mut answers = serde_json::json!({
+            "records": { "items": [{ "name": "ticket", "fields": [
+                { "name": "id", "type": "uuid", "rules": placeholder_rules() },
+                { "name": "created_at", "type": "datetime", "rules": placeholder_rules() },
+                { "name": "amount", "type": "decimal",
+                  "rules": { "precision": 12, "scale": 2, "after": "" } }
+            ]}]}
+        });
+        strip_inapplicable_field_rules(&mut answers);
+        let fields = &answers["records"]["items"][0]["fields"];
+        assert_eq!(
+            fields[0]["rules"],
+            serde_json::json!({ "max_length": 1_000_000, "min_length": 0, "unique": true })
+        );
+        assert_eq!(fields[1]["rules"], serde_json::json!({ "unique": true }));
+        assert_eq!(
+            fields[2]["rules"],
+            serde_json::json!({ "precision": 12, "scale": 2 })
+        );
+    }
+
+    #[test]
+    fn a_draft_whose_every_field_carries_placeholder_rules_still_falls_back() {
+        let draft: SorDesignDraft = serde_json::from_value(serde_json::json!({
+            "summary": "Support ticket ledger.",
+            "records": [{
+                "name": "ticket",
+                "description": "A support ticket.",
+                "fields": [
+                    { "name": "id", "type_name": "uuid", "required": true,
+                      "description": "Ticket id.", "rules": placeholder_rules() },
+                    { "name": "title", "type_name": "string", "required": true,
+                      "description": "Ticket title.", "rules": placeholder_rules() },
+                    { "name": "created_at", "type_name": "datetime", "required": true,
+                      "description": "When it was opened.", "rules": placeholder_rules() }
+                ]
+            }]
+        }))
+        .expect("draft");
+        let answers = generate_staged_answers_from_draft(&draft)
+            .expect("placeholder rules must not defeat the draft fallback");
+        assert!(validate_answers_document(&answers).is_ok());
     }
 }
