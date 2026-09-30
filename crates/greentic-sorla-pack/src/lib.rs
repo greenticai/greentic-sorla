@@ -5,6 +5,9 @@ pub mod sorx_exposure;
 pub mod sorx_validation;
 pub mod validation_generator;
 
+mod json_schema_type;
+use json_schema_type::insert_json_schema_type;
+
 pub use sorx_compatibility::{
     ApiCompatibilityMode, SORX_COMPATIBILITY_SCHEMA, SorxCompatibilityError,
     SorxCompatibilityManifest, SorxCompatibilityPackageRef, StateCompatibilityMode,
@@ -1327,10 +1330,7 @@ fn output_object_schema_value(outputs: &[AgentEndpointOutputIr]) -> serde_json::
         .iter()
         .map(|output| {
             let mut property = serde_json::Map::new();
-            property.insert(
-                "type".to_string(),
-                serde_json::Value::String(output.type_name.clone()),
-            );
+            insert_json_schema_type(&mut property, &output.type_name);
             if let Some(description) = &output.description {
                 property.insert(
                     "description".to_string(),
@@ -6762,10 +6762,7 @@ fn object_schema_value(inputs: &[AgentEndpointInputIr]) -> serde_json::Value {
                 .then_some("Sensitive input")
                 .or(input.description.as_deref());
             let mut property = serde_json::Map::new();
-            property.insert(
-                "type".to_string(),
-                serde_json::Value::String(input.type_name.clone()),
-            );
+            insert_json_schema_type(&mut property, &input.type_name);
             if let Some(description) = description {
                 property.insert(
                     "description".to_string(),
@@ -6805,6 +6802,50 @@ mod tests {
     use std::io::Read;
     use tempfile::tempdir;
     use zip::ZipArchive;
+
+    #[test]
+    fn endpoint_schemas_use_json_schema_types_not_sorla_field_types() {
+        // A provider validates a tool's `parameters` before the call and refuses
+        // the whole turn on `"type": "datetime"`, so a SoRLa type name must never
+        // reach `type`.
+        let input = |name: &str, type_name: &str| AgentEndpointInputIr {
+            name: name.to_string(),
+            i18n_key: None,
+            type_name: type_name.to_string(),
+            required: true,
+            description: None,
+            enum_values: Vec::new(),
+            sensitive: false,
+        };
+        let schema = object_schema_value(&[
+            input("created_at", "datetime"),
+            input("id", "uuid"),
+            input("amount", "decimal"),
+        ]);
+        assert_eq!(
+            schema["properties"]["created_at"],
+            serde_json::json!({"type": "string", "format": "date-time"})
+        );
+        assert_eq!(
+            schema["properties"]["id"],
+            serde_json::json!({"type": "string", "format": "uuid"})
+        );
+        assert_eq!(
+            schema["properties"]["amount"],
+            serde_json::json!({"type": "number"})
+        );
+
+        let output = output_object_schema_value(&[AgentEndpointOutputIr {
+            name: "closed_at".to_string(),
+            i18n_key: None,
+            type_name: "datetime".to_string(),
+            description: None,
+        }]);
+        assert_eq!(
+            output["properties"]["closed_at"],
+            serde_json::json!({"type": "string", "format": "date-time"})
+        );
+    }
 
     fn metrics_fixture_yaml() -> &'static str {
         r#"
