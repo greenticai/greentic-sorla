@@ -8994,6 +8994,7 @@ fn infer_action_endpoint_inputs(
     if action.name.starts_with("delete_")
         || action.name.starts_with("remove_")
         || action.name.starts_with("revoke_")
+        || action.name.starts_with("close_")
     {
         return vec![required_string_field("id")];
     }
@@ -12859,6 +12860,7 @@ mod tests {
                 action("create_ticket"),
                 action("get_ticket_by_id"),
                 action("list_open_tickets"),
+                action("close_ticket"),
             ],
             &records,
         );
@@ -12867,6 +12869,8 @@ mod tests {
         assert_eq!(endpoints[0].inputs.len(), 6, "create keeps every field");
         assert_eq!(required(&endpoints[1]), ["id"]);
         assert!(required(&endpoints[2]).is_empty());
+        assert_eq!(required(&endpoints[3]), ["id"]);
+        assert_eq!(endpoints[3].inputs.len(), 1, "close takes only the id");
     }
 
     #[test]
