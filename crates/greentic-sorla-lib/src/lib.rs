@@ -18,15 +18,16 @@ pub use greentic_sorla_pack::{
     DEFAULT_DESIGNER_COMPONENT_REF, DesignerNodeType, DesignerNodeTypesDocument,
 };
 use greentic_sorla_pack::{
-    DesignerNodeTypeGenerationOptions, POLICY_RULES_PATH, POLICY_RULES_SCHEMA_PATH,
-    PROVIDER_BINDINGS_TEMPLATE_FILENAME, ROLE_ASSIGNMENTS_PATH, RUNTIME_TEMPLATE_FILENAME,
-    SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA, SORX_VALIDATION_SCHEMA,
-    START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
+    DesignerNodeTypeGenerationOptions, PROVIDER_BINDINGS_TEMPLATE_FILENAME,
+    RUNTIME_TEMPLATE_FILENAME, SORX_COMPATIBILITY_SCHEMA, SORX_EXPOSURE_POLICY_SCHEMA,
+    SORX_VALIDATION_SCHEMA, START_SCHEMA_FILENAME, SorlaGtpackInspection, SorlaGtpackOptions,
     agent_endpoint_contract_warnings, build_handoff_artifacts_from_yaml,
     generate_agent_endpoint_action_catalog_from_ir, generate_designer_node_types_from_ir,
     generate_sorx_validation_manifest_from_ir, ontology_schema_json,
     retrieval_bindings_schema_json, sorx_validation_schema_json,
 };
+#[cfg(not(feature = "pack-manifest"))]
+use greentic_sorla_pack::{POLICY_RULES_PATH, POLICY_RULES_SCHEMA_PATH, ROLE_ASSIGNMENTS_PATH};
 #[cfg(feature = "pack-zip")]
 use greentic_sorla_pack::{build_sorla_gtpack, doctor_sorla_gtpack, inspect_sorla_gtpack};
 use serde::{Deserialize, Serialize};
@@ -4196,6 +4197,40 @@ pub fn build_gtpack_bytes(
     })
 }
 
+/// Every entry of the `.gtpack` for `model`, for a host to zip.
+///
+/// With `pack-manifest` (which `wasm` and `pack-zip` both enable) this is the
+/// COMPLETE pack the CLI writes — `manifest.cbor`, `pack.cbor`,
+/// `manifest.json` and `pack.lock.cbor` included — built by the same
+/// function, so the designer extension and `greentic-sorla wizard --pack-out`
+/// cannot produce different archives. Every SORX runtime opens a pack through
+/// `greentic-pack-lib`, which refuses one without `manifest.cbor`.
+#[cfg(feature = "pack-manifest")]
+pub fn build_gtpack_entries(
+    model: &NormalizedSorlaModel,
+    options: PackBuildOptions,
+) -> Result<Vec<PackEntry>, SorlaError> {
+    let artifacts = greentic_sorla_pack::build_artifacts_from_yaml(&model.source_yaml)?;
+    let name = options.name.unwrap_or_else(|| model.package_name.clone());
+    let version = options
+        .version
+        .unwrap_or_else(|| model.package_version.clone());
+    let built =
+        greentic_sorla_pack::build_sorla_gtpack_entries(&name, &version, &artifacts, Vec::new())?;
+    Ok(built
+        .entries
+        .into_iter()
+        .map(|(path, bytes)| PackEntry {
+            sha256: sha256_hex_public(&bytes),
+            path,
+            bytes,
+        })
+        .collect())
+}
+
+/// Without `pack-manifest` only the SoRLa assets can be planned: there is no
+/// encoder for `manifest.cbor`, so the result is NOT an openable pack.
+#[cfg(not(feature = "pack-manifest"))]
 pub fn build_gtpack_entries(
     model: &NormalizedSorlaModel,
     _options: PackBuildOptions,
@@ -8959,6 +8994,7 @@ fn infer_action_endpoint_inputs(
     if action.name.starts_with("delete_")
         || action.name.starts_with("remove_")
         || action.name.starts_with("revoke_")
+        || action.name.starts_with("close_")
     {
         return vec![required_string_field("id")];
     }
@@ -8973,6 +9009,39 @@ fn infer_action_endpoint_inputs(
         return dedup_fields(fields);
     }
 
+    if is_create_action(&action.name) {
+        // The store mints the record id and its lifecycle timestamps, so a
+        // caller cannot supply them; every other field keeps its own flag.
+        return record
+            .fields
+            .iter()
+            .cloned()
+            .map(|mut field| {
+                let required = !is_system_managed_field(&field) && field.required.unwrap_or(true);
+                field.required = Some(required);
+                field.optional = Some(!required);
+                field
+            })
+            .collect();
+    }
+
+    if is_read_action(&action.name) {
+        // A lookup filters on what it is given; requiring every record field
+        // makes it uncallable. Only a `*_by_id` read needs the id.
+        let by_id = action.name.contains("_by_id");
+        return record
+            .fields
+            .iter()
+            .cloned()
+            .map(|mut field| {
+                let required = by_id && field.name == "id";
+                field.required = Some(required);
+                field.optional = Some(!required);
+                field
+            })
+            .collect();
+    }
+
     record
         .fields
         .iter()
@@ -8983,6 +9052,28 @@ fn infer_action_endpoint_inputs(
             field
         })
         .collect()
+}
+
+fn is_create_action(name: &str) -> bool {
+    name.starts_with("create_") || name.starts_with("add_")
+}
+
+fn is_read_action(name: &str) -> bool {
+    ["get_", "list_", "find_", "search_", "show_"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+        || name.contains("_by_id")
+}
+
+/// A field the store fills in on create: the record id and its `*_at`
+/// lifecycle timestamps.
+fn is_system_managed_field(field: &FieldAnswer) -> bool {
+    field.name == "id"
+        || (field.name.ends_with("_at")
+            && matches!(
+                field.type_name.as_str(),
+                "datetime" | "timestamp" | "date" | "time"
+            ))
 }
 
 fn required_string_field(name: &str) -> FieldAnswer {
@@ -12732,6 +12823,57 @@ mod tests {
     }
 
     #[test]
+    fn create_and_read_actions_do_not_require_fields_the_caller_cannot_supply() {
+        let field = |name: &str, type_name: &str, required: bool| FieldAnswer {
+            name: name.to_string(),
+            type_name: type_name.to_string(),
+            required: Some(required),
+            ..FieldAnswer::default()
+        };
+        let records = vec![RecordItemAnswer {
+            name: "ticket".to_string(),
+            fields: vec![
+                field("id", "uuid", true),
+                field("title", "string", true),
+                field("customer_email", "email", true),
+                field("note", "string", false),
+                field("created_at", "datetime", true),
+                field("closed_at", "datetime", true),
+            ],
+            ..RecordItemAnswer::default()
+        }];
+        let action = |name: &str| NamedAnswer {
+            name: name.to_string(),
+            ..NamedAnswer::default()
+        };
+        let required = |endpoint: &AgentEndpointItemAnswer| {
+            endpoint
+                .inputs
+                .iter()
+                .filter(|field| field.required == Some(true))
+                .map(|field| field.name.clone())
+                .collect::<Vec<_>>()
+        };
+
+        let endpoints = action_endpoints_from_answers(
+            &[
+                action("create_ticket"),
+                action("get_ticket_by_id"),
+                action("list_open_tickets"),
+                action("close_ticket"),
+            ],
+            &records,
+        );
+
+        assert_eq!(required(&endpoints[0]), ["title", "customer_email"]);
+        assert_eq!(endpoints[0].inputs.len(), 6, "create keeps every field");
+        assert_eq!(required(&endpoints[1]), ["id"]);
+        assert!(required(&endpoints[2]).is_empty());
+        assert_eq!(required(&endpoints[3]), ["id"]);
+        assert_eq!(endpoints[3].inputs.len(), 1, "close takes only the id");
+    }
+
+    #[test]
     fn action_endpoint_inference_adds_bulk_items_input_without_record_target() {
         let action = NamedAnswer {
             name: "bulk_import_entities".to_string(),
@@ -14318,6 +14460,62 @@ metrics:
                 .iter()
                 .any(|entry| entry.path == "assets/sorla/model.cbor")
         );
+    }
+
+    /// The designer extension returns `build_gtpack_entries` and the host zips
+    /// them. Those entries used to be the ASSETS only — no `manifest.cbor`,
+    /// `pack.cbor` or lock — and `greentic-pack-lib` (which every SORX runtime
+    /// opens a pack with) refuses such an archive outright, so every SoR built
+    /// in the designer studio failed to deploy. Zipped as-is, the entries must
+    /// now pass the same doctor the CLI's own pack does.
+    #[cfg(feature = "pack-zip")]
+    #[test]
+    fn build_gtpack_entries_zip_into_a_pack_the_runtime_opens() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let source_yaml =
+            fs::read_to_string(root.join("examples/designer-property-management/sorla.yaml"))
+                .expect("fixture reads");
+        let model = NormalizedSorlaModel {
+            package_name: "designer-property-management".to_string(),
+            package_version: "0.1.0".to_string(),
+            locale: "en".to_string(),
+            source_yaml,
+            normalized_answers: serde_json::Value::Null,
+        };
+        let entries =
+            build_gtpack_entries(&model, PackBuildOptions::default()).expect("entries build");
+        for required in [
+            "manifest.cbor",
+            "pack.cbor",
+            "manifest.json",
+            "pack.lock.cbor",
+        ] {
+            assert!(
+                entries.iter().any(|entry| entry.path == required),
+                "missing {required}"
+            );
+        }
+        for entry in &entries {
+            assert_eq!(
+                entry.sha256,
+                sha256_hex_public(&entry.bytes),
+                "{}",
+                entry.path
+            );
+        }
+
+        let bytes = greentic_sorla_pack::zip_sorla_gtpack_entries(
+            entries
+                .into_iter()
+                .map(|entry| (entry.path, entry.bytes))
+                .collect(),
+        )
+        .expect("entries zip");
+        let doctor = doctor_gtpack_bytes(&bytes);
+        assert!(!doctor.has_errors(), "{doctor:?}");
+        let inspection = inspect_gtpack_bytes(&bytes).expect("pack inspects");
+        assert_eq!(inspection.name, "designer-property-management");
+        assert_eq!(inspection.version, "0.1.0");
     }
 
     #[test]
