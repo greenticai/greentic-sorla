@@ -9008,6 +9008,39 @@ fn infer_action_endpoint_inputs(
         return dedup_fields(fields);
     }
 
+    if is_create_action(&action.name) {
+        // The store mints the record id and its lifecycle timestamps, so a
+        // caller cannot supply them; every other field keeps its own flag.
+        return record
+            .fields
+            .iter()
+            .cloned()
+            .map(|mut field| {
+                let required = !is_system_managed_field(&field) && field.required.unwrap_or(true);
+                field.required = Some(required);
+                field.optional = Some(!required);
+                field
+            })
+            .collect();
+    }
+
+    if is_read_action(&action.name) {
+        // A lookup filters on what it is given; requiring every record field
+        // makes it uncallable. Only a `*_by_id` read needs the id.
+        let by_id = action.name.contains("_by_id");
+        return record
+            .fields
+            .iter()
+            .cloned()
+            .map(|mut field| {
+                let required = by_id && field.name == "id";
+                field.required = Some(required);
+                field.optional = Some(!required);
+                field
+            })
+            .collect();
+    }
+
     record
         .fields
         .iter()
@@ -9018,6 +9051,28 @@ fn infer_action_endpoint_inputs(
             field
         })
         .collect()
+}
+
+fn is_create_action(name: &str) -> bool {
+    name.starts_with("create_") || name.starts_with("add_")
+}
+
+fn is_read_action(name: &str) -> bool {
+    ["get_", "list_", "find_", "search_", "show_"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+        || name.contains("_by_id")
+}
+
+/// A field the store fills in on create: the record id and its `*_at`
+/// lifecycle timestamps.
+fn is_system_managed_field(field: &FieldAnswer) -> bool {
+    field.name == "id"
+        || (field.name.ends_with("_at")
+            && matches!(
+                field.type_name.as_str(),
+                "datetime" | "timestamp" | "date" | "time"
+            ))
 }
 
 fn required_string_field(name: &str) -> FieldAnswer {
@@ -12764,6 +12819,54 @@ mod tests {
                 .iter()
                 .all(|field| field.references.is_none())
         );
+    }
+
+    #[test]
+    fn create_and_read_actions_do_not_require_fields_the_caller_cannot_supply() {
+        let field = |name: &str, type_name: &str, required: bool| FieldAnswer {
+            name: name.to_string(),
+            type_name: type_name.to_string(),
+            required: Some(required),
+            ..FieldAnswer::default()
+        };
+        let records = vec![RecordItemAnswer {
+            name: "ticket".to_string(),
+            fields: vec![
+                field("id", "uuid", true),
+                field("title", "string", true),
+                field("customer_email", "email", true),
+                field("note", "string", false),
+                field("created_at", "datetime", true),
+                field("closed_at", "datetime", true),
+            ],
+            ..RecordItemAnswer::default()
+        }];
+        let action = |name: &str| NamedAnswer {
+            name: name.to_string(),
+            ..NamedAnswer::default()
+        };
+        let required = |endpoint: &AgentEndpointItemAnswer| {
+            endpoint
+                .inputs
+                .iter()
+                .filter(|field| field.required == Some(true))
+                .map(|field| field.name.clone())
+                .collect::<Vec<_>>()
+        };
+
+        let endpoints = action_endpoints_from_answers(
+            &[
+                action("create_ticket"),
+                action("get_ticket_by_id"),
+                action("list_open_tickets"),
+            ],
+            &records,
+        );
+
+        assert_eq!(required(&endpoints[0]), ["title", "customer_email"]);
+        assert_eq!(endpoints[0].inputs.len(), 6, "create keeps every field");
+        assert_eq!(required(&endpoints[1]), ["id"]);
+        assert!(required(&endpoints[2]).is_empty());
     }
 
     #[test]
