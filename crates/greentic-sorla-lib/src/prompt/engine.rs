@@ -975,9 +975,34 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
 }
 
 fn normalize_answers_json_for_validation(answers: &mut serde_json::Value) {
+    normalize_schema_version(answers);
     normalize_answers_json_value(answers, &mut Vec::new());
     normalize_answers_document_defaults(answers);
     strip_inapplicable_field_rules(answers);
+}
+
+/// Pins `schema_version` to the answers schema this build reads.
+///
+/// The version names the FORMAT of the answers document, not anything about
+/// the package, so the model has nothing to choose it from — and it guesses:
+/// asked to update an existing package it wrote `1.0` and then `1`, which the
+/// validator refused on every attempt, repair pass included. A version the
+/// validator already accepts (the current one or `0.4`) is left as written.
+fn normalize_schema_version(answers: &mut serde_json::Value) {
+    let Some(map) = answers.as_object_mut() else {
+        return;
+    };
+    let current = crate::default_schema().schema_version.to_string();
+    let accepted = map
+        .get("schema_version")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|version| version == current || version == "0.4");
+    if !accepted {
+        map.insert(
+            "schema_version".to_string(),
+            serde_json::Value::String(current),
+        );
+    }
 }
 
 /// Drops field rules that constrain nothing or cannot apply to the field's type.
@@ -4069,6 +4094,23 @@ mod tests {
     use super::*;
     use crate::prompt::{LlmResponse, LlmResponseFormat};
     use std::cell::{Cell, RefCell};
+
+    #[test]
+    fn a_model_invented_schema_version_is_replaced_and_a_known_one_kept() {
+        for invented in ["1.0", "1", "1.0.0"] {
+            let mut answers = serde_json::json!({ "schema_version": invented });
+            normalize_schema_version(&mut answers);
+            assert_eq!(answers["schema_version"], "0.5", "from {invented}");
+        }
+        let mut missing = serde_json::json!({});
+        normalize_schema_version(&mut missing);
+        assert_eq!(missing["schema_version"], "0.5");
+        for kept in ["0.5", "0.4"] {
+            let mut answers = serde_json::json!({ "schema_version": kept });
+            normalize_schema_version(&mut answers);
+            assert_eq!(answers["schema_version"], kept);
+        }
+    }
 
     struct FakePromptLlm;
 

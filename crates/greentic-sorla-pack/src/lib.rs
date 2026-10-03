@@ -28,7 +28,7 @@ pub use validation_generator::{
 
 use greentic_sorla_ir::{
     AgentEndpointApprovalModeIr, AgentEndpointInputIr, AgentEndpointIr, AgentEndpointOutputIr,
-    AgentEndpointRiskIr, CanonicalIr, EndpointAuthorizationIr, EntityLinkingIr, IrVersion,
+    AgentEndpointRiskIr, CanonicalIr, EndpointAuthorizationIr, EntityLinkingIr, FieldIr, IrVersion,
     OntologyModelIr, OperationalIndexesIr, ProviderRequirementIr, RecordIr, RetrievalBindingsIr,
     SemanticAliasesIr, ViewIr, agent_tools_json, canonical_cbor, canonical_hash_hex, inspect_ir,
     lower_package,
@@ -5294,6 +5294,14 @@ fn sorx_runtime_command_spec(
         return Some(command);
     }
 
+    if let Some(command) = sorx_runtime_close_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_list_by_status_command(endpoint, ir) {
+        return Some(command);
+    }
+
     if let Some(command) = sorx_runtime_show_waiting_list_command(endpoint, ir) {
         return Some(command);
     }
@@ -5423,6 +5431,150 @@ fn sorx_runtime_approval_status_command(
             "records": "$steps.update.records"
         }
     }))
+}
+
+/// `close_<record>`: mark the record closed by id. Sets the record's
+/// `status`/`state` field to `closed` and, when the record has a temporal
+/// `closed_at`, stamps it with the time of the call. Without this the action
+/// fell through to a plain query, so "closing" a record only read it back.
+fn sorx_runtime_close_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    if !endpoint.id.starts_with("close_") {
+        return None;
+    }
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let status_field = record
+        .fields
+        .iter()
+        .find(|field| matches!(field.name.as_str(), "status" | "state"))
+        .map(|field| field.name.clone())?;
+    let closed_at = record
+        .fields
+        .iter()
+        .find(|field| {
+            field.name == "closed_at"
+                && matches!(
+                    field.type_name.as_str(),
+                    "datetime" | "timestamp" | "date" | "time"
+                )
+        })
+        .map(|field| field.name.clone());
+
+    let mut excluded = vec![status_field.as_str()];
+    if let Some(closed_at) = &closed_at {
+        excluded.push(closed_at.as_str());
+    }
+    let filters = sorx_runtime_identity_filters(endpoint, record, &excluded);
+    if filters.is_empty() {
+        return None;
+    }
+
+    let mut set = serde_json::Map::new();
+    set.insert(status_field, serde_json::json!("closed"));
+    if let Some(closed_at) = closed_at {
+        set.insert(closed_at, serde_json::json!("$now"));
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_mutation",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "update_where",
+                "as": "update",
+                "entity": entity,
+                "collection": collection,
+                "where": filters,
+                "set": set
+            }
+        ],
+        "return": {
+            "updated_count": "$steps.update.updated_count",
+            "records": "$steps.update.records"
+        }
+    }))
+}
+
+/// `list_<status>_<records>`: list only the records whose `status`/`state`
+/// equals `<status>`. Without this the action was a plain query over every
+/// record, so `list_open_tickets` also returned closed tickets. Emitted only
+/// when `<status>` is a value the field declares, through `enum_values` or a
+/// `^(a|b|c)$` pattern, so an action like `list_recent_orders` is not read as
+/// a status filter.
+fn sorx_runtime_list_by_status_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    let rest = endpoint.id.strip_prefix("list_")?;
+    let (status, _) = rest.split_once('_')?;
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let status_field = record
+        .fields
+        .iter()
+        .find(|field| matches!(field.name.as_str(), "status" | "state"))?;
+    if !declared_status_values(status_field)
+        .iter()
+        .any(|value| value == status)
+    {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_query",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "query",
+                "as": "list",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    status_field.name.clone(): status
+                }
+            }
+        ],
+        "return": {
+            "records": "$steps.list.records",
+            "count": "$steps.list.count"
+        }
+    }))
+}
+
+/// The values a status field accepts: its `enum_values`, else the
+/// alternatives of a `^(a|b|c)$` pattern rule.
+fn declared_status_values(field: &FieldIr) -> Vec<String> {
+    if !field.enum_values.is_empty() {
+        return field.enum_values.clone();
+    }
+    let Some(pattern) = field.rules.pattern.as_deref() else {
+        return Vec::new();
+    };
+    let Some(inner) = pattern
+        .strip_prefix("^(")
+        .and_then(|rest| rest.strip_suffix(")$"))
+    else {
+        return Vec::new();
+    };
+    inner
+        .split('|')
+        .filter(|value| {
+            !value.is_empty()
+                && value
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 fn sorx_runtime_side_effect_event_command(endpoint: &AgentEndpointIr) -> Option<serde_json::Value> {
@@ -9604,6 +9756,99 @@ agent_endpoints:
         assert_eq!(restore.operation, "command");
         let command = restore.command.as_ref().expect("command should be emitted");
         assert_eq!(command["steps"][0]["set"]["is_active"], true);
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_a_close_command_that_marks_the_record_closed() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: ticket-system
+  version: 0.1.0
+records:
+  - name: ticket
+    fields:
+      - name: id
+        type: uuid
+      - name: title
+        type: string
+      - name: status
+        type: string
+      - name: closed_at
+        type: datetime
+agent_endpoints:
+  - id: close_ticket
+    title: Close ticket
+    intent: Close a ticket.
+    inputs:
+      - name: id
+        type: uuid
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+
+        let close = &manifest.endpoints[0];
+        assert_eq!(close.operation, "command");
+        let command = close.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "update_where");
+        assert_eq!(
+            command["steps"][0]["where"],
+            serde_json::json!({"id": "$input.id"})
+        );
+        assert_eq!(
+            command["steps"][0]["set"],
+            serde_json::json!({"status": "closed", "closed_at": "$now"})
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_filters_list_status_endpoints_by_status() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: ticket-system
+  version: 0.1.0
+records:
+  - name: ticket
+    fields:
+      - name: id
+        type: uuid
+      - name: status
+        type: string
+        rules:
+          pattern: "^(open|in_progress|closed)$"
+agent_endpoints:
+  - id: list_open_tickets
+    title: List open tickets
+    intent: List open tickets.
+  - id: list_recent_tickets
+    title: List recent tickets
+    intent: List recent tickets.
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+
+        let open = &manifest.endpoints[0];
+        assert_eq!(open.operation, "command");
+        let command = open.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "query");
+        assert_eq!(
+            command["steps"][0]["where"],
+            serde_json::json!({"status": "open"})
+        );
+
+        let recent = &manifest.endpoints[1];
+        assert!(
+            recent.command.is_none(),
+            "`recent` is not a declared status, so no status filter is emitted"
+        );
     }
 
     #[test]
