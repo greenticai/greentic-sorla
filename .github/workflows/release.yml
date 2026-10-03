@@ -1,0 +1,134 @@
+name: Release designer extension
+
+# The ONLY path that publishes `greentic.sorla` to the Greentic Store.
+#
+# `dev-publish.yml` ships the crates and the CLI binary and never touches the
+# extension, and the tag-driven job that used to live in `release-binaries.yml`
+# never ran after the lane moved to `develop` — which left the Store serving
+# June's `1.2.0-research` while describe fixes sat on `main` unreleased.
+#
+# Publishing is driven by `metadata.version` in the extension's describe.json,
+# NOT by the workspace version: the extension's Cargo.toml inherits
+# `version.workspace = true`, which versions every crate in this workspace and
+# is stamped per run by dev-publish. Bump describe.json to publish.
+#
+# Adapted from greentic-biz/component-hubspot-ext's release.yml.
+
+# This copy lives on `main` and publishes STABLE versions only. The develop
+# lane carries its own copy that accepts `-dev` versions.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Extension version to (re)publish. Required, stable only."
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Detect version bump
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.diff.outputs.should_publish }}
+      version: ${{ steps.diff.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Diff metadata.version in describe.json
+        id: diff
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          MANIFEST=crates/greentic-sorla-designer-extension/describe.json
+
+          extract_version() {
+            git show "$1:${MANIFEST}" 2>/dev/null \
+              | jq -r '.metadata.version // empty' 2>/dev/null || echo ""
+          }
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NEW="${INPUT_VERSION}"
+            OLD=""
+          else
+            NEW=$(extract_version HEAD)
+            OLD=$(extract_version HEAD~1)
+            echo "  HEAD~1 version: ${OLD:-<none>}"
+            echo "  HEAD   version: ${NEW:-<none>}"
+
+            if [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; then
+              echo "==> No version bump - skipping"
+              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # main publishes stable versions only: strict MAJOR.MINOR.PATCH.
+          # Applies to workflow_dispatch too.
+          if [[ ! "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::main expects a stable version (MAJOR.MINOR.PATCH, no prerelease suffix); got '$NEW'"
+            exit 1
+          fi
+
+          # describe.json must agree with the version being published.
+          DESC=$(extract_version HEAD)
+          if [ "$DESC" != "$NEW" ]; then
+            echo "::error::describe.json says '$DESC' but publishing '$NEW'"
+            exit 1
+          fi
+
+          # Skip when the Store already has this version (idempotent re-runs).
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://store.greentic.cloud/api/v1/extensions/greentic.sorla/${NEW}" || echo 000)
+          if [ "$CODE" = "200" ]; then
+            echo "==> ${NEW} already in the Store - skipping"
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "==> Publishing ${NEW}"
+          echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          echo "version=${NEW}" >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: CI gate
+    needs: detect
+    if: needs.detect.outputs.should_publish == 'true'
+    # ci.yml has no workflow_call trigger; it delegates to this same org
+    # reusable workflow, so call it directly for an equivalent gate.
+    uses: greenticai/.github/.github/workflows/pr-ci.yml@main
+    with:
+      variant: host
+    secrets: inherit
+
+  publish:
+    name: Publish .gtxpack to Greentic Store
+    needs: [detect, ci]
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: greenticai/greentic-designer-extension-action@v2
+        with:
+          gtdx-version: "=1.3.0-research.3"
+          manifest: crates/greentic-sorla-designer-extension/Cargo.toml
+          store-url: https://store.greentic.cloud
+          store-token: ${{ secrets.GREENTIC_STORE_TOKEN }}
+          version: ${{ needs.detect.outputs.version }}
+          rust-toolchain: "1.95.0"
+          # No client signing key exists for this repo (the only publish
+          # secret is GREENTIC_STORE_TOKEN). The Store signs on ingest with the
+          # `greentic` publisher key hosts pin in trust/publishers.json - the
+          # same lane that published every existing -dev build.
+          allow-unsigned: true

@@ -14,7 +14,10 @@ readme = "README.md"
 
 [features]
 default = ["pack-zip"]
-pack-zip = ["dep:greentic-pack", "dep:greentic-types", "dep:zip"]
+# Builds every entry of a complete .gtpack (manifest.cbor included) in
+# memory, with no filesystem or zip: what the wasm designer extension needs.
+pack-manifest = ["dep:greentic-types"]
+pack-zip = ["pack-manifest", "dep:greentic-pack", "dep:zip"]
 
 [dependencies]
 ciborium.workspace = true
