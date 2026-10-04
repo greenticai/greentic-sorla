@@ -5,6 +5,9 @@ pub mod sorx_exposure;
 pub mod sorx_validation;
 pub mod validation_generator;
 
+mod json_schema_type;
+use json_schema_type::insert_json_schema_type;
+
 pub use sorx_compatibility::{
     ApiCompatibilityMode, SORX_COMPATIBILITY_SCHEMA, SorxCompatibilityError,
     SorxCompatibilityManifest, SorxCompatibilityPackageRef, StateCompatibilityMode,
@@ -25,13 +28,13 @@ pub use validation_generator::{
 
 use greentic_sorla_ir::{
     AgentEndpointApprovalModeIr, AgentEndpointInputIr, AgentEndpointIr, AgentEndpointOutputIr,
-    AgentEndpointRiskIr, CanonicalIr, EndpointAuthorizationIr, EntityLinkingIr, IrVersion,
+    AgentEndpointRiskIr, CanonicalIr, EndpointAuthorizationIr, EntityLinkingIr, FieldIr, IrVersion,
     OntologyModelIr, OperationalIndexesIr, ProviderRequirementIr, RecordIr, RetrievalBindingsIr,
     SemanticAliasesIr, ViewIr, agent_tools_json, canonical_cbor, canonical_hash_hex, inspect_ir,
     lower_package,
 };
 use greentic_sorla_lang::parser::parse_package;
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 use greentic_types::{
     ExtensionInline, ExtensionRef, PackId, PackKind as GreenticPackKind,
     PackManifest as GreenticPackManifest, PackSignatures, encode_pack_manifest,
@@ -1327,10 +1330,7 @@ fn output_object_schema_value(outputs: &[AgentEndpointOutputIr]) -> serde_json::
         .iter()
         .map(|output| {
             let mut property = serde_json::Map::new();
-            property.insert(
-                "type".to_string(),
-                serde_json::Value::String(output.type_name.clone()),
-            );
+            insert_json_schema_type(&mut property, &output.type_name);
             if let Some(description) = &output.description {
                 property.insert(
                     "description".to_string(),
@@ -1509,14 +1509,37 @@ pub fn build_sorla_gtpack(options: &SorlaGtpackOptions) -> Result<SorlaGtpackBui
     build_sorla_gtpack_from_artifacts(options, artifacts)
 }
 
-#[cfg(feature = "pack-zip")]
-fn build_sorla_gtpack_from_artifacts(
-    options: &SorlaGtpackOptions,
-    artifacts: ArtifactSet,
-) -> Result<SorlaGtpackBuildSummary, String> {
-    semver::Version::parse(&options.version)
-        .map_err(|err| format!("invalid pack version `{}`: {err}", options.version))?;
-    if options.name.trim().is_empty() {
+/// Every entry of a complete SoRLa `.gtpack`, built in memory.
+///
+/// This is the pack the CLI writes, minus the zip: `manifest.cbor`,
+/// `pack.cbor`, `manifest.json` and `pack.lock.cbor` included. It needs no
+/// filesystem, so the wasm designer extension can return a pack a SORX
+/// runtime accepts — `greentic-pack-lib` refuses any archive without
+/// `manifest.cbor`.
+#[cfg(feature = "pack-manifest")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SorlaGtpackEntries {
+    /// Path inside the archive → bytes, in archive order.
+    pub entries: BTreeMap<String, Vec<u8>>,
+    /// Asset paths declared by the pack, sorted and deduplicated.
+    pub asset_paths: Vec<String>,
+    /// SHA-256 of `pack.cbor`, the manifest identity the summary reports.
+    pub manifest_hash_sha256: String,
+}
+
+/// Build every entry of a complete `.gtpack` for `artifacts`, without
+/// touching the filesystem. `i18n_assets` are extra `(path, bytes)` assets;
+/// the CLI discovers them next to the source file, a wasm caller has none.
+#[cfg(feature = "pack-manifest")]
+pub fn build_sorla_gtpack_entries(
+    name: &str,
+    version: &str,
+    artifacts: &ArtifactSet,
+    i18n_assets: Vec<(String, Vec<u8>)>,
+) -> Result<SorlaGtpackEntries, String> {
+    semver::Version::parse(version)
+        .map_err(|err| format!("invalid pack version `{version}`: {err}"))?;
+    if name.trim().is_empty() {
         return Err("pack name must not be empty".to_string());
     }
 
@@ -1566,12 +1589,11 @@ fn build_sorla_gtpack_from_artifacts(
         SORX_COMPATIBILITY_ASSET.to_string(),
         serde_json::to_vec_pretty(&compatibility_manifest).map_err(|err| err.to_string())?,
     );
-    let i18n_assets = discover_adjacent_i18n_assets(&options.input_path)?;
     let i18n_asset_paths = i18n_assets
         .iter()
         .map(|(path, _)| path.clone())
         .collect::<Vec<_>>();
-    let stack_pack = greentic_stack_pack_document(options, &artifacts);
+    let stack_pack = greentic_stack_pack_document(name, version, artifacts);
     validate_greentic_stack_pack_document(&stack_pack)?;
     let capabilities = greentic_capability_section(&stack_pack);
     validate_greentic_capability_section(&capabilities)?;
@@ -1582,10 +1604,10 @@ fn build_sorla_gtpack_from_artifacts(
     let setup_schema = greentic_setup_schema(&artifacts.ir);
     let call_request_schema = greentic_call_request_schema();
     let call_response_schema = greentic_call_response_schema();
-    let greentic_artifacts = greentic_artifacts_document(&artifacts);
-    let greentic_admin_surfaces = greentic_admin_surfaces_document(&artifacts);
+    let greentic_artifacts = greentic_artifacts_document(artifacts);
+    let greentic_admin_surfaces = greentic_admin_surfaces_document(artifacts);
     let secret_requirements = greentic_secret_requirements();
-    let extension = sorx_runtime_extension_value(&artifacts, &sorx_assets, &i18n_asset_paths);
+    let extension = sorx_runtime_extension_value(artifacts, &sorx_assets, &i18n_asset_paths);
 
     let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     let mut asset_paths = Vec::new();
@@ -1814,8 +1836,8 @@ fn build_sorla_gtpack_from_artifacts(
     let manifest = SorlaPackManifest {
         schema: "greentic.gtpack.manifest.sorla.v1".to_string(),
         pack: SorlaPackIdentity {
-            name: options.name.clone(),
-            version: options.version.clone(),
+            name: name.to_string(),
+            version: version.to_string(),
             kind: "application".to_string(),
         },
         created_at_utc: STABLE_PACK_TIMESTAMP.to_string(),
@@ -1823,7 +1845,7 @@ fn build_sorla_gtpack_from_artifacts(
         assets: sorx_visible_manifest_assets(&asset_paths),
     };
     let pack_cbor = canonical_cbor(&manifest);
-    let greentic_manifest_cbor = greentic_pack_manifest_cbor(options, &manifest)?;
+    let greentic_manifest_cbor = greentic_pack_manifest_cbor(name, version, &manifest)?;
     entries.insert("pack.cbor".to_string(), pack_cbor.clone());
     entries.insert("manifest.cbor".to_string(), greentic_manifest_cbor);
     entries.insert(
@@ -1836,7 +1858,23 @@ fn build_sorla_gtpack_from_artifacts(
     let lock_bytes = canonical_cbor(&lock);
     entries.insert("pack.lock.cbor".to_string(), lock_bytes);
 
-    write_zip_entries(&options.out_path, entries)?;
+    Ok(SorlaGtpackEntries {
+        entries,
+        asset_paths,
+        manifest_hash_sha256: sha256_hex(&pack_cbor),
+    })
+}
+
+#[cfg(feature = "pack-zip")]
+fn build_sorla_gtpack_from_artifacts(
+    options: &SorlaGtpackOptions,
+    artifacts: ArtifactSet,
+) -> Result<SorlaGtpackBuildSummary, String> {
+    let i18n_assets = discover_adjacent_i18n_assets(&options.input_path)?;
+    let built =
+        build_sorla_gtpack_entries(&options.name, &options.version, &artifacts, i18n_assets)?;
+
+    write_zip_entries(&options.out_path, built.entries)?;
     verify_with_greentic_pack_lib(&options.out_path)?;
 
     Ok(SorlaGtpackBuildSummary {
@@ -1846,8 +1884,8 @@ fn build_sorla_gtpack_from_artifacts(
         sorla_package_name: artifacts.ir.package.name,
         sorla_package_version: artifacts.ir.package.version,
         ir_hash: artifacts.canonical_hash,
-        manifest_hash_sha256: sha256_hex(&pack_cbor),
-        assets: asset_paths,
+        manifest_hash_sha256: built.manifest_hash_sha256,
+        assets: built.asset_paths,
     })
 }
 
@@ -1901,18 +1939,19 @@ fn discover_adjacent_i18n_assets(input_path: &Path) -> Result<Vec<(String, Vec<u
     Ok(assets)
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_stack_pack_document(
-    options: &SorlaGtpackOptions,
+    name: &str,
+    version: &str,
     artifacts: &ArtifactSet,
 ) -> GreenticStackPackDocument {
     let route_ids = vec!["main".to_string()];
     GreenticStackPackDocument {
         schema: GREENTIC_STACK_PACK_SCHEMA.to_string(),
         stack: GreenticStackIdentity {
-            id: options.name.clone(),
+            id: name.to_string(),
             kind: "application-stack".to_string(),
-            version: options.version.clone(),
+            version: version.to_string(),
         },
         offers: vec![GreenticCapabilityOffer {
             id: "offer.stack.application".to_string(),
@@ -2004,7 +2043,7 @@ fn greentic_stack_pack_document(
     }
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_capability_section(
     stack_pack: &GreenticStackPackDocument,
 ) -> GreenticPackCapabilitySection {
@@ -2019,7 +2058,7 @@ fn greentic_capability_section(
     }
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_setup_schema(ir: &CanonicalIr) -> serde_json::Value {
     serde_json::json!({
         "schema": "greentic.stack.setup.schema.v1",
@@ -2040,7 +2079,7 @@ fn greentic_setup_schema(ir: &CanonicalIr) -> serde_json::Value {
     })
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_call_request_schema() -> serde_json::Value {
     serde_json::json!({
         "$id": "greentic.stack.call.request.v1",
@@ -2070,7 +2109,7 @@ fn greentic_call_request_schema() -> serde_json::Value {
     })
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_call_response_schema() -> serde_json::Value {
     serde_json::json!({
         "$id": "greentic.stack.call.response.v1",
@@ -2099,7 +2138,7 @@ fn greentic_call_response_schema() -> serde_json::Value {
     })
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_artifacts_document(artifacts: &ArtifactSet) -> serde_json::Value {
     let mut artifacts_list = vec![
         serde_json::json!({
@@ -2166,7 +2205,7 @@ fn greentic_artifacts_document(artifacts: &ArtifactSet) -> serde_json::Value {
     })
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_admin_surfaces_document(artifacts: &ArtifactSet) -> serde_json::Value {
     let mut surfaces = Vec::new();
     if !artifacts.ir.agent_endpoints.is_empty() {
@@ -2189,12 +2228,12 @@ fn greentic_admin_surfaces_document(artifacts: &ArtifactSet) -> serde_json::Valu
     })
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_secret_requirements() -> Vec<serde_json::Value> {
     Vec::new()
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn insert_pack_asset(
     entries: &mut BTreeMap<String, Vec<u8>>,
     asset_paths: &mut Vec<String>,
@@ -2205,7 +2244,7 @@ fn insert_pack_asset(
     entries.insert(path, bytes);
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn sorx_visible_manifest_assets(asset_paths: &[String]) -> Vec<String> {
     asset_paths
         .iter()
@@ -2214,7 +2253,7 @@ fn sorx_visible_manifest_assets(asset_paths: &[String]) -> Vec<String> {
         .collect()
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn sorx_startup_assets(ir: &CanonicalIr) -> BTreeMap<String, Vec<u8>> {
     let mut assets = BTreeMap::new();
     let schema = serde_json::json!({
@@ -2269,7 +2308,7 @@ fn sorx_startup_assets(ir: &CanonicalIr) -> BTreeMap<String, Vec<u8>> {
     assets
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn sorx_startup_example() -> serde_json::Value {
     serde_json::json!({
         "tenant": {
@@ -2304,7 +2343,7 @@ fn sorx_startup_example() -> serde_json::Value {
     })
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn runtime_template_yaml(ir: &CanonicalIr) -> String {
     format!(
         "schema: greentic.sorx.runtime.template.v1\npackage:\n  name: {}\n  version: {}\nruntime:\n  tenant_id: ${{tenant.tenant_id}}\n  environment: ${{tenant.environment}}\nserver:\n  bind: ${{server.bind}}\n  public_base_url: ${{server.public_base_url}}\nmcp:\n  enabled: ${{mcp.enabled}}\n  bind: ${{mcp.bind}}\nproviders:\n  store:\n    kind: ${{providers.store.kind}}\n    config_ref: ${{providers.store.config_ref}}\npolicy:\n  approvals:\n    low: ${{policy.approvals.low}}\n    medium: ${{policy.approvals.medium}}\n    high: ${{policy.approvals.high}}\n    critical: ${{policy.approvals.critical}}\naudit:\n  sink: ${{audit.sink}}\n",
@@ -2312,12 +2351,12 @@ fn runtime_template_yaml(ir: &CanonicalIr) -> String {
     )
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn provider_bindings_template_yaml() -> String {
     "schema: greentic.sorx.provider-bindings.template.v1\nproviders:\n  foundationdb:\n    local:\n      kind: foundationdb\n      config_ref: providers.foundationdb.local\n      tenant_prefix: ${tenant.tenant_id}\n".to_string()
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn sorx_runtime_extension_value(
     artifacts: &ArtifactSet,
     sorx_assets: &BTreeMap<String, Vec<u8>>,
@@ -2513,7 +2552,7 @@ fn sorx_runtime_extension_value(
     })
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn pack_lock_for_entries(entries: &BTreeMap<String, Vec<u8>>) -> SorlaPackLock {
     SorlaPackLock {
         schema: "greentic.gtpack.lock.sorla.v1".to_string(),
@@ -2537,15 +2576,16 @@ fn sha256_hex(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn greentic_pack_manifest_cbor(
-    options: &SorlaGtpackOptions,
+    name: &str,
+    version: &str,
     sorla_manifest: &SorlaPackManifest,
 ) -> Result<Vec<u8>, String> {
-    let pack_id = PackId::new(&options.name)
-        .map_err(|err| format!("invalid Greentic pack id `{}`: {err}", options.name))?;
-    let version = semver::Version::parse(&options.version)
-        .map_err(|err| format!("invalid Greentic pack version `{}`: {err}", options.version))?;
+    let pack_id =
+        PackId::new(name).map_err(|err| format!("invalid Greentic pack id `{name}`: {err}"))?;
+    let version = semver::Version::parse(version)
+        .map_err(|err| format!("invalid Greentic pack version `{version}`: {err}"))?;
     let mut extensions = BTreeMap::new();
     extensions.insert(
         "greentic.sorla.gtpack.v1".to_string(),
@@ -2566,7 +2606,7 @@ fn greentic_pack_manifest_cbor(
     let manifest = GreenticPackManifest {
         schema_version: "pack-v1".to_string(),
         pack_id,
-        name: Some(options.name.clone()),
+        name: Some(name.to_string()),
         version,
         kind: GreenticPackKind::Application,
         publisher: "greentic-sorla".to_string(),
@@ -2601,7 +2641,25 @@ fn verify_with_greentic_pack_lib(path: &Path) -> Result<(), String> {
 fn write_zip_entries(path: &Path, entries: BTreeMap<String, Vec<u8>>) -> Result<(), String> {
     let file = fs::File::create(path)
         .map_err(|err| format!("failed to create gtpack {}: {err}", path.display()))?;
-    let mut writer = ZipWriter::new(file);
+    write_zip_to(file, entries)
+}
+
+/// Zip `entries` exactly as the CLI writes a `.gtpack` (stored, fixed
+/// timestamp), in memory. The counterpart of [`build_sorla_gtpack_entries`]
+/// for a host that holds entries rather than a path.
+#[cfg(feature = "pack-zip")]
+pub fn zip_sorla_gtpack_entries(entries: BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, String> {
+    let mut buffer = Cursor::new(Vec::new());
+    write_zip_to(&mut buffer, entries)?;
+    Ok(buffer.into_inner())
+}
+
+#[cfg(feature = "pack-zip")]
+fn write_zip_to<W: Write + Seek>(
+    sink: W,
+    entries: BTreeMap<String, Vec<u8>>,
+) -> Result<(), String> {
+    let mut writer = ZipWriter::new(sink);
     let timestamp = zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0)
         .map_err(|err| format!("failed to create stable zip timestamp: {err}"))?;
     let options = SimpleFileOptions::default()
@@ -4364,7 +4422,7 @@ fn read_greentic_secret_requirements<R: Read + Seek>(
     Ok(document)
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn validate_greentic_stack_pack_document(
     document: &GreenticStackPackDocument,
 ) -> Result<(), String> {
@@ -4571,7 +4629,7 @@ fn validate_greentic_admin_surfaces_document<R: Read + Seek>(
     Ok(())
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn validate_greentic_capability_section(
     document: &GreenticPackCapabilitySection,
 ) -> Result<(), String> {
@@ -4603,7 +4661,7 @@ fn validate_greentic_capability_section(
     Ok(())
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn validate_named_id(label: &str, value: &str) -> Result<(), String> {
     if value.trim().is_empty() {
         return Err(format!("{label} id must not be empty"));
@@ -4611,7 +4669,7 @@ fn validate_named_id(label: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn validate_capability_id(value: &str) -> Result<(), String> {
     if !value.starts_with("cap://") {
         return Err(format!(
@@ -4632,7 +4690,7 @@ fn validate_capability_id(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(feature = "pack-zip")]
+#[cfg(feature = "pack-manifest")]
 fn validate_contract_metadata(
     label: &str,
     metadata: &serde_json::Value,
@@ -5236,6 +5294,14 @@ fn sorx_runtime_command_spec(
         return Some(command);
     }
 
+    if let Some(command) = sorx_runtime_close_command(endpoint, ir) {
+        return Some(command);
+    }
+
+    if let Some(command) = sorx_runtime_list_by_status_command(endpoint, ir) {
+        return Some(command);
+    }
+
     if let Some(command) = sorx_runtime_show_waiting_list_command(endpoint, ir) {
         return Some(command);
     }
@@ -5365,6 +5431,150 @@ fn sorx_runtime_approval_status_command(
             "records": "$steps.update.records"
         }
     }))
+}
+
+/// `close_<record>`: mark the record closed by id. Sets the record's
+/// `status`/`state` field to `closed` and, when the record has a temporal
+/// `closed_at`, stamps it with the time of the call. Without this the action
+/// fell through to a plain query, so "closing" a record only read it back.
+fn sorx_runtime_close_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    if !endpoint.id.starts_with("close_") {
+        return None;
+    }
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let status_field = record
+        .fields
+        .iter()
+        .find(|field| matches!(field.name.as_str(), "status" | "state"))
+        .map(|field| field.name.clone())?;
+    let closed_at = record
+        .fields
+        .iter()
+        .find(|field| {
+            field.name == "closed_at"
+                && matches!(
+                    field.type_name.as_str(),
+                    "datetime" | "timestamp" | "date" | "time"
+                )
+        })
+        .map(|field| field.name.clone());
+
+    let mut excluded = vec![status_field.as_str()];
+    if let Some(closed_at) = &closed_at {
+        excluded.push(closed_at.as_str());
+    }
+    let filters = sorx_runtime_identity_filters(endpoint, record, &excluded);
+    if filters.is_empty() {
+        return None;
+    }
+
+    let mut set = serde_json::Map::new();
+    set.insert(status_field, serde_json::json!("closed"));
+    if let Some(closed_at) = closed_at {
+        set.insert(closed_at, serde_json::json!("$now"));
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_mutation",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "update_where",
+                "as": "update",
+                "entity": entity,
+                "collection": collection,
+                "where": filters,
+                "set": set
+            }
+        ],
+        "return": {
+            "updated_count": "$steps.update.updated_count",
+            "records": "$steps.update.records"
+        }
+    }))
+}
+
+/// `list_<status>_<records>`: list only the records whose `status`/`state`
+/// equals `<status>`. Without this the action was a plain query over every
+/// record, so `list_open_tickets` also returned closed tickets. Emitted only
+/// when `<status>` is a value the field declares, through `enum_values` or a
+/// `^(a|b|c)$` pattern, so an action like `list_recent_orders` is not read as
+/// a status filter.
+fn sorx_runtime_list_by_status_command(
+    endpoint: &AgentEndpointIr,
+    ir: &CanonicalIr,
+) -> Option<serde_json::Value> {
+    let rest = endpoint.id.strip_prefix("list_")?;
+    let (status, _) = rest.split_once('_')?;
+
+    let entity = sorx_runtime_entity(endpoint, ir);
+    let collection = sorx_runtime_collection(endpoint, ir);
+    let record = ir.records.iter().find(|record| record.name == entity)?;
+    let status_field = record
+        .fields
+        .iter()
+        .find(|field| matches!(field.name.as_str(), "status" | "state"))?;
+    if !declared_status_values(status_field)
+        .iter()
+        .any(|value| value == status)
+    {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "kind": "record_query",
+        "action": endpoint.id,
+        "target": collection,
+        "steps": [
+            {
+                "op": "query",
+                "as": "list",
+                "entity": entity,
+                "collection": collection,
+                "where": {
+                    status_field.name.clone(): status
+                }
+            }
+        ],
+        "return": {
+            "records": "$steps.list.records",
+            "count": "$steps.list.count"
+        }
+    }))
+}
+
+/// The values a status field accepts: its `enum_values`, else the
+/// alternatives of a `^(a|b|c)$` pattern rule.
+fn declared_status_values(field: &FieldIr) -> Vec<String> {
+    if !field.enum_values.is_empty() {
+        return field.enum_values.clone();
+    }
+    let Some(pattern) = field.rules.pattern.as_deref() else {
+        return Vec::new();
+    };
+    let Some(inner) = pattern
+        .strip_prefix("^(")
+        .and_then(|rest| rest.strip_suffix(")$"))
+    else {
+        return Vec::new();
+    };
+    inner
+        .split('|')
+        .filter(|value| {
+            !value.is_empty()
+                && value
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 fn sorx_runtime_side_effect_event_command(endpoint: &AgentEndpointIr) -> Option<serde_json::Value> {
@@ -6704,10 +6914,7 @@ fn object_schema_value(inputs: &[AgentEndpointInputIr]) -> serde_json::Value {
                 .then_some("Sensitive input")
                 .or(input.description.as_deref());
             let mut property = serde_json::Map::new();
-            property.insert(
-                "type".to_string(),
-                serde_json::Value::String(input.type_name.clone()),
-            );
+            insert_json_schema_type(&mut property, &input.type_name);
             if let Some(description) = description {
                 property.insert(
                     "description".to_string(),
@@ -6747,6 +6954,50 @@ mod tests {
     use std::io::Read;
     use tempfile::tempdir;
     use zip::ZipArchive;
+
+    #[test]
+    fn endpoint_schemas_use_json_schema_types_not_sorla_field_types() {
+        // A provider validates a tool's `parameters` before the call and refuses
+        // the whole turn on `"type": "datetime"`, so a SoRLa type name must never
+        // reach `type`.
+        let input = |name: &str, type_name: &str| AgentEndpointInputIr {
+            name: name.to_string(),
+            i18n_key: None,
+            type_name: type_name.to_string(),
+            required: true,
+            description: None,
+            enum_values: Vec::new(),
+            sensitive: false,
+        };
+        let schema = object_schema_value(&[
+            input("created_at", "datetime"),
+            input("id", "uuid"),
+            input("amount", "decimal"),
+        ]);
+        assert_eq!(
+            schema["properties"]["created_at"],
+            serde_json::json!({"type": "string", "format": "date-time"})
+        );
+        assert_eq!(
+            schema["properties"]["id"],
+            serde_json::json!({"type": "string", "format": "uuid"})
+        );
+        assert_eq!(
+            schema["properties"]["amount"],
+            serde_json::json!({"type": "number"})
+        );
+
+        let output = output_object_schema_value(&[AgentEndpointOutputIr {
+            name: "closed_at".to_string(),
+            i18n_key: None,
+            type_name: "datetime".to_string(),
+            description: None,
+        }]);
+        assert_eq!(
+            output["properties"]["closed_at"],
+            serde_json::json!({"type": "string", "format": "date-time"})
+        );
+    }
 
     fn metrics_fixture_yaml() -> &'static str {
         r#"
@@ -9505,6 +9756,99 @@ agent_endpoints:
         assert_eq!(restore.operation, "command");
         let command = restore.command.as_ref().expect("command should be emitted");
         assert_eq!(command["steps"][0]["set"]["is_active"], true);
+    }
+
+    #[test]
+    fn agent_gateway_manifest_emits_a_close_command_that_marks_the_record_closed() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: ticket-system
+  version: 0.1.0
+records:
+  - name: ticket
+    fields:
+      - name: id
+        type: uuid
+      - name: title
+        type: string
+      - name: status
+        type: string
+      - name: closed_at
+        type: datetime
+agent_endpoints:
+  - id: close_ticket
+    title: Close ticket
+    intent: Close a ticket.
+    inputs:
+      - name: id
+        type: uuid
+        required: true
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+
+        let close = &manifest.endpoints[0];
+        assert_eq!(close.operation, "command");
+        let command = close.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "update_where");
+        assert_eq!(
+            command["steps"][0]["where"],
+            serde_json::json!({"id": "$input.id"})
+        );
+        assert_eq!(
+            command["steps"][0]["set"],
+            serde_json::json!({"status": "closed", "closed_at": "$now"})
+        );
+    }
+
+    #[test]
+    fn agent_gateway_manifest_filters_list_status_endpoints_by_status() {
+        let parsed = parse_package(
+            r#"
+package:
+  name: ticket-system
+  version: 0.1.0
+records:
+  - name: ticket
+    fields:
+      - name: id
+        type: uuid
+      - name: status
+        type: string
+        rules:
+          pattern: "^(open|in_progress|closed)$"
+agent_endpoints:
+  - id: list_open_tickets
+    title: List open tickets
+    intent: List open tickets.
+  - id: list_recent_tickets
+    title: List recent tickets
+    intent: List recent tickets.
+"#,
+        )
+        .expect("fixture should parse");
+
+        let ir = lower_package(&parsed.package);
+        let manifest = agent_gateway_handoff_manifest(&ir);
+
+        let open = &manifest.endpoints[0];
+        assert_eq!(open.operation, "command");
+        let command = open.command.as_ref().expect("command should be emitted");
+        assert_eq!(command["steps"][0]["op"], "query");
+        assert_eq!(
+            command["steps"][0]["where"],
+            serde_json::json!({"status": "open"})
+        );
+
+        let recent = &manifest.endpoints[1];
+        assert!(
+            recent.command.is_none(),
+            "`recent` is not a declared status, so no status filter is emitted"
+        );
     }
 
     #[test]

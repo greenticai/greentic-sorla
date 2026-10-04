@@ -348,6 +348,18 @@ where
         ) {
             Ok(answers) => Ok(answers),
             Err(validation_error) => {
+                // The draft is the plan the author just reviewed, and the
+                // staged path already turns it into answers deterministically.
+                // Prefer that over another planner refresh: a model that
+                // cannot honour the answers schema (an enum it invents, a
+                // required field it drops) fails the same way on the second
+                // pass, after several more minutes of calls.
+                // A draft with no records carries no plan to fall back to.
+                if !draft.records.is_empty()
+                    && let Ok(answers) = generate_staged_answers_from_draft(&draft)
+                {
+                    return Ok(answers);
+                }
                 apply_planner_output_if_needed(&self.llm, &llm_config, &mut session, false)?;
                 let refreshed_draft = session
                     .draft_model
@@ -963,8 +975,92 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
 }
 
 fn normalize_answers_json_for_validation(answers: &mut serde_json::Value) {
+    normalize_schema_version(answers);
     normalize_answers_json_value(answers, &mut Vec::new());
     normalize_answers_document_defaults(answers);
+    strip_inapplicable_field_rules(answers);
+}
+
+/// Pins `schema_version` to the answers schema this build reads.
+///
+/// The version names the FORMAT of the answers document, not anything about
+/// the package, so the model has nothing to choose it from — and it guesses:
+/// asked to update an existing package it wrote `1.0` and then `1`, which the
+/// validator refused on every attempt, repair pass included. A version the
+/// validator already accepts (the current one or `0.4`) is left as written.
+fn normalize_schema_version(answers: &mut serde_json::Value) {
+    let Some(map) = answers.as_object_mut() else {
+        return;
+    };
+    let current = crate::default_schema().schema_version.to_string();
+    let accepted = map
+        .get("schema_version")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|version| version == current || version == "0.4");
+    if !accepted {
+        map.insert(
+            "schema_version".to_string(),
+            serde_json::Value::String(current),
+        );
+    }
+}
+
+/// Drops field rules that constrain nothing or cannot apply to the field's type.
+///
+/// A model answering against the draft schema tends to fill EVERY rule
+/// property: `precision: 0` on a uuid, `after: ""` on a string. The validator
+/// rightly refuses those, and because the draft carries the same values into
+/// `answers_from_draft`, the reviewed-draft fallback failed on them too. Only
+/// values that are empty or illegal for the type are removed; a real rule on a
+/// type that accepts it is kept as written.
+fn strip_inapplicable_field_rules(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let field_type = map
+                .get("type")
+                .or_else(|| map.get("type_name"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            if let Some(field_type) = field_type
+                && let Some(serde_json::Value::Object(rules)) = map.get_mut("rules")
+            {
+                sanitize_field_rules(&field_type, rules);
+                if rules.is_empty() {
+                    map.remove("rules");
+                }
+            }
+            for child in map.values_mut() {
+                strip_inapplicable_field_rules(child);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                strip_inapplicable_field_rules(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn sanitize_field_rules(field_type: &str, rules: &mut serde_json::Map<String, serde_json::Value>) {
+    rules.retain(|_, value| match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::String(text) => !text.trim().is_empty(),
+        _ => true,
+    });
+    if field_type != "decimal" {
+        rules.remove("precision");
+        rules.remove("scale");
+    }
+    if !matches!(field_type, "string" | "uuid" | "email" | "url" | "enum") {
+        rules.remove("min_length");
+        rules.remove("max_length");
+        rules.remove("pattern");
+    }
+    if !matches!(field_type, "date" | "time" | "datetime" | "timestamp") {
+        rules.remove("before");
+        rules.remove("after");
+    }
 }
 
 fn normalize_answers_json_value(value: &mut serde_json::Value, path: &mut Vec<String>) {
@@ -3999,6 +4095,23 @@ mod tests {
     use crate::prompt::{LlmResponse, LlmResponseFormat};
     use std::cell::{Cell, RefCell};
 
+    #[test]
+    fn a_model_invented_schema_version_is_replaced_and_a_known_one_kept() {
+        for invented in ["1.0", "1", "1.0.0"] {
+            let mut answers = serde_json::json!({ "schema_version": invented });
+            normalize_schema_version(&mut answers);
+            assert_eq!(answers["schema_version"], "0.5", "from {invented}");
+        }
+        let mut missing = serde_json::json!({});
+        normalize_schema_version(&mut missing);
+        assert_eq!(missing["schema_version"], "0.5");
+        for kept in ["0.5", "0.4"] {
+            let mut answers = serde_json::json!({ "schema_version": kept });
+            normalize_schema_version(&mut answers);
+            assert_eq!(answers["schema_version"], kept);
+        }
+    }
+
     struct FakePromptLlm;
 
     fn assert_schema_response_format(format: Option<LlmResponseFormat>) {
@@ -5096,6 +5209,60 @@ mod tests {
         assert_eq!(engine.llm.calls.get(), 5);
     }
 
+    struct AlwaysInvalidAnswersLlm {
+        calls: Cell<usize>,
+    }
+
+    impl LlmCapability for AlwaysInvalidAnswersLlm {
+        fn complete(&self, request: LlmRequest) -> Result<LlmResponse, SorlaError> {
+            assert!(
+                !request.system_prompt.contains("planning step"),
+                "a valid draft must not trigger a planner refresh"
+            );
+            self.calls.set(self.calls.get() + 1);
+            Ok(LlmResponse {
+                content: serde_json::json!({
+                    "records": { "default_source": "support_ticket_system", "items": [] }
+                })
+                .to_string(),
+                usage: None,
+            })
+        }
+    }
+
+    #[test]
+    fn answer_generation_falls_back_to_the_reviewed_draft() {
+        let engine = DefaultPromptAuthoringEngine::new(AlwaysInvalidAnswersLlm {
+            calls: Cell::new(0),
+        });
+        let mut session = engine.start_session(config()).unwrap();
+        session.business_prompt = Some("Track a waiting list.".to_string());
+        session.llm = Some(LlmCapabilityConfig {
+            provider: "openai".to_string(),
+            model: None,
+            api_key: None,
+            endpoint: None,
+            capability_id: None,
+        });
+        session.draft_model = Some(SorDesignDraft {
+            summary: "Support ticket system of record".to_string(),
+            records: vec![record(
+                "ticket",
+                "A support ticket",
+                &[field("id", "uuid"), field("title", "string")],
+            )],
+            ..SorDesignDraft::default()
+        });
+
+        let answers = engine
+            .generate_answers(session)
+            .expect("the reviewed draft yields valid answers");
+
+        validate_answers_document(&answers).expect("fallback answers validate");
+        // One generation plus two repairs, then the draft: no planner call.
+        assert_eq!(engine.llm.calls.get(), 3);
+    }
+
     #[test]
     fn generated_answers_normalizer_flattens_localized_string_maps() {
         let mut answers = waiting_list_answers_from_draft();
@@ -5378,5 +5545,64 @@ mod tests {
         );
         crate::normalize_answers(answers, NormalizeOptions)
             .expect("operational indexes schema should be defaulted");
+    }
+}
+
+#[cfg(test)]
+mod placeholder_rule_tests {
+    use super::*;
+
+    fn placeholder_rules() -> serde_json::Value {
+        serde_json::json!({
+            "after": "", "before": "", "max": "", "min": "", "pattern": "",
+            "max_length": 1_000_000, "min_length": 0,
+            "precision": 0, "scale": 0, "unique": true
+        })
+    }
+
+    #[test]
+    fn placeholder_rules_are_stripped_per_field_type() {
+        let mut answers = serde_json::json!({
+            "records": { "items": [{ "name": "ticket", "fields": [
+                { "name": "id", "type": "uuid", "rules": placeholder_rules() },
+                { "name": "created_at", "type": "datetime", "rules": placeholder_rules() },
+                { "name": "amount", "type": "decimal",
+                  "rules": { "precision": 12, "scale": 2, "after": "" } }
+            ]}]}
+        });
+        strip_inapplicable_field_rules(&mut answers);
+        let fields = &answers["records"]["items"][0]["fields"];
+        assert_eq!(
+            fields[0]["rules"],
+            serde_json::json!({ "max_length": 1_000_000, "min_length": 0, "unique": true })
+        );
+        assert_eq!(fields[1]["rules"], serde_json::json!({ "unique": true }));
+        assert_eq!(
+            fields[2]["rules"],
+            serde_json::json!({ "precision": 12, "scale": 2 })
+        );
+    }
+
+    #[test]
+    fn a_draft_whose_every_field_carries_placeholder_rules_still_falls_back() {
+        let draft: SorDesignDraft = serde_json::from_value(serde_json::json!({
+            "summary": "Support ticket ledger.",
+            "records": [{
+                "name": "ticket",
+                "description": "A support ticket.",
+                "fields": [
+                    { "name": "id", "type_name": "uuid", "required": true,
+                      "description": "Ticket id.", "rules": placeholder_rules() },
+                    { "name": "title", "type_name": "string", "required": true,
+                      "description": "Ticket title.", "rules": placeholder_rules() },
+                    { "name": "created_at", "type_name": "datetime", "required": true,
+                      "description": "When it was opened.", "rules": placeholder_rules() }
+                ]
+            }]
+        }))
+        .expect("draft");
+        let answers = generate_staged_answers_from_draft(&draft)
+            .expect("placeholder rules must not defeat the draft fallback");
+        assert!(validate_answers_document(&answers).is_ok());
     }
 }
