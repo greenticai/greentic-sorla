@@ -126,8 +126,6 @@ jobs:
           store-token: ${{ secrets.GREENTIC_STORE_TOKEN }}
           version: ${{ needs.detect.outputs.version }}
           rust-toolchain: "1.95.0"
-          # No client signing key exists for this repo (the only publish
-          # secret is GREENTIC_STORE_TOKEN). The Store signs on ingest with the
-          # `greentic` publisher key hosts pin in trust/publishers.json - the
-          # same lane that published every existing -dev build.
-          allow-unsigned: true
+          # Authenticates and signs the upload; the action fails closed when
+          # this is empty. Never set allow-unsigned here.
+          signing-key-pem: ${{ secrets.EXT_SIGNING_KEY_PEM }}
