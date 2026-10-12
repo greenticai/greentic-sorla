@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla"
-version = "1.2.0-dev.0"
+version = "1.2.0"
 dependencies = [
  "criterion",
  "greentic-sorla-lib",
@@ -2108,7 +2108,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-designer-extension"
-version = "1.2.0-dev.0"
+version = "1.2.0"
 dependencies = [
  "base64",
  "greentic-sorla-lib",
@@ -2120,7 +2120,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-ir"
-version = "1.2.0-dev.0"
+version = "1.2.0"
 dependencies = [
  "ciborium",
  "greentic-sorla-lang",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lang"
-version = "1.2.0-dev.0"
+version = "1.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2140,7 +2140,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-lib"
-version = "1.2.0-dev.0"
+version = "1.2.0"
 dependencies = [
  "ciborium",
  "clap",
@@ -2158,7 +2158,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-pack"
-version = "1.2.0-dev.0"
+version = "1.2.0"
 dependencies = [
  "ciborium",
  "greentic-pack-lib",
@@ -2176,7 +2176,7 @@ dependencies = [
 
 [[package]]
 name = "greentic-sorla-wizard"
-version = "1.2.0-dev.0"
+version = "1.2.0"
 dependencies = [
  "greentic-sorla",
  "greentic-sorla-lang",
@@ -6801,7 +6801,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "1.2.0-dev.0"
+version = "1.2.0"
 
 [[package]]
 name = "yasna"

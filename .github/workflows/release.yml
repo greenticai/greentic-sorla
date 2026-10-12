@@ -14,13 +14,15 @@ name: Release designer extension
 #
 # Adapted from greentic-biz/component-hubspot-ext's release.yml.
 
+# This copy lives on `main` and publishes STABLE versions only. The develop
+# lane carries its own copy that accepts `-dev` versions.
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
-        description: "Extension version to (re)publish. Required."
+        description: "Extension version to (re)publish. Required, stable only."
         required: true
 
 permissions:
@@ -44,45 +46,54 @@ jobs:
       - name: Diff metadata.version in describe.json
         id: diff
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           MANIFEST=crates/greentic-sorla-designer-extension/describe.json
-
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           extract_version() {
             git show "$1:${MANIFEST}" 2>/dev/null \
               | jq -r '.metadata.version // empty' 2>/dev/null || echo ""
           }
-          NEW=$(extract_version HEAD)
-          OLD=$(extract_version HEAD~1)
-          echo "  HEAD~1 version: ${OLD:-<none>}"
-          echo "  HEAD   version: ${NEW:-<none>}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NEW="${INPUT_VERSION}"
+            OLD=""
+          else
+            NEW=$(extract_version HEAD)
+            OLD=$(extract_version HEAD~1)
+            echo "  HEAD~1 version: ${OLD:-<none>}"
+            echo "  HEAD   version: ${NEW:-<none>}"
 
-          if [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; then
-            echo "==> No version bump — skipping"
+            if [ -z "$NEW" ] || [ "$NEW" = "$OLD" ]; then
+              echo "==> No version bump - skipping"
+              echo "should_publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          # main publishes stable versions only: strict MAJOR.MINOR.PATCH.
+          # Applies to workflow_dispatch too.
+          if [[ ! "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::main expects a stable version (MAJOR.MINOR.PATCH, no prerelease suffix); got '$NEW'"
+            exit 1
+          fi
+
+          # describe.json must agree with the version being published.
+          DESC=$(extract_version HEAD)
+          if [ "$DESC" != "$NEW" ]; then
+            echo "::error::describe.json says '$DESC' but publishing '$NEW'"
+            exit 1
+          fi
+
+          # Skip when the Store already has this version (idempotent re-runs).
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://store.greentic.cloud/api/v1/extensions/greentic.sorla/${NEW}" || echo 000)
+          if [ "$CODE" = "200" ]; then
+            echo "==> ${NEW} already in the Store - skipping"
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          # Per-branch suffix policy: develop -> -dev, main -> stable.
-          # A -dev base must sit ABOVE any -research build of the same
-          # major.minor.patch (research > dev alphabetically), or hosts that
-          # track the pre-release line never pick it up.
-          case "${GITHUB_REF_NAME}" in
-            develop)
-              if [[ ! "$NEW" =~ -dev(\.[0-9A-Za-z-]+)*$ ]]; then
-                echo "::error::develop expects a -dev version; got $NEW"; exit 1
-              fi ;;
-            main)
-              if [[ "$NEW" =~ - ]]; then
-                echo "::error::main expects a stable version (no prerelease suffix); got $NEW"; exit 1
-              fi ;;
-          esac
 
           echo "==> Publishing ${NEW}"
           echo "should_publish=true" >> "$GITHUB_OUTPUT"
@@ -110,13 +121,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: greenticai/greentic-designer-extension-action@v2
         with:
-          gtdx-version: "=1.3.0-research.3"
           manifest: crates/greentic-sorla-designer-extension/Cargo.toml
           store-url: https://store.greentic.cloud
           store-token: ${{ secrets.GREENTIC_STORE_TOKEN }}
           version: ${{ needs.detect.outputs.version }}
           rust-toolchain: "1.95.0"
-          # The Store signs on ingest with this publisher's own key (the one
-          # hosts pin in trust/publishers.json) and replaces describe.json in
-          # the artifact, so there is no client key to pass.
-          allow-unsigned: true
+          # Authenticates and signs the upload; the action fails closed when
+          # this is empty. Never set allow-unsigned here.
+          signing-key-pem: ${{ secrets.EXT_SIGNING_KEY_PEM }}
