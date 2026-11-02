@@ -407,6 +407,11 @@ fn generate_staged_answers_from_draft(
     Ok(answers)
 }
 
+/// Repair attempts after the first answers fail validation. A model that
+/// misses the answers schema twice rarely lands it on a third pass, and each
+/// pass can take minutes on a reasoning model.
+const MAX_ANSWER_REPAIRS: usize = 1;
+
 fn generate_answers_with_repair<Llm>(
     llm: &Llm,
     llm_config: &LlmCapabilityConfig,
@@ -443,7 +448,7 @@ where
         validation_error = format!("answer JSON parse failed: {validation_error}");
     }
 
-    for _ in 0..2 {
+    for _ in 0..MAX_ANSWER_REPAIRS {
         let repair_response = llm.complete(LlmRequest {
             provider: llm_config.provider.clone(),
             model: llm_config.model.clone(),
@@ -4302,14 +4307,21 @@ mod tests {
         /// the deterministic answers are unavailable and the model is asked
         /// for answers a second time.
         refreshed_draft_has_records: bool,
+        /// Set once the planner has been asked; answer calls before that
+        /// return invalid answers, calls after it return valid ones.
+        planner_called: Cell<bool>,
     }
 
     impl LlmCapability for RedraftAfterAnswerFailureLlm {
         fn complete(&self, request: LlmRequest) -> Result<LlmResponse, SorlaError> {
             assert_schema_response_format(request.response_format);
             self.calls.set(self.calls.get() + 1);
-            let content = match self.calls.get() {
-                1..=3 => serde_json::json!({
+            let is_planner = request.system_prompt.contains("planning step");
+            if is_planner {
+                self.planner_called.set(true);
+            }
+            let content = match (is_planner, self.planner_called.get()) {
+                (false, false) => serde_json::json!({
                     "schema_version": "0.5",
                     "flow": "create",
                     "output_dir": "target/invalid",
@@ -4347,8 +4359,7 @@ mod tests {
                     },
                     "output": { "include_agent_tools": true }
                 }),
-                4 => {
-                    assert!(request.system_prompt.contains("planning step"));
+                (true, _) => {
                     serde_json::json!({
                         "assistant_message": "I refreshed the draft.",
                         "assumptions": [],
@@ -4376,7 +4387,7 @@ mod tests {
                         "questions": []
                     })
                 }
-                _ => serde_json::json!({
+                (false, true) => serde_json::json!({
                     "schema_version": "0.5",
                     "flow": "create",
                     "output_dir": "target/redrafted",
@@ -5230,6 +5241,7 @@ mod tests {
         let engine = DefaultPromptAuthoringEngine::new(RedraftAfterAnswerFailureLlm {
             calls: Cell::new(0),
             refreshed_draft_has_records: true,
+            planner_called: Cell::new(false),
         });
         let session = session_with_damaged_draft(&engine);
 
@@ -5240,9 +5252,9 @@ mod tests {
         validate_answers_document(&answers).expect("refreshed-draft answers validate");
         // Not the model's answers: the refreshed draft is used directly.
         assert_eq!(answers["package"]["name"], "prompt-generated-sor");
-        // One generation plus two repairs, then the planner refresh. The
-        // second round of three answer calls must not happen.
-        assert_eq!(engine.llm.calls.get(), 4);
+        // One generation plus the repairs, then the planner refresh. The
+        // second round of answer calls must not happen.
+        assert_eq!(engine.llm.calls.get(), 1 + MAX_ANSWER_REPAIRS + 1);
     }
 
     #[test]
@@ -5250,6 +5262,7 @@ mod tests {
         let engine = DefaultPromptAuthoringEngine::new(RedraftAfterAnswerFailureLlm {
             calls: Cell::new(0),
             refreshed_draft_has_records: false,
+            planner_called: Cell::new(false),
         });
         let session = session_with_damaged_draft(&engine);
 
@@ -5258,7 +5271,8 @@ mod tests {
             .expect("the second round should succeed");
 
         assert_eq!(answers["package"]["name"], "redrafted-sor");
-        assert_eq!(engine.llm.calls.get(), 5);
+        // Generation, repair, planner refresh, then a second generation.
+        assert_eq!(engine.llm.calls.get(), 1 + MAX_ANSWER_REPAIRS + 1 + 1);
     }
 
     struct AlwaysInvalidAnswersLlm {
@@ -5311,8 +5325,8 @@ mod tests {
             .expect("the reviewed draft yields valid answers");
 
         validate_answers_document(&answers).expect("fallback answers validate");
-        // One generation plus two repairs, then the draft: no planner call.
-        assert_eq!(engine.llm.calls.get(), 3);
+        // One generation plus one repair, then the draft: no planner call.
+        assert_eq!(engine.llm.calls.get(), 1 + MAX_ANSWER_REPAIRS);
     }
 
     #[test]
