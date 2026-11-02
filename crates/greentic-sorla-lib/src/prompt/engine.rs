@@ -355,9 +355,7 @@ where
                 // required field it drops) fails the same way on the second
                 // pass, after several more minutes of calls.
                 // A draft with no records carries no plan to fall back to.
-                if !draft.records.is_empty()
-                    && let Ok(answers) = generate_staged_answers_from_draft(&draft)
-                {
+                if let Some(answers) = staged_answers_if_available(&draft) {
                     return Ok(answers);
                 }
                 apply_planner_output_if_needed(&self.llm, &llm_config, &mut session, false)?;
@@ -365,6 +363,15 @@ where
                     .draft_model
                     .clone()
                     .unwrap_or_else(|| draft_for_prompt(&business_prompt, &session.answers_so_far));
+                // The refresh exists to give us a draft with records. A model
+                // that just failed the answers schema three times is unlikely
+                // to pass it on the next three, and every call here can take
+                // minutes on a reasoning model, so the extension dispatch can
+                // run out of time before the second round ends. Build the
+                // answers from the refreshed draft before spending that round.
+                if let Some(answers) = staged_answers_if_available(&refreshed_draft) {
+                    return Ok(answers);
+                }
                 generate_answers_with_repair(
                     &self.llm,
                     &llm_config,
@@ -380,6 +387,15 @@ where
             }
         }
     }
+}
+
+/// The deterministic answers for `draft`, or `None` when the draft carries no
+/// records to build them from or the result does not validate.
+fn staged_answers_if_available(draft: &SorDesignDraft) -> Option<serde_json::Value> {
+    if draft.records.is_empty() {
+        return None;
+    }
+    generate_staged_answers_from_draft(draft).ok()
 }
 
 fn generate_staged_answers_from_draft(
@@ -4282,6 +4298,10 @@ mod tests {
 
     struct RedraftAfterAnswerFailureLlm {
         calls: Cell<usize>,
+        /// When false the planner refresh returns a draft with no records, so
+        /// the deterministic answers are unavailable and the model is asked
+        /// for answers a second time.
+        refreshed_draft_has_records: bool,
     }
 
     impl LlmCapability for RedraftAfterAnswerFailureLlm {
@@ -4334,11 +4354,15 @@ mod tests {
                         "assumptions": [],
                         "draft": {
                             "summary": "Refreshed case system",
-                            "records": [{
-                                "name": "case",
-                                "description": "A case.",
-                                "fields": [{ "name": "id", "type_name": "string", "required": true, "sensitive": false, "description": null }]
-                            }],
+                            "records": if self.refreshed_draft_has_records {
+                                serde_json::json!([{
+                                    "name": "case",
+                                    "description": "A case.",
+                                    "fields": [{ "name": "id", "type_name": "string", "required": true, "sensitive": false, "description": null }]
+                                }])
+                            } else {
+                                serde_json::json!([])
+                            },
                             "relationships": [],
                             "actions": [],
                             "events": [],
@@ -5182,11 +5206,9 @@ mod tests {
         assert_eq!(answers["package"]["name"], "repaired-sor");
     }
 
-    #[test]
-    fn answer_generation_refreshes_draft_after_exhausted_repair() {
-        let engine = DefaultPromptAuthoringEngine::new(RedraftAfterAnswerFailureLlm {
-            calls: Cell::new(0),
-        });
+    fn session_with_damaged_draft(
+        engine: &DefaultPromptAuthoringEngine<RedraftAfterAnswerFailureLlm>,
+    ) -> PromptSessionState {
         let mut session = engine.start_session(config()).unwrap();
         session.business_prompt = Some("Build a case system.".to_string());
         session.llm = Some(LlmCapabilityConfig {
@@ -5200,10 +5222,40 @@ mod tests {
             summary: "Damaged draft".to_string(),
             ..SorDesignDraft::default()
         });
+        session
+    }
+
+    #[test]
+    fn answer_generation_builds_from_the_refreshed_draft_after_exhausted_repair() {
+        let engine = DefaultPromptAuthoringEngine::new(RedraftAfterAnswerFailureLlm {
+            calls: Cell::new(0),
+            refreshed_draft_has_records: true,
+        });
+        let session = session_with_damaged_draft(&engine);
 
         let answers = engine
             .generate_answers(session)
-            .expect("redraft retry should succeed");
+            .expect("the refreshed draft yields valid answers");
+
+        validate_answers_document(&answers).expect("refreshed-draft answers validate");
+        // Not the model's answers: the refreshed draft is used directly.
+        assert_eq!(answers["package"]["name"], "prompt-generated-sor");
+        // One generation plus two repairs, then the planner refresh. The
+        // second round of three answer calls must not happen.
+        assert_eq!(engine.llm.calls.get(), 4);
+    }
+
+    #[test]
+    fn answer_generation_asks_the_model_again_when_the_refreshed_draft_has_no_records() {
+        let engine = DefaultPromptAuthoringEngine::new(RedraftAfterAnswerFailureLlm {
+            calls: Cell::new(0),
+            refreshed_draft_has_records: false,
+        });
+        let session = session_with_damaged_draft(&engine);
+
+        let answers = engine
+            .generate_answers(session)
+            .expect("the second round should succeed");
 
         assert_eq!(answers["package"]["name"], "redrafted-sor");
         assert_eq!(engine.llm.calls.get(), 5);
