@@ -1078,6 +1078,20 @@ fn sanitize_field_rules(field_type: &str, rules: &mut serde_json::Map<String, se
         serde_json::Value::String(text) => !text.trim().is_empty(),
         _ => true,
     });
+    // A model answering against the draft schema fills every property, and a
+    // `max_length` of 0 is its "no limit" filler: a string can never be
+    // required to be at least 1 character and at most 0, so the validator
+    // refused the whole document (`min_length must be less than or equal to
+    // max_length`) and the reviewed-draft fallback failed on it too. A zero
+    // `max_length` constrains nothing meaningful, so drop it. `min_length: 0`
+    // is a legitimate rule and stays.
+    if rules
+        .get("max_length")
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|limit| limit == 0)
+    {
+        rules.remove("max_length");
+    }
     if field_type != "decimal" {
         rules.remove("precision");
         rules.remove("scale");
@@ -1201,8 +1215,81 @@ fn normalize_answers_document_defaults(answers: &mut serde_json::Value) {
     normalize_record_field_references(answers, &record_fields);
     normalize_metric_items(answers, &record_names, &record_fields);
     normalize_metric_dependencies(answers);
+    normalize_projection_modes(answers);
+    normalize_metric_filter_operators(answers);
     normalize_declared_policy_references(answers);
     normalize_migration_backfills(answers, &record_fields);
+}
+
+/// The projection modes the answers schema accepts.
+const PROJECTION_MODES: [&str; 2] = ["current-state", "audit-trail"];
+
+/// Replaces a projection mode the schema does not know with `current-state`.
+///
+/// The mode names how a read model is kept, and a model describing a read
+/// model reaches for words like `eventual`. The validator refuses the whole
+/// document over it, repair pass included, although `current-state` is the
+/// default the author never chose against.
+fn normalize_projection_modes(answers: &mut serde_json::Value) {
+    let Some(projections) = answers
+        .get_mut("projections")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let fix = |mode: &mut serde_json::Value| {
+        let known = mode
+            .as_str()
+            .is_some_and(|text| PROJECTION_MODES.contains(&text));
+        if !known && !mode.is_null() {
+            *mode = serde_json::Value::String("current-state".to_string());
+        }
+    };
+    if let Some(mode) = projections.get_mut("mode") {
+        fix(mode);
+    }
+    if let Some(items) = projections
+        .get_mut("items")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for item in items {
+            if let Some(mode) = item.get_mut("mode") {
+                fix(mode);
+            }
+        }
+    }
+}
+
+/// Gives a metric filter without an `operator` the draft default, `equals`.
+///
+/// `DraftMetricFilter` already defaults a missing operator to `equals`; the
+/// answers document did not, so a model that wrote only `field` and `value`
+/// failed the parse (`missing field operator`).
+fn normalize_metric_filter_operators(answers: &mut serde_json::Value) {
+    let Some(items) = answers
+        .pointer_mut("/metrics/items")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for metric in items {
+        let Some(filters) = metric
+            .get_mut("filters")
+            .and_then(serde_json::Value::as_array_mut)
+        else {
+            continue;
+        };
+        for filter in filters {
+            if let Some(map) = filter.as_object_mut()
+                && !map.contains_key("operator")
+            {
+                map.insert(
+                    "operator".to_string(),
+                    serde_json::Value::String("equals".to_string()),
+                );
+            }
+        }
+    }
 }
 
 fn collect_record_field_catalog(answers: &serde_json::Value) -> RecordFieldCatalog {
@@ -5303,6 +5390,70 @@ mod tests {
                 usage: None,
             })
         }
+    }
+
+    #[test]
+    fn a_draft_with_zero_length_limits_still_yields_deterministic_answers() {
+        let ph = |max_length: u64, min_length: u64| {
+            serde_json::json!({
+                "after": "", "before": "", "max": "", "max_length": max_length,
+                "min": "", "min_length": min_length, "pattern": "",
+                "precision": 0, "scale": 0, "unique": false
+            })
+        };
+        let mut question = field("question", "string");
+        question.rules = Some(ph(0, 1));
+        let draft = SorDesignDraft {
+            summary: "Document review".to_string(),
+            records: vec![record("document_review", "A review", &[question])],
+            ..SorDesignDraft::default()
+        };
+
+        let answers = generate_staged_answers_from_draft(&draft)
+            .expect("max_length 0 is a placeholder, not a limit");
+
+        let rules = &answers["records"]["items"][0]["fields"][0]["rules"];
+        assert!(rules.get("max_length").is_none());
+    }
+
+    #[test]
+    fn an_unknown_projection_mode_becomes_current_state() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["projections"]["mode"] = serde_json::json!("eventual");
+        if let Some(item) = answers["projections"]["items"].get_mut(0) {
+            item["mode"] = serde_json::json!("eventual");
+        }
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["projections"]["mode"], "current-state");
+        if let Some(item) = answers["projections"]["items"].get(0) {
+            assert_eq!(item["mode"], "current-state");
+        }
+    }
+
+    #[test]
+    fn a_known_projection_mode_is_kept() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["projections"]["mode"] = serde_json::json!("audit-trail");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["projections"]["mode"], "audit-trail");
+    }
+
+    #[test]
+    fn a_metric_filter_without_an_operator_gets_equals() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["metrics"]["items"][0]["filters"] =
+            serde_json::json!([{ "field": "status", "value": "paid" }]);
+
+        normalize_metric_filter_operators(&mut answers);
+
+        assert_eq!(
+            answers["metrics"]["items"][0]["filters"][0]["operator"],
+            "equals"
+        );
     }
 
     #[test]
