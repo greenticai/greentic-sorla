@@ -338,6 +338,15 @@ where
             validate_answers_document(&answers)?;
             return Ok(answers);
         }
+        // The draft is the plan the author already reviewed, and it was written
+        // by the model in earlier turns. Turning it into answers needs no model:
+        // rewriting the whole document from it costs one long call (minutes on
+        // a reasoning model) and then repairs of the same size. Only when the
+        // draft carries no records, or its deterministic answers do not
+        // validate, is the model asked to write them.
+        if let Some(answers) = staged_answers_if_available(&draft) {
+            return Ok(answers);
+        }
 
         match generate_answers_with_repair(
             &self.llm,
@@ -5297,7 +5306,7 @@ mod tests {
     }
 
     #[test]
-    fn answer_generation_falls_back_to_the_reviewed_draft() {
+    fn answer_generation_uses_the_reviewed_draft_without_calling_the_model() {
         let engine = DefaultPromptAuthoringEngine::new(AlwaysInvalidAnswersLlm {
             calls: Cell::new(0),
         });
@@ -5324,9 +5333,10 @@ mod tests {
             .generate_answers(session)
             .expect("the reviewed draft yields valid answers");
 
-        validate_answers_document(&answers).expect("fallback answers validate");
-        // One generation plus one repair, then the draft: no planner call.
-        assert_eq!(engine.llm.calls.get(), 1 + MAX_ANSWER_REPAIRS);
+        validate_answers_document(&answers).expect("draft answers validate");
+        // A draft with records is turned into answers deterministically, so a
+        // reasoning model is never asked to rewrite the whole document.
+        assert_eq!(engine.llm.calls.get(), 0);
     }
 
     #[test]
