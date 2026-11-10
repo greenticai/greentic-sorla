@@ -1217,6 +1217,7 @@ fn normalize_answers_document_defaults(answers: &mut serde_json::Value) {
     normalize_metric_dependencies(answers);
     normalize_projection_modes(answers);
     normalize_provider_categories(answers);
+    normalize_agent_endpoint_policies(answers);
     normalize_metric_filter_operators(answers);
     normalize_declared_policy_references(answers);
     normalize_migration_backfills(answers, &record_fields);
@@ -1288,6 +1289,80 @@ fn normalize_provider_categories(answers: &mut serde_json::Value) {
             && value.as_str() != Some(valid)
         {
             *value = serde_json::Value::String(valid.to_string());
+        }
+    }
+}
+
+/// The risk levels the answers schema accepts.
+const RISK_LEVELS: [&str; 3] = ["low", "medium", "high"];
+
+/// The approval modes the answers schema accepts.
+const APPROVAL_MODES: [&str; 4] = ["none", "optional", "required", "policy-driven"];
+
+/// Maps a risk word the schema does not know to the schema's default,
+/// `medium`.
+fn known_risk(value: &str) -> &'static str {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "low" | "minimal" | "minor" | "safe" => "low",
+        "high" | "critical" | "severe" | "elevated" => "high",
+        _ => "medium",
+    }
+}
+
+/// Maps an approval word the schema does not know to a mode that never weakens
+/// the review a human asked for.
+///
+/// Words that name a human reviewing (`manual`, `human`) become `required`.
+/// Everything else becomes `policy-driven`, which defers to the policy instead
+/// of switching approval off: a model writing `auto` has not decided that
+/// nobody reviews the action, and turning that into `none` would decide it for
+/// them.
+fn known_approval(value: &str) -> &'static str {
+    let lowered = value.trim().to_ascii_lowercase();
+    if lowered.contains("manual") || lowered.contains("human") || lowered.contains("required") {
+        "required"
+    } else {
+        "policy-driven"
+    }
+}
+
+/// Replaces a risk or approval value the schema does not know, on the
+/// endpoint defaults and on each endpoint, instead of failing the whole
+/// document over it (repair pass included).
+fn normalize_agent_endpoint_policies(answers: &mut serde_json::Value) {
+    let Some(endpoints) = answers
+        .get_mut("agent_endpoints")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let fix = |object: &mut serde_json::Map<String, serde_json::Value>,
+               key: &str,
+               allowed: &[&str],
+               map: fn(&str) -> &'static str| {
+        if let Some(value) = object.get_mut(key)
+            && let Some(text) = value.as_str()
+            && !allowed.contains(&text)
+        {
+            *value = serde_json::Value::String(map(text).to_string());
+        }
+    };
+    fix(endpoints, "default_risk", &RISK_LEVELS, known_risk);
+    fix(
+        endpoints,
+        "default_approval",
+        &APPROVAL_MODES,
+        known_approval,
+    );
+    if let Some(items) = endpoints
+        .get_mut("items")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for item in items {
+            if let Some(item) = item.as_object_mut() {
+                fix(item, "risk", &RISK_LEVELS, known_risk);
+                fix(item, "approval", &APPROVAL_MODES, known_approval);
+            }
         }
     }
 }
@@ -5500,6 +5575,40 @@ mod tests {
         normalize_answers_json_for_validation(&mut answers);
 
         assert!(answers["providers"].get("external_ref_category").is_none());
+    }
+
+    #[test]
+    fn unknown_agent_endpoint_risk_and_approval_never_switch_review_off() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["agent_endpoints"]["default_approval"] = serde_json::json!("auto");
+        answers["agent_endpoints"]["default_risk"] = serde_json::json!("critical");
+        answers["agent_endpoints"]["items"][0]["approval"] = serde_json::json!("manual");
+        answers["agent_endpoints"]["items"][0]["risk"] = serde_json::json!("whatever");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(
+            answers["agent_endpoints"]["default_approval"],
+            "policy-driven"
+        );
+        assert_eq!(answers["agent_endpoints"]["default_risk"], "high");
+        assert_eq!(
+            answers["agent_endpoints"]["items"][0]["approval"],
+            "required"
+        );
+        assert_eq!(answers["agent_endpoints"]["items"][0]["risk"], "medium");
+    }
+
+    #[test]
+    fn known_agent_endpoint_risk_and_approval_are_kept() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["agent_endpoints"]["default_approval"] = serde_json::json!("none");
+        answers["agent_endpoints"]["default_risk"] = serde_json::json!("low");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["agent_endpoints"]["default_approval"], "none");
+        assert_eq!(answers["agent_endpoints"]["default_risk"], "low");
     }
 
     #[test]
