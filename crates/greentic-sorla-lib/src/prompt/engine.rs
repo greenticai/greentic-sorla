@@ -1216,6 +1216,7 @@ fn normalize_answers_document_defaults(answers: &mut serde_json::Value) {
     normalize_metric_items(answers, &record_names, &record_fields);
     normalize_metric_dependencies(answers);
     normalize_projection_modes(answers);
+    normalize_provider_categories(answers);
     normalize_metric_filter_operators(answers);
     normalize_declared_policy_references(answers);
     normalize_migration_backfills(answers, &record_fields);
@@ -1256,6 +1257,37 @@ fn normalize_projection_modes(answers: &mut serde_json::Value) {
             if let Some(mode) = item.get_mut("mode") {
                 fix(mode);
             }
+        }
+    }
+}
+
+/// Provider categories are constants, not choices: the wizard accepts exactly
+/// one value for each.
+const PROVIDER_CATEGORIES: [(&str, &str); 2] = [
+    ("storage_category", "storage"),
+    ("external_ref_category", "external-ref"),
+];
+
+/// Replaces a provider category the schema does not know with its only valid
+/// value.
+///
+/// A model describing storage reaches for the backend kind (`sql`, `postgres`)
+/// instead of the category `storage`. The validator refused the whole document
+/// over it, repair pass included, because the schema never said the value was
+/// fixed.
+fn normalize_provider_categories(answers: &mut serde_json::Value) {
+    let Some(providers) = answers
+        .get_mut("providers")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    for (key, valid) in PROVIDER_CATEGORIES {
+        if let Some(value) = providers.get_mut(key)
+            && !value.is_null()
+            && value.as_str() != Some(valid)
+        {
+            *value = serde_json::Value::String(valid.to_string());
         }
     }
 }
@@ -2545,8 +2577,8 @@ fn answers_response_schema_json() -> serde_json::Value {
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "storage_category": { "type": "string" },
-        "external_ref_category": { "type": "string" },
+        "storage_category": { "type": "string", "enum": ["storage"] },
+        "external_ref_category": { "type": "string", "enum": ["external-ref"] },
         "hints": { "type": "array", "items": { "type": "string" } }
       }
     },
@@ -5440,6 +5472,34 @@ mod tests {
         normalize_answers_json_for_validation(&mut answers);
 
         assert_eq!(answers["projections"]["mode"], "audit-trail");
+    }
+
+    #[test]
+    fn an_unknown_provider_category_becomes_its_only_valid_value() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["providers"]["storage_category"] = serde_json::json!("sql");
+        answers["providers"]["external_ref_category"] = serde_json::json!("crm");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["providers"]["storage_category"], "storage");
+        assert_eq!(
+            answers["providers"]["external_ref_category"],
+            "external-ref"
+        );
+    }
+
+    #[test]
+    fn a_missing_provider_category_stays_missing() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["providers"]
+            .as_object_mut()
+            .unwrap()
+            .remove("external_ref_category");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert!(answers["providers"].get("external_ref_category").is_none());
     }
 
     #[test]
