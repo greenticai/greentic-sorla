@@ -1217,6 +1217,8 @@ fn normalize_answers_document_defaults(answers: &mut serde_json::Value) {
     normalize_metric_dependencies(answers);
     normalize_projection_modes(answers);
     normalize_provider_categories(answers);
+    normalize_categorical_enums(answers);
+    normalize_agent_endpoint_exports(answers);
     normalize_agent_endpoint_policies(answers);
     normalize_metric_filter_operators(answers);
     normalize_declared_policy_references(answers);
@@ -1291,6 +1293,139 @@ fn normalize_provider_categories(answers: &mut serde_json::Value) {
             *value = serde_json::Value::String(valid.to_string());
         }
     }
+}
+
+/// Export formats the agent endpoint generator can produce.
+const AGENT_ENDPOINT_EXPORTS: [&str; 4] = ["openapi", "arazzo", "mcp", "llms_txt"];
+
+/// Categorical answer fields: where they live, what the schema accepts, and
+/// the value to use when the model wrote something else.
+///
+/// Each segment is a key; a trailing `[]` walks every element of an array.
+/// The fallback is the neutral choice for a new System of Record, never one
+/// that widens access or switches a safeguard off. Fields whose wrong value
+/// changes what the answers mean (metric aggregates, operators, windows) are
+/// deliberately absent: those keep going through the repair pass.
+const CATEGORICAL_ENUMS: &[(&str, &[&str], &str)] = &[
+    (
+        "records.default_source",
+        &["native", "external", "hybrid"],
+        "native",
+    ),
+    (
+        "records.items[].source",
+        &["native", "external", "hybrid"],
+        "native",
+    ),
+    (
+        "records.items[].fields[].authority",
+        &["local", "external"],
+        "local",
+    ),
+    ("events.items[].kind", &["domain", "integration"], "domain"),
+    (
+        "migrations.compatibility",
+        &["additive", "backward-compatible", "breaking"],
+        "additive",
+    ),
+    (
+        "migrations.items[].compatibility",
+        &["additive", "backward-compatible", "breaking"],
+        "additive",
+    ),
+];
+
+/// Lowercases and folds `_` and spaces to `-`, so `Policy_Driven` meets
+/// `policy-driven`.
+fn fold_choice(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['_', ' '], "-")
+}
+
+/// Keeps a value the schema accepts, recovers a near-spelling of one, and
+/// otherwise uses `fallback`. Non-strings are left for the validator to report.
+fn snap_choice(value: &mut serde_json::Value, allowed: &[&str], fallback: &str) {
+    let Some(text) = value.as_str() else {
+        return;
+    };
+    if allowed.contains(&text) {
+        return;
+    }
+    let folded = fold_choice(text);
+    let chosen = allowed
+        .iter()
+        .find(|candidate| fold_choice(candidate) == folded)
+        .copied()
+        .unwrap_or(fallback);
+    *value = serde_json::Value::String(chosen.to_string());
+}
+
+fn snap_path(value: &mut serde_json::Value, segments: &[&str], allowed: &[&str], fallback: &str) {
+    let Some((first, rest)) = segments.split_first() else {
+        snap_choice(value, allowed, fallback);
+        return;
+    };
+    let (key, each) = match first.strip_suffix("[]") {
+        Some(key) => (key, true),
+        None => (*first, false),
+    };
+    let Some(child) = value.get_mut(key) else {
+        return;
+    };
+    if each {
+        if let Some(items) = child.as_array_mut() {
+            for item in items {
+                snap_path(item, rest, allowed, fallback);
+            }
+        }
+    } else {
+        snap_path(child, rest, allowed, fallback);
+    }
+}
+
+/// Snaps every field in `CATEGORICAL_ENUMS` to a value the schema accepts, so
+/// one invented word (`primary`, `hybrid-ish`) does not fail the whole document
+/// through the repair pass and the draft refresh alike.
+fn normalize_categorical_enums(answers: &mut serde_json::Value) {
+    for (path, allowed, fallback) in CATEGORICAL_ENUMS {
+        let segments: Vec<&str> = path.split('.').collect();
+        snap_path(answers, &segments, allowed, fallback);
+    }
+}
+
+/// Drops export formats the generator cannot produce (a model writes `sorx`,
+/// `json`, `graphql`). Exports are optional extras, so dropping one never
+/// changes what the System of Record means; a list that ends up empty is
+/// removed rather than left as `[]`.
+fn normalize_agent_endpoint_exports(answers: &mut serde_json::Value) {
+    let Some(endpoints) = answers
+        .get_mut("agent_endpoints")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let Some(exports) = endpoints
+        .get_mut("exports")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    let mut kept: Vec<serde_json::Value> = Vec::new();
+    for export in exports.iter() {
+        let Some(text) = export.as_str() else {
+            continue;
+        };
+        let folded = text.trim().to_ascii_lowercase().replace(['-', ' '], "_");
+        if let Some(known) = AGENT_ENDPOINT_EXPORTS
+            .iter()
+            .find(|known| **known == folded)
+        {
+            let value = serde_json::Value::String((*known).to_string());
+            if !kept.contains(&value) {
+                kept.push(value);
+            }
+        }
+    }
+    *exports = kept;
 }
 
 /// The risk levels the answers schema accepts.
@@ -5609,6 +5744,51 @@ mod tests {
 
         assert_eq!(answers["agent_endpoints"]["default_approval"], "none");
         assert_eq!(answers["agent_endpoints"]["default_risk"], "low");
+    }
+
+    #[test]
+    fn an_invented_categorical_value_snaps_to_a_valid_one() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["records"]["default_source"] = serde_json::json!("primary");
+        answers["records"]["items"][0]["source"] = serde_json::json!("External");
+        answers["migrations"]["compatibility"] = serde_json::json!("Backward_Compatible");
+        answers["events"] = serde_json::json!({ "items": [{ "name": "x", "kind": "internal" }] });
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["records"]["default_source"], "native");
+        assert_eq!(answers["records"]["items"][0]["source"], "external");
+        assert_eq!(
+            answers["migrations"]["compatibility"],
+            "backward-compatible"
+        );
+        assert_eq!(answers["events"]["items"][0]["kind"], "domain");
+    }
+
+    #[test]
+    fn valid_categorical_values_and_absent_fields_are_untouched() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["records"]["default_source"] = serde_json::json!("hybrid");
+        answers.as_object_mut().unwrap().remove("migrations");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(answers["records"]["default_source"], "hybrid");
+        assert!(answers.get("migrations").is_none());
+    }
+
+    #[test]
+    fn unsupported_agent_endpoint_exports_are_dropped() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["agent_endpoints"]["exports"] =
+            serde_json::json!(["openapi", "sorx", "MCP", "llms-txt", "openapi", "graphql"]);
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert_eq!(
+            answers["agent_endpoints"]["exports"],
+            serde_json::json!(["openapi", "mcp", "llms_txt"])
+        );
     }
 
     #[test]
