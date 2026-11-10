@@ -1953,6 +1953,22 @@ fn normalize_metric_dependencies(answers: &mut serde_json::Value) {
             continue;
         }
 
+        let formula_dependencies = formula_metric_references(
+            metric
+                .get("formula")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+            &metric_names,
+            &metric_name,
+        );
+        if !formula_dependencies.is_empty() {
+            metric.insert(
+                "depends_on".to_string(),
+                serde_json::Value::Array(formula_dependencies),
+            );
+            continue;
+        }
+
         let fallback_dependencies = metric_names
             .iter()
             .take(index)
@@ -1967,6 +1983,33 @@ fn normalize_metric_dependencies(answers: &mut serde_json::Value) {
             serde_json::Value::Array(fallback_dependencies),
         );
     }
+}
+
+/// Names of the metrics a formula's text refers to, in order of first
+/// appearance, excluding the metric itself.
+///
+/// A model that writes `paid / total` and leaves `depends_on` empty has
+/// already said what the formula reads; guessing "the metrics listed before it"
+/// instead fails for the first metric (nothing precedes it) and is wrong for
+/// any other.
+fn formula_metric_references(
+    formula: &str,
+    metric_names: &[String],
+    own_name: &str,
+) -> Vec<serde_json::Value> {
+    let mut found: Vec<&str> = Vec::new();
+    for token in formula.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+        if token.is_empty() || token == own_name {
+            continue;
+        }
+        if metric_names.iter().any(|name| name == token) && !found.contains(&token) {
+            found.push(token);
+        }
+    }
+    found
+        .into_iter()
+        .map(|name| serde_json::Value::String(name.to_string()))
+        .collect()
 }
 
 fn normalize_declared_policy_references(answers: &mut serde_json::Value) {
@@ -5788,6 +5831,47 @@ mod tests {
         assert_eq!(
             answers["agent_endpoints"]["exports"],
             serde_json::json!(["openapi", "mcp", "llms_txt"])
+        );
+    }
+
+    #[test]
+    fn a_formula_metric_without_depends_on_reads_them_from_its_formula() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["metrics"] = serde_json::json!({
+            "enabled": true,
+            "items": [
+                { "name": "paid_ratio", "formula": "paid_orders / total_orders" },
+                { "name": "paid_orders" },
+                { "name": "total_orders" }
+            ]
+        });
+
+        normalize_metric_dependencies(&mut answers);
+
+        let items = &answers["metrics"]["items"];
+        assert_eq!(
+            items[0]["depends_on"],
+            serde_json::json!(["paid_orders", "total_orders"])
+        );
+        assert_eq!(items[1]["depends_on"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn a_formula_naming_no_metric_still_falls_back_to_earlier_metrics() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["metrics"] = serde_json::json!({
+            "enabled": true,
+            "items": [
+                { "name": "paid_orders" },
+                { "name": "ratio", "formula": "a / b" }
+            ]
+        });
+
+        normalize_metric_dependencies(&mut answers);
+
+        assert_eq!(
+            answers["metrics"]["items"][1]["depends_on"],
+            serde_json::json!(["paid_orders"])
         );
     }
 
