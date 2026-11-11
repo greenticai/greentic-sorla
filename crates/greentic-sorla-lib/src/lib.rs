@@ -43,6 +43,7 @@ mod embedded_i18n {
     include!(concat!(env!("OUT_DIR"), "/embedded_i18n.rs"));
 }
 
+pub(crate) mod choices;
 pub mod compiler;
 pub mod prompt;
 
@@ -6878,7 +6879,7 @@ fn validate_answers_document(
             .records
             .as_ref()
             .and_then(|records| records.default_source.as_deref()),
-        &["native", "external", "hybrid"],
+        crate::choices::SOURCES,
         "records.default_source",
     )?;
     validate_choice(
@@ -6886,7 +6887,7 @@ fn validate_answers_document(
             .projections
             .as_ref()
             .and_then(|projections| projections.mode.as_deref()),
-        &["current-state", "audit-trail"],
+        crate::choices::PROJECTION_MODES,
         "projections.mode",
     )?;
     validate_choice(
@@ -6894,7 +6895,7 @@ fn validate_answers_document(
             .migrations
             .as_ref()
             .and_then(|migrations| migrations.compatibility.as_deref()),
-        &["additive", "backward-compatible", "breaking"],
+        crate::choices::MIGRATION_COMPATIBILITY,
         "migrations.compatibility",
     )?;
     validate_choice(
@@ -6902,7 +6903,7 @@ fn validate_answers_document(
             .providers
             .as_ref()
             .and_then(|providers| providers.storage_category.as_deref()),
-        &["storage"],
+        crate::choices::STORAGE_CATEGORIES,
         "providers.storage_category",
     )?;
     validate_choice(
@@ -6910,7 +6911,7 @@ fn validate_answers_document(
             .providers
             .as_ref()
             .and_then(|providers| providers.external_ref_category.as_deref()),
-        &["external-ref"],
+        crate::choices::EXTERNAL_REF_CATEGORIES,
         "providers.external_ref_category",
     )?;
     validate_choice(
@@ -6918,7 +6919,7 @@ fn validate_answers_document(
             .agent_endpoints
             .as_ref()
             .and_then(|agent_endpoints| agent_endpoints.default_risk.as_deref()),
-        &["low", "medium", "high"],
+        crate::choices::RISK_LEVELS,
         "agent_endpoints.default_risk",
     )?;
     validate_choice(
@@ -6926,19 +6927,19 @@ fn validate_answers_document(
             .agent_endpoints
             .as_ref()
             .and_then(|agent_endpoints| agent_endpoints.default_approval.as_deref()),
-        &["none", "optional", "required", "policy-driven"],
+        crate::choices::APPROVAL_MODES,
         "agent_endpoints.default_approval",
     )?;
     if let Some(agent_endpoints) = &answers.agent_endpoints {
         for (index, endpoint) in agent_endpoints.items.iter().enumerate() {
             validate_choice(
                 endpoint.risk.as_deref(),
-                &["low", "medium", "high"],
+                crate::choices::RISK_LEVELS,
                 &format!("agent_endpoints.items[{index}].risk"),
             )?;
             validate_choice(
                 endpoint.approval.as_deref(),
-                &["none", "optional", "required", "policy-driven"],
+                crate::choices::APPROVAL_MODES,
                 &format!("agent_endpoints.items[{index}].approval"),
             )?;
         }
@@ -6969,7 +6970,7 @@ fn validate_answers_document(
 
             if let Some(exports) = &agent_endpoints.exports {
                 for export in exports {
-                    if !["openapi", "arazzo", "mcp", "llms_txt"].contains(&export.as_str()) {
+                    if !crate::choices::AGENT_ENDPOINT_EXPORTS.contains(&export.as_str()) {
                         return Err(format!(
                             "agent_endpoints.exports contains unsupported export `{export}`"
                         ));
@@ -7030,7 +7031,7 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
             require_non_empty(&record.name, &format!("records.items[{record_index}].name"))?;
             validate_choice(
                 record.source.as_deref(),
-                &["native", "external", "hybrid"],
+                crate::choices::SOURCES,
                 &format!("records.items[{record_index}].source"),
             )?;
             if !record_names.insert(record.name.clone()) {
@@ -7058,7 +7059,7 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
                 )?;
                 validate_choice(
                     field.authority.as_deref(),
-                    &["local", "external"],
+                    crate::choices::AUTHORITIES,
                     &format!("records.items[{record_index}].fields[{field_index}].authority"),
                 )?;
                 validate_enum_values(
@@ -7125,7 +7126,7 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
             )?;
             validate_choice(
                 event.kind.as_deref(),
-                &["domain", "integration"],
+                crate::choices::EVENT_KINDS,
                 &format!("events.items[{event_index}].kind"),
             )?;
             if !record_fields.is_empty() && !record_fields.contains_key(&event.record) {
@@ -7162,7 +7163,7 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
             )?;
             validate_choice(
                 projection.mode.as_deref(),
-                &["current-state", "audit-trail"],
+                crate::choices::PROJECTION_MODES,
                 &format!("projections.items[{projection_index}].mode"),
             )?;
             if !record_fields.is_empty() && !record_fields.contains_key(&projection.record) {
@@ -7212,7 +7213,7 @@ fn validate_rich_answers(answers: &AnswersDocument) -> Result<(), String> {
             )?;
             validate_choice(
                 migration.compatibility.as_deref(),
-                &["additive", "backward-compatible", "breaking"],
+                crate::choices::MIGRATION_COMPATIBILITY,
                 &format!("migrations.items[{migration_index}].compatibility"),
             )?;
             if !migration_names.insert(migration.name.clone()) {
@@ -7400,7 +7401,7 @@ fn validate_ontology_answers(
         validate_url_safe_id(&concept.id, &format!("{path}.id"))?;
         validate_choice(
             Some(concept.kind.as_str()),
-            &["abstract", "entity"],
+            crate::choices::ONTOLOGY_CONCEPT_KINDS,
             &format!("{path}.kind"),
         )?;
         if !concept_ids.insert(concept.id.clone()) {
@@ -7463,12 +7464,12 @@ fn validate_ontology_answers(
         if let Some(cardinality) = &relationship.cardinality {
             validate_choice(
                 Some(cardinality.from.as_str()),
-                &["one", "many"],
+                crate::choices::CARDINALITY,
                 &format!("{path}.cardinality.from"),
             )?;
             validate_choice(
                 Some(cardinality.to.as_str()),
-                &["one", "many"],
+                crate::choices::CARDINALITY,
                 &format!("{path}.cardinality.to"),
             )?;
         }
@@ -7584,7 +7585,7 @@ fn validate_metric_answers(
                 .ok_or_else(|| format!("{path}.source is required for aggregate metrics"))?;
             validate_choice(
                 Some(source.kind.as_str()),
-                &["record", "event", "projection"],
+                crate::choices::METRIC_SOURCE_KINDS,
                 &format!("{path}.source.kind"),
             )?;
             match source.kind.as_str() {
@@ -7618,16 +7619,7 @@ fn validate_metric_answers(
                 .ok_or_else(|| format!("{path}.measure is required for aggregate metrics"))?;
             validate_choice(
                 Some(measure.aggregate.as_str()),
-                &[
-                    "count",
-                    "sum",
-                    "avg",
-                    "average",
-                    "min",
-                    "max",
-                    "distinct_count",
-                    "count_distinct",
-                ],
+                crate::choices::METRIC_AGGREGATES,
                 &format!("{path}.measure.aggregate"),
             )?;
             if measure.aggregate != "count"
@@ -7666,18 +7658,7 @@ fn validate_metric_answers(
             require_non_empty(&filter.field, &format!("{filter_path}.field"))?;
             validate_choice(
                 Some(filter.operator.as_str()),
-                &[
-                    "equals",
-                    "not_equals",
-                    "in",
-                    "not_in",
-                    "gt",
-                    "gte",
-                    "lt",
-                    "lte",
-                    "exists",
-                    "not_exists",
-                ],
+                crate::choices::FILTER_OPERATORS,
                 &format!("{filter_path}.operator"),
             )?;
         }
@@ -7685,14 +7666,14 @@ fn validate_metric_answers(
             require_non_empty(&time.field, &format!("{path}.time.field"))?;
             validate_choice(
                 Some(time.grain.as_str()),
-                &["hour", "day", "week", "month", "quarter", "year"],
+                crate::choices::TIME_GRAINS,
                 &format!("{path}.time.grain"),
             )?;
         }
         if let Some(window) = &metric.window {
             validate_choice(
                 Some(window.mode.as_str()),
-                &["rolling"],
+                crate::choices::WINDOW_MODES,
                 &format!("{path}.window.mode"),
             )?;
             if window.size == 0 {
@@ -7700,14 +7681,14 @@ fn validate_metric_answers(
             }
             validate_choice(
                 Some(window.unit.as_str()),
-                &["hours", "days", "weeks", "months", "quarters", "years"],
+                crate::choices::WINDOW_UNITS,
                 &format!("{path}.window.unit"),
             )?;
         }
         if let Some(target) = &metric.target {
             validate_choice(
                 Some(target.operator.as_str()),
-                &[">", ">=", "<", "<=", "==", "!="],
+                crate::choices::TARGET_OPERATORS,
                 &format!("{path}.target.operator"),
             )?;
         }
@@ -7951,7 +7932,7 @@ fn validate_retrieval_binding_answers(
         }
         validate_choice(
             scope.permission.as_deref(),
-            &["inherit", "public-metadata-only", "requires-policy"],
+            crate::choices::POLICY_PERMISSIONS,
             &format!("{path}.permission"),
         )?;
         if let Some(filters) = &scope.filters
@@ -7968,7 +7949,7 @@ fn validate_retrieval_binding_answers(
                 }
                 validate_choice(
                     Some(rule.direction.as_str()),
-                    &["incoming", "outgoing", "both"],
+                    crate::choices::RULE_DIRECTIONS,
                     &format!("{rule_path}.direction"),
                 )?;
                 if rule.max_depth > 5 {
