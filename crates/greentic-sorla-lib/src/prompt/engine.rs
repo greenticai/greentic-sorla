@@ -1503,6 +1503,34 @@ fn normalize_agent_endpoint_policies(answers: &mut serde_json::Value) {
     }
 }
 
+/// Maps the other ways of writing a metric filter operator (`is_not_null`,
+/// `!=`, `greater_than`) to the one the schema accepts.
+///
+/// Only true synonyms are mapped. An operator with no equivalent (`contains`,
+/// `between`) is left alone for the validator to report: choosing a
+/// substitute would change what the metric counts.
+fn canonical_filter_operator(operator: &str) -> Option<&'static str> {
+    let folded = operator
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_");
+    Some(match folded.as_str() {
+        "equals" | "equal" | "eq" | "is" | "==" | "=" => "equals",
+        "not_equals" | "not_equal" | "ne" | "neq" | "!=" | "<>" => "not_equals",
+        "in" | "one_of" => "in",
+        "not_in" | "nin" => "not_in",
+        "gt" | ">" | "greater_than" => "gt",
+        "gte" | ">=" | "ge" | "greater_than_or_equal" | "greater_or_equal" => "gte",
+        "lt" | "<" | "less_than" => "lt",
+        "lte" | "<=" | "le" | "less_than_or_equal" | "less_or_equal" => "lte",
+        "exists" | "is_not_null" | "not_null" | "is_not_empty" | "not_empty" | "has_value"
+        | "is_set" | "present" => "exists",
+        "not_exists" | "is_null" | "null" | "is_empty" | "empty" | "missing" | "not_set"
+        | "absent" => "not_exists",
+        _ => return None,
+    })
+}
+
 /// Gives a metric filter without an `operator` the draft default, `equals`.
 ///
 /// `DraftMetricFilter` already defaults a missing operator to `equals`; the
@@ -1523,13 +1551,22 @@ fn normalize_metric_filter_operators(answers: &mut serde_json::Value) {
             continue;
         };
         for filter in filters {
-            if let Some(map) = filter.as_object_mut()
-                && !map.contains_key("operator")
-            {
-                map.insert(
-                    "operator".to_string(),
-                    serde_json::Value::String("equals".to_string()),
-                );
+            if let Some(map) = filter.as_object_mut() {
+                match map.get_mut("operator") {
+                    None => {
+                        map.insert(
+                            "operator".to_string(),
+                            serde_json::Value::String("equals".to_string()),
+                        );
+                    }
+                    Some(operator) => {
+                        if let Some(canonical) =
+                            operator.as_str().and_then(canonical_filter_operator)
+                        {
+                            *operator = serde_json::Value::String(canonical.to_string());
+                        }
+                    }
+                }
             }
         }
     }
@@ -5982,6 +6019,22 @@ mod tests {
             .expect("baseline answers generate")
     }
 
+    /// Answers for a metrics scenario that validate untouched.
+    fn valid_metric_answers() -> serde_json::Value {
+        let engine = DefaultPromptAuthoringEngine::new(FakePromptLlm);
+        let output = engine
+            .next_turn(PromptTurnInput {
+                session: engine.start_session(config()).unwrap(),
+                user_message:
+                    "Track clicks, revenue, costs, gross margin, ROAS and KPI dashboards monthly."
+                        .to_string(),
+            })
+            .unwrap();
+        engine
+            .generate_answers(output.session)
+            .expect("baseline metric answers generate")
+    }
+
     /// Every failure seen on the hosted designer, replayed through the same
     /// path a generated document takes (`normalize` then the full validator).
     /// Add the next real failure here before fixing it, so a regression of any
@@ -6041,6 +6094,22 @@ mod tests {
             validate_answers_document(&answers)
                 .unwrap_or_else(|error| panic!("`{label}` was not recovered: {error}"));
         }
+
+        // Failures that need a metrics scenario as their starting point.
+        let metric_damage: Vec<(&str, Damage)> = vec![(
+            "metric filter operator is_not_null",
+            Box::new(|a| {
+                a["metrics"]["items"][0]["filters"] =
+                    serde_json::json!([{ "field": "status", "operator": "is_not_null" }]);
+            }),
+        )];
+        for (label, apply) in metric_damage {
+            let mut answers = valid_metric_answers();
+            apply(&mut answers);
+            normalize_answers_json_for_validation(&mut answers);
+            validate_answers_document(&answers)
+                .unwrap_or_else(|error| panic!("`{label}` was not recovered: {error}"));
+        }
     }
 
     #[test]
@@ -6072,6 +6141,25 @@ mod tests {
                 .as_array()
                 .is_none_or(|events| events.iter().all(|event| event["name"] != "pitch_created"))
         );
+    }
+
+    #[test]
+    fn metric_filter_operator_synonyms_map_and_unknown_ones_are_left_alone() {
+        let mut answers = waiting_list_answers_from_draft();
+        answers["metrics"]["items"][0]["filters"] = serde_json::json!([
+            { "field": "a", "operator": "IS_NOT_NULL" },
+            { "field": "b", "operator": "!=", "value": "x" },
+            { "field": "c", "operator": "greater than", "value": 1 },
+            { "field": "d", "operator": "between" }
+        ]);
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        let filters = &answers["metrics"]["items"][0]["filters"];
+        assert_eq!(filters[0]["operator"], "exists");
+        assert_eq!(filters[1]["operator"], "not_equals");
+        assert_eq!(filters[2]["operator"], "gt");
+        assert_eq!(filters[3]["operator"], "between");
     }
 
     #[test]
