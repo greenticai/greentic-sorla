@@ -1215,8 +1215,6 @@ fn normalize_answers_document_defaults(answers: &mut serde_json::Value) {
     normalize_record_field_references(answers, &record_fields);
     normalize_metric_items(answers, &record_names, &record_fields);
     normalize_metric_dependencies(answers);
-    normalize_projection_modes(answers);
-    normalize_provider_categories(answers);
     normalize_categorical_enums(answers);
     normalize_agent_endpoint_exports(answers);
     normalize_dangling_projection_events(answers);
@@ -1225,116 +1223,6 @@ fn normalize_answers_document_defaults(answers: &mut serde_json::Value) {
     normalize_declared_policy_references(answers);
     normalize_migration_backfills(answers, &record_fields);
 }
-
-/// The projection modes the answers schema accepts.
-const PROJECTION_MODES: [&str; 2] = ["current-state", "audit-trail"];
-
-/// Replaces a projection mode the schema does not know with `current-state`.
-///
-/// The mode names how a read model is kept, and a model describing a read
-/// model reaches for words like `eventual`. The validator refuses the whole
-/// document over it, repair pass included, although `current-state` is the
-/// default the author never chose against.
-fn normalize_projection_modes(answers: &mut serde_json::Value) {
-    let Some(projections) = answers
-        .get_mut("projections")
-        .and_then(serde_json::Value::as_object_mut)
-    else {
-        return;
-    };
-    let fix = |mode: &mut serde_json::Value| {
-        let known = mode
-            .as_str()
-            .is_some_and(|text| PROJECTION_MODES.contains(&text));
-        if !known && !mode.is_null() {
-            *mode = serde_json::Value::String("current-state".to_string());
-        }
-    };
-    if let Some(mode) = projections.get_mut("mode") {
-        fix(mode);
-    }
-    if let Some(items) = projections
-        .get_mut("items")
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        for item in items {
-            if let Some(mode) = item.get_mut("mode") {
-                fix(mode);
-            }
-        }
-    }
-}
-
-/// Provider categories are constants, not choices: the wizard accepts exactly
-/// one value for each.
-const PROVIDER_CATEGORIES: [(&str, &str); 2] = [
-    ("storage_category", "storage"),
-    ("external_ref_category", "external-ref"),
-];
-
-/// Replaces a provider category the schema does not know with its only valid
-/// value.
-///
-/// A model describing storage reaches for the backend kind (`sql`, `postgres`)
-/// instead of the category `storage`. The validator refused the whole document
-/// over it, repair pass included, because the schema never said the value was
-/// fixed.
-fn normalize_provider_categories(answers: &mut serde_json::Value) {
-    let Some(providers) = answers
-        .get_mut("providers")
-        .and_then(serde_json::Value::as_object_mut)
-    else {
-        return;
-    };
-    for (key, valid) in PROVIDER_CATEGORIES {
-        if let Some(value) = providers.get_mut(key)
-            && !value.is_null()
-            && value.as_str() != Some(valid)
-        {
-            *value = serde_json::Value::String(valid.to_string());
-        }
-    }
-}
-
-/// Export formats the agent endpoint generator can produce.
-const AGENT_ENDPOINT_EXPORTS: [&str; 4] = ["openapi", "arazzo", "mcp", "llms_txt"];
-
-/// Categorical answer fields: where they live, what the schema accepts, and
-/// the value to use when the model wrote something else.
-///
-/// Each segment is a key; a trailing `[]` walks every element of an array.
-/// The fallback is the neutral choice for a new System of Record, never one
-/// that widens access or switches a safeguard off. Fields whose wrong value
-/// changes what the answers mean (metric aggregates, operators, windows) are
-/// deliberately absent: those keep going through the repair pass.
-const CATEGORICAL_ENUMS: &[(&str, &[&str], &str)] = &[
-    (
-        "records.default_source",
-        &["native", "external", "hybrid"],
-        "native",
-    ),
-    (
-        "records.items[].source",
-        &["native", "external", "hybrid"],
-        "native",
-    ),
-    (
-        "records.items[].fields[].authority",
-        &["local", "external"],
-        "local",
-    ),
-    ("events.items[].kind", &["domain", "integration"], "domain"),
-    (
-        "migrations.compatibility",
-        &["additive", "backward-compatible", "breaking"],
-        "additive",
-    ),
-    (
-        "migrations.items[].compatibility",
-        &["additive", "backward-compatible", "breaking"],
-        "additive",
-    ),
-];
 
 /// Lowercases and folds `_` and spaces to `-`, so `Policy_Driven` meets
 /// `policy-driven`.
@@ -1383,13 +1271,18 @@ fn snap_path(value: &mut serde_json::Value, segments: &[&str], allowed: &[&str],
     }
 }
 
-/// Snaps every field in `CATEGORICAL_ENUMS` to a value the schema accepts, so
-/// one invented word (`primary`, `hybrid-ish`) does not fail the whole document
-/// through the repair pass and the draft refresh alike.
+/// Snaps every closed-set field in `choices::CHOICE_FIELDS` that has a neutral
+/// fallback to a value the schema accepts, so one invented word (`primary`,
+/// `sql`, `eventual`) does not fail the whole document through the repair pass
+/// and the draft refresh alike. Fields without a fallback are left for the
+/// validator: guessing there would change what the document means.
 fn normalize_categorical_enums(answers: &mut serde_json::Value) {
-    for (path, allowed, fallback) in CATEGORICAL_ENUMS {
-        let segments: Vec<&str> = path.split('.').collect();
-        snap_path(answers, &segments, allowed, fallback);
+    for choice in crate::choices::CHOICE_FIELDS {
+        let Some(fallback) = choice.fallback else {
+            continue;
+        };
+        let segments: Vec<&str> = choice.path.split('.').collect();
+        snap_path(answers, &segments, choice.values, fallback);
     }
 }
 
@@ -1416,7 +1309,7 @@ fn normalize_agent_endpoint_exports(answers: &mut serde_json::Value) {
             continue;
         };
         let folded = text.trim().to_ascii_lowercase().replace(['-', ' '], "_");
-        if let Some(known) = AGENT_ENDPOINT_EXPORTS
+        if let Some(known) = crate::choices::AGENT_ENDPOINT_EXPORTS
             .iter()
             .find(|known| **known == folded)
         {
@@ -1428,12 +1321,6 @@ fn normalize_agent_endpoint_exports(answers: &mut serde_json::Value) {
     }
     *exports = kept;
 }
-
-/// The risk levels the answers schema accepts.
-const RISK_LEVELS: [&str; 3] = ["low", "medium", "high"];
-
-/// The approval modes the answers schema accepts.
-const APPROVAL_MODES: [&str; 4] = ["none", "optional", "required", "policy-driven"];
 
 /// Maps a risk word the schema does not know to the schema's default,
 /// `medium`.
@@ -1483,11 +1370,16 @@ fn normalize_agent_endpoint_policies(answers: &mut serde_json::Value) {
             *value = serde_json::Value::String(map(text).to_string());
         }
     };
-    fix(endpoints, "default_risk", &RISK_LEVELS, known_risk);
+    fix(
+        endpoints,
+        "default_risk",
+        crate::choices::RISK_LEVELS,
+        known_risk,
+    );
     fix(
         endpoints,
         "default_approval",
-        &APPROVAL_MODES,
+        crate::choices::APPROVAL_MODES,
         known_approval,
     );
     if let Some(items) = endpoints
@@ -1496,8 +1388,13 @@ fn normalize_agent_endpoint_policies(answers: &mut serde_json::Value) {
     {
         for item in items {
             if let Some(item) = item.as_object_mut() {
-                fix(item, "risk", &RISK_LEVELS, known_risk);
-                fix(item, "approval", &APPROVAL_MODES, known_approval);
+                fix(item, "risk", crate::choices::RISK_LEVELS, known_risk);
+                fix(
+                    item,
+                    "approval",
+                    crate::choices::APPROVAL_MODES,
+                    known_approval,
+                );
             }
         }
     }
@@ -2606,8 +2503,11 @@ A high-quality answers.json:
 Quality bar:
 {quality_rubric}
 
+{closed_sets}
+
 The output must validate against the Greentic SoRLa wizard schema enforced by the API response_format and local validation."#,
-        quality_rubric = sorla_quality_rubric()
+        quality_rubric = sorla_quality_rubric(),
+        closed_sets = closed_set_values_prompt_block()
     )
 }
 
@@ -2638,8 +2538,11 @@ Where the schema expects a string, return a plain string, not a localized object
 Apply this quality bar when repair requires filling missing business semantics:
 {quality_rubric}
 
+{closed_sets}
+
 The repaired answers must satisfy the Greentic SoRLa wizard schema enforced by the API response_format and local validation."#,
-        quality_rubric = sorla_quality_rubric()
+        quality_rubric = sorla_quality_rubric(),
+        closed_sets = closed_set_values_prompt_block()
     )
 }
 
@@ -2924,13 +2827,13 @@ fn authoring_output_schema_json() -> serde_json::Value {
 }
 
 fn answers_response_schema_json() -> serde_json::Value {
-    serde_json::from_str(
+    let mut schema: serde_json::Value = serde_json::from_str(
         r#"{
   "type": "object",
   "additionalProperties": true,
   "properties": {
     "schema_version": { "type": "string" },
-    "flow": { "type": "string", "enum": ["create", "update"] },
+    "flow": { "type": "string" },
     "output_dir": { "type": "string" },
     "locale": { "type": ["string", "null"] },
     "package": {
@@ -2945,8 +2848,8 @@ fn answers_response_schema_json() -> serde_json::Value {
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "storage_category": { "type": "string", "enum": ["storage"] },
-        "external_ref_category": { "type": "string", "enum": ["external-ref"] },
+        "storage_category": { "type": "string" },
+        "external_ref_category": { "type": "string" },
         "hints": { "type": "array", "items": { "type": "string" } }
       }
     },
@@ -2974,7 +2877,7 @@ fn answers_response_schema_json() -> serde_json::Value {
                     "type": { "type": "string" },
                     "required": { "type": "boolean" },
                     "sensitive": { "type": "boolean" },
-                    "authority": { "type": "string", "enum": ["local", "external"] },
+                    "authority": { "type": "string" },
                     "description": { "type": ["string", "null"] },
                     "enum_values": { "type": "array", "items": { "type": "string" } },
                     "references": {
@@ -3048,7 +2951,7 @@ fn answers_response_schema_json() -> serde_json::Value {
                 "type": ["object", "null"],
                 "additionalProperties": true,
                 "properties": {
-                  "kind": { "type": "string", "enum": ["record", "event", "projection"] },
+                  "kind": { "type": "string" },
                   "name": { "type": "string" }
                 }
               },
@@ -3056,7 +2959,7 @@ fn answers_response_schema_json() -> serde_json::Value {
                 "type": ["object", "null"],
                 "additionalProperties": true,
                 "properties": {
-                  "aggregate": { "type": "string", "enum": ["count", "sum", "average", "min", "max", "count_distinct"] },
+                  "aggregate": { "type": "string" },
                   "field": { "type": ["string", "null"] }
                 }
               },
@@ -3154,7 +3057,73 @@ fn answers_response_schema_json() -> serde_json::Value {
   "required": ["schema_version", "flow", "output_dir", "package", "providers", "records", "actions", "events", "projections", "policies", "approvals", "migrations", "agent_endpoints", "output"]
 }"#,
     )
-    .expect("answers response schema should be valid JSON")
+    .expect("answers response schema should be valid JSON");
+    apply_choices_to_response_schema(&mut schema);
+    schema
+}
+
+/// Writes `enum` onto every closed-set field the response schema declares, from
+/// the same registry the validator and the normalizer use.
+///
+/// The designer does not enforce `response_format`: it pastes the schema into a
+/// system message as text. So the model learns the allowed values only if this
+/// schema lists them, and until it did, most of these fields read as
+/// `{ "type": "string" }` and the model made up `sql`, `auto` and `primary`.
+/// A field the schema does not declare is skipped, not created: adding a
+/// property to an object the strict pass later closes would tell the model its
+/// other keys are forbidden.
+fn apply_choices_to_response_schema(schema: &mut serde_json::Value) {
+    for choice in crate::choices::CHOICE_FIELDS {
+        let Some(node) = schema_node_mut(schema, choice.path) else {
+            continue;
+        };
+        let mut values: Vec<serde_json::Value> = choice
+            .values
+            .iter()
+            .map(|value| serde_json::Value::String((*value).to_string()))
+            .collect();
+        let nullable = node
+            .get("type")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|types| types.iter().any(|kind| kind == "null"));
+        if nullable {
+            values.push(serde_json::Value::Null);
+        }
+        if let Some(node) = node.as_object_mut() {
+            node.insert("enum".to_string(), serde_json::Value::Array(values));
+        }
+    }
+}
+
+fn schema_node_mut<'a>(
+    schema: &'a mut serde_json::Value,
+    path: &str,
+) -> Option<&'a mut serde_json::Value> {
+    let mut node = schema;
+    for segment in path.split('.') {
+        let (key, each) = match segment.strip_suffix("[]") {
+            Some(key) => (key, true),
+            None => (segment, false),
+        };
+        node = node.get_mut("properties")?.get_mut(key)?;
+        if each {
+            node = node.get_mut("items")?;
+        }
+    }
+    Some(node)
+}
+
+/// One line per closed-set field, for the system prompts. Built from the
+/// registry so the text the model reads cannot disagree with the validator.
+fn closed_set_values_prompt_block() -> String {
+    let mut lines = vec![
+        "Closed-set fields. Each of these takes exactly one of the listed values; never invent another (for example a storage backend such as `sql` is not a provider category, and `auto` is not an approval mode):"
+            .to_string(),
+    ];
+    for choice in crate::choices::CHOICE_FIELDS {
+        lines.push(format!("- {}: {}", choice.path, choice.values.join(" | ")));
+    }
+    lines.join("\n")
 }
 
 fn fallback_model_output(prompt: &str) -> PromptModelOutput {
@@ -6160,6 +6129,98 @@ mod tests {
         assert_eq!(filters[1]["operator"], "not_equals");
         assert_eq!(filters[2]["operator"], "gt");
         assert_eq!(filters[3]["operator"], "between");
+    }
+
+    #[test]
+    fn every_choice_fallback_is_one_of_the_allowed_values() {
+        for choice in crate::choices::CHOICE_FIELDS {
+            if let Some(fallback) = choice.fallback {
+                assert!(
+                    choice.values.contains(&fallback),
+                    "`{}` falls back to `{fallback}`, which it does not accept",
+                    choice.path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_response_schema_lists_the_allowed_values_of_closed_set_fields() {
+        let mut schema = answers_response_schema_json();
+        let mut covered = Vec::new();
+        for choice in crate::choices::CHOICE_FIELDS {
+            let Some(node) = schema_node_mut(&mut schema, choice.path) else {
+                continue;
+            };
+            let listed: Vec<&str> = node["enum"]
+                .as_array()
+                .unwrap_or_else(|| panic!("`{}` has no enum in the schema", choice.path))
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect();
+            assert_eq!(listed, choice.values, "schema enum for `{}`", choice.path);
+            covered.push(choice.path);
+        }
+        // The fields a model most often filled with an invented word. If one
+        // stops being declared in the schema, the model stops being told.
+        for path in [
+            "flow",
+            "providers.storage_category",
+            "providers.external_ref_category",
+            "records.default_source",
+            "records.items[].source",
+            "records.items[].fields[].authority",
+            "projections.mode",
+            "projections.items[].mode",
+            "agent_endpoints.default_risk",
+            "agent_endpoints.default_approval",
+            "agent_endpoints.exports[]",
+            "metrics.items[].source.kind",
+            "metrics.items[].measure.aggregate",
+        ] {
+            assert!(
+                covered.contains(&path),
+                "`{path}` is not an enum in the response schema"
+            );
+        }
+    }
+
+    #[test]
+    fn the_system_prompts_state_every_closed_set() {
+        for prompt in [
+            answer_generation_system_prompt(""),
+            answer_repair_system_prompt(""),
+        ] {
+            for choice in crate::choices::CHOICE_FIELDS {
+                let line = format!("- {}: {}", choice.path, choice.values.join(" | "));
+                assert!(prompt.contains(&line), "prompt is missing `{line}`");
+            }
+        }
+    }
+
+    /// The validator must read its lists from `choices`, not from a literal of
+    /// its own: a copy that drifts is how the model came to be told one set and
+    /// held to another.
+    #[test]
+    fn the_validator_reads_its_closed_sets_from_the_shared_registry() {
+        let source = include_str!("../lib.rs");
+        let mut calls = 0;
+        for (index, piece) in source.split("validate_choice(").enumerate() {
+            let before = &source
+                .split("validate_choice(")
+                .take(index)
+                .collect::<String>();
+            if index == 0 || before.ends_with("fn ") {
+                continue;
+            }
+            let call = piece.split(';').next().unwrap_or_default();
+            calls += 1;
+            assert!(
+                call.contains("crate::choices::") && !call.contains("&[\""),
+                "validate_choice call uses a literal list: {call}"
+            );
+        }
+        assert!(calls >= 20, "expected the validator calls, saw {calls}");
     }
 
     #[test]
