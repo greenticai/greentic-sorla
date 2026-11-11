@@ -1219,6 +1219,7 @@ fn normalize_answers_document_defaults(answers: &mut serde_json::Value) {
     normalize_provider_categories(answers);
     normalize_categorical_enums(answers);
     normalize_agent_endpoint_exports(answers);
+    normalize_dangling_projection_events(answers);
     normalize_agent_endpoint_policies(answers);
     normalize_metric_filter_operators(answers);
     normalize_declared_policy_references(answers);
@@ -2010,6 +2011,83 @@ fn formula_metric_references(
         .into_iter()
         .map(|name| serde_json::Value::String(name.to_string()))
         .collect()
+}
+
+/// Declares the event a projection reads from when the model named one it never
+/// listed in `events.items`.
+///
+/// A projection is built from an event, so `source_event` must exist; a model
+/// that writes `pitch_created` on the projection and forgets the event leaves
+/// the validator rejecting the whole document, repair pass included, because
+/// it never adds the missing entry. The event is attached to the projection's
+/// own record, which is what an event that feeds it must describe. A
+/// projection whose record is also undeclared is left for the validator, since
+/// there is nothing sound to attach the event to.
+fn normalize_dangling_projection_events(answers: &mut serde_json::Value) {
+    let record_names: Vec<String> = answers
+        .pointer("/records/items")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|record| record.get("name").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect();
+    let mut declared: Vec<String> = answers
+        .pointer("/events/items")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|event| event.get("name").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect();
+    let mut missing: Vec<serde_json::Value> = Vec::new();
+    for projection in answers
+        .pointer("/projections/items")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let source = projection
+            .get("source_event")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        let record = projection
+            .get("record")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if source.is_empty()
+            || declared.iter().any(|name| name == source)
+            || !record_names.iter().any(|name| name == record)
+        {
+            continue;
+        }
+        declared.push(source.to_string());
+        missing.push(serde_json::json!({
+            "name": source,
+            "record": record,
+            "kind": "domain"
+        }));
+    }
+    if missing.is_empty() {
+        return;
+    }
+    let Some(root) = answers.as_object_mut() else {
+        return;
+    };
+    let events = root
+        .entry("events")
+        .or_insert_with(|| serde_json::json!({ "items": [] }));
+    let Some(events) = events.as_object_mut() else {
+        return;
+    };
+    events.insert("enabled".to_string(), serde_json::Value::Bool(true));
+    let items = events
+        .entry("items")
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    if let Some(items) = items.as_array_mut() {
+        items.extend(missing);
+    }
 }
 
 fn normalize_declared_policy_references(answers: &mut serde_json::Value) {
@@ -5872,6 +5950,127 @@ mod tests {
         assert_eq!(
             answers["metrics"]["items"][1]["depends_on"],
             serde_json::json!(["paid_orders"])
+        );
+    }
+
+    /// Answers the engine generates for the landlord scenario, which pass the
+    /// full validator untouched: the baseline the failure corpus damages.
+    fn valid_generated_answers() -> serde_json::Value {
+        let engine = DefaultPromptAuthoringEngine::new(FakePromptLlm);
+        let mut output = engine
+            .next_turn(PromptTurnInput {
+                session: engine.start_session(config()).unwrap(),
+                user_message: "We manage rental properties for landlords and tenants.".to_string(),
+            })
+            .unwrap();
+        for answer in [
+            "yes",
+            "joint",
+            "yes, payments are immutable",
+            "yes, suppliers do the work",
+            "supplier work requires approval",
+        ] {
+            output = engine
+                .next_turn(PromptTurnInput {
+                    session: output.session,
+                    user_message: answer.to_string(),
+                })
+                .unwrap();
+        }
+        engine
+            .generate_answers(output.session)
+            .expect("baseline answers generate")
+    }
+
+    /// Every failure seen on the hosted designer, replayed through the same
+    /// path a generated document takes (`normalize` then the full validator).
+    /// Add the next real failure here before fixing it, so a regression of any
+    /// earlier one fails in CI instead of in the UI.
+    #[test]
+    fn every_observed_model_failure_is_recovered_by_normalization() {
+        type Damage = Box<dyn Fn(&mut serde_json::Value)>;
+        let damage: Vec<(&str, Damage)> = vec![
+            (
+                "storage_category sql",
+                Box::new(|a| {
+                    a["providers"]["storage_category"] = serde_json::json!("sql");
+                }),
+            ),
+            (
+                "storage_category native",
+                Box::new(|a| {
+                    a["providers"]["storage_category"] = serde_json::json!("native");
+                }),
+            ),
+            (
+                "default_approval manual",
+                Box::new(|a| {
+                    a["agent_endpoints"]["default_approval"] = serde_json::json!("manual");
+                }),
+            ),
+            (
+                "default_approval auto",
+                Box::new(|a| {
+                    a["agent_endpoints"]["default_approval"] = serde_json::json!("auto");
+                }),
+            ),
+            (
+                "default_source primary",
+                Box::new(|a| {
+                    a["records"]["default_source"] = serde_json::json!("primary");
+                }),
+            ),
+            (
+                "export sorx",
+                Box::new(|a| {
+                    a["agent_endpoints"]["exports"] = serde_json::json!(["openapi", "sorx"]);
+                }),
+            ),
+            (
+                "projection event never declared",
+                Box::new(|a| {
+                    a["projections"]["items"][0]["source_event"] =
+                        serde_json::json!("pitch_created");
+                }),
+            ),
+        ];
+        for (label, apply) in damage {
+            let mut answers = valid_generated_answers();
+            apply(&mut answers);
+            normalize_answers_json_for_validation(&mut answers);
+            validate_answers_document(&answers)
+                .unwrap_or_else(|error| panic!("`{label}` was not recovered: {error}"));
+        }
+    }
+
+    #[test]
+    fn a_projection_event_the_model_never_declared_is_declared_on_its_record() {
+        let mut answers = valid_generated_answers();
+        let record = answers["projections"]["items"][0]["record"].clone();
+        answers["projections"]["items"][0]["source_event"] = serde_json::json!("pitch_created");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        let events = answers["events"]["items"].as_array().expect("events");
+        let added = events
+            .iter()
+            .find(|event| event["name"] == "pitch_created")
+            .expect("the event is declared");
+        assert_eq!(added["record"], record);
+    }
+
+    #[test]
+    fn a_projection_on_an_undeclared_record_gets_no_invented_event() {
+        let mut answers = valid_generated_answers();
+        answers["projections"]["items"][0]["record"] = serde_json::json!("ghost");
+        answers["projections"]["items"][0]["source_event"] = serde_json::json!("pitch_created");
+
+        normalize_answers_json_for_validation(&mut answers);
+
+        assert!(
+            answers["events"]["items"]
+                .as_array()
+                .is_none_or(|events| events.iter().all(|event| event["name"] != "pitch_created"))
         );
     }
 
